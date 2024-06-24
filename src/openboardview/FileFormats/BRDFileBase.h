@@ -51,6 +51,7 @@ struct BRDPart {
 	unsigned int end_of_pins = 0;
 	BRDPoint p1{0, 0};
 	BRDPoint p2{0, 0};
+	std::vector<BRDPoint> format;
 };
 
 enum class BRDPinSide { Both, Bottom, Top };
@@ -64,6 +65,8 @@ struct BRDPin {
 	double radius    = 0.5f;
 	const char *snum = nullptr;
 	const char *name = nullptr;
+	const char *diode_vale = nullptr;
+	const char *voltage_value = nullptr;
 
 	bool operator<(const BRDPin &p) const // For sorting the vector
 	{

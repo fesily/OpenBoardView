@@ -72,7 +72,20 @@ BVR3File::BVR3File(std::vector<char> &buf) {
 			else
 				part.part_type = BRDPartType::ThroughHole;
 		} else if (!strncmp(line, "PART_OUTLINE_RELATIVE ", 22)) {
-			// Value ignored, custom outline for parts not yet supported
+			p += 22;
+			while (p[0]) {
+				auto pold = p;
+				BRDPoint point;
+				double x = READ_DOUBLE();
+				point.x  = trunc(x);
+				double y = READ_DOUBLE();
+				point.y  = trunc(y);
+				// Nothing was read, probably end of list
+				if (pold == p) {
+					break;
+				}
+				part.format.push_back(point);
+			}
 		} else if (!strncmp(line, "PIN_ID ", 7)) {
 			// Value ignored, not currently relevant for BRDPin
 		} else if (!strncmp(line, "PIN_NUMBER ", 11)) {
@@ -106,6 +119,12 @@ BVR3File::BVR3File(std::vector<char> &buf) {
 			// Value ignored, not currently relevant for BRDPin
 		} else if (!strncmp(line, "PIN_COMMENT ", 12)) {
 			// Value ignored, not currently relevant for BRDPin
+		} else if (!strncmp(line, "PIN_DIODE_VALUE ", 16)) {
+			p += 16;
+			pin.diode_vale = READ_STR();
+		} else if (!strncmp(line, "PIN_VOLTAGE_VALUE ", 18)) {
+			p += 18;
+			pin.voltage_value = READ_STR();
 		} else if (!strncmp(line, "PIN_OUTLINE_RELATIVE ", 21)) {
 			// Value ignored, custom outline for pins not yet supported
 		} else if (!strcmp(line, "PIN_END")) {
@@ -131,6 +150,44 @@ BVR3File::BVR3File(std::vector<char> &buf) {
 				}
 				format.push_back(point);
 			}
+		} else if (!strncmp(line, "OUTLINE_SEGMENTED_CUSTOM ", 25)) {
+			p += 25;
+			while (p[0]) {
+				auto pold = p;
+				std::pair<BRDPoint, BRDPoint> outline_segment;
+				double x = READ_DOUBLE();
+				outline_segment.first.x  = trunc(x);
+				double y = READ_DOUBLE();
+				outline_segment.first.y  = trunc(y);
+				x = READ_DOUBLE();
+				outline_segment.second.x = trunc(x);
+				y = READ_DOUBLE();
+				outline_segment.second.y = trunc(y);
+				// Nothing was read, probably end of list
+				if (pold == p) {
+					break;
+				}
+				this->outline_segments.push_back(outline_segment);
+			}
+		} else if (!strncmp(line, "OUTLINE_ARC ", 12)) {
+			p += 12;
+			BRDPoint pc, p1, p2;
+			double startAngle, endAngle, radius;
+			pc.x = READ_DOUBLE();
+			pc.y = READ_DOUBLE();
+			radius = READ_DOUBLE();
+			startAngle = READ_DOUBLE() * (M_PI / 180.0);
+			endAngle = READ_DOUBLE() * (M_PI / 180.0);
+
+			p1.x = pc.x + radius * cos(startAngle);
+			p1.y = pc.y + radius * sin(startAngle);
+
+			p2.x = pc.x + radius * cos(endAngle);
+			p2.y = pc.y + radius * sin(endAngle);
+
+			std::vector<std::pair<BRDPoint, BRDPoint>> segments = arc_to_segments(startAngle, endAngle, radius, p1, p2, pc);
+			std::move(segments.begin(), segments.end(), std::back_inserter(this->outline_segments));
+
 		} else if (!strncmp(line, "OUTLINE_SEGMENTED ", 18)) {
 			p += 18;
 			while (p[0]) {

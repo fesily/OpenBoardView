@@ -142,6 +142,10 @@ struct Pin : BoardElement {
 	// Contact belonging to this component (pin), nullptr if nail.
 	std::shared_ptr<Component> component;
 
+	string diode_value; // the pin diode
+
+	string voltage_value; // the pin voltage
+
 	string UniqueId() const {
 		return kBoardPinPrefix + number;
 	}
@@ -182,6 +186,8 @@ struct Component : BoardElement {
 	// Post calculated outlines
 	//
 	std::array<ImVec2, 4> outline;
+	std::array<ImVec2, 4> special_outline;
+	bool is_special_outline = false;
 	Point p1{0.0f, 0.0f}, p2{0.0f, 0.0f}; // for debugging
 
 	bool outline_done = false;

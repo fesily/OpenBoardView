@@ -100,6 +100,15 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 
 			comp->mount_type = (brd_part.part_type == BRDPartType::SMD) ? Component::kMountTypeSMD : Component::kMountTypeDIP;
 
+			if (brd_part.format.size() == 4) {
+				auto iter = comp->special_outline.begin();
+				for (auto &item : brd_part.format) {
+					*iter = {float(item.x), float(item.y)};
+					iter++;
+				}
+				comp->is_special_outline = true;
+			}
+
 			components_.push_back(comp);
 		}
 	}
@@ -168,6 +177,13 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 				pin->board_side = kBoardSideBottom;
 			} else {
 				pin->board_side = kBoardSideBoth;
+			}
+
+			if (brd_pin.diode_vale) {
+				pin->diode_value = std::string(brd_pin.diode_vale);
+			}
+			if (brd_pin.voltage_value) {
+				pin->voltage_value = std::string(brd_pin.voltage_value);
 			}
 
 			// set net reference (here's our NET key string again)

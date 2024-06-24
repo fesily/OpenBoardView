@@ -488,7 +488,8 @@ int BoardView::LoadFile(const filesystem::path &filepath) {
 				 */
 				for (auto &p : m_board->Pins()) {
 					//					auto p      = pin.get();
-					p->diameter = 7;
+					if (p->diameter <= 0)
+						p->diameter = 7;
 				}
 
 				CenterView();
@@ -2246,12 +2247,13 @@ void BoardView::Update() {
 	ImGui::Begin("status", nullptr, flags | ImGuiWindowFlags_NoFocusOnAppearing);
 	if (m_file && m_board && m_pinSelected) {
 		auto pin = m_pinSelected;
-		ImGui::Text("Part: %s   Pin: %s   Net: %s   Probe: %d   (%s.)",
+		ImGui::Text("Part: %s   Pin: %s   Net: %s   Probe: %d   (%s.) Voltage: %s",
 		            pin->component->name.c_str(),
 		            pin->name.c_str(),
 		            pin->net->name.c_str(),
 		            pin->net->number,
-		            pin->component->mount_type_str().c_str());
+		            pin->component->mount_type_str().c_str(),
+		            pin->voltage_value.c_str());
 	} else {
 		ImVec2 spos = ImGui::GetMousePos();
 		ImVec2 pos  = ScreenToCoord(spos.x, spos.y);
@@ -3432,9 +3434,12 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				// Font size for net name also depends on width of full text to avoid overflowing too much and colliding with text from other pin
 				ImVec2 size_net_name = font->CalcTextSizeA(maxfontsize, FLT_MAX, 0.0f, pin->net->name.c_str());
 
+				ImVec2 size_diode_value = font->CalcTextSizeA(maxfontheight, FLT_MAX, 0.0f, pin->diode_value.c_str());
+
 				// Show pin name above net name, full text is centered vertically
 				ImVec2 pos_pin_name   = ImVec2(pos.x - size_pin_name.x * 0.5f, pos.y - size_pin_name.y);
 				ImVec2 pos_net_name   = ImVec2(pos.x - size_net_name.x * 0.5f, pos.y);
+				ImVec2 pos_diode_value = ImVec2(pos.x - size_diode_value.x*0.5f, pos_pin_name.y - size_diode_value.y);
 
 				ImFont *font_pin_name = font;
 				if (maxfontheight < font->FontSize * 0.75) {
@@ -3450,6 +3455,14 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 					font_net_name = ImGui::GetIO().Fonts->Fonts[1]; // Use larger font for net name
 				}
 
+
+				ImFont *font_diode_value = font;
+				if (maxfontsize < font->FontSize * 0.75) {
+					font_diode_value = ImGui::GetIO().Fonts->Fonts[2]; // Use smaller font for net name
+				} else if (maxfontsize > font->FontSize * 1.5 && ImGui::GetIO().Fonts->Fonts[1]->FontSize > font->FontSize) {
+					font_diode_value = ImGui::GetIO().Fonts->Fonts[1]; // Use larger font for net name
+				}
+
 				// Background rectangle
 				draw->AddRectFilled(ImVec2(pos_net_name.x - m_scale * 0.5f, pos_net_name.y), // Begining of text with slight padding
 										ImVec2(pos_net_name.x + size_net_name.x + m_scale * 0.5f, pos_net_name.y + size_net_name.y), // End of text with slight padding
@@ -3459,6 +3472,9 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				draw->ChannelsSetCurrent(kChannelText);
 				draw->AddText(font_pin_name, maxfontheight, pos_pin_name, text_color, pin->name.c_str());
 				draw->AddText(font_net_name, maxfontsize, pos_net_name, text_color, pin->net->name.c_str());
+				if (!pin->diode_value.empty()) {
+					draw->AddText(font_diode_value, maxfontheight, pos_diode_value, m_colors.annotationBoxColor, pin->diode_value.c_str());
+				}
 				draw->ChannelsSetCurrent(kChannelPins);
 			}
 		}
@@ -3774,6 +3790,9 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 			//				fprintf(stderr, "Part wasn't rendered (%s)\n", part->name.c_str());
 			//			}
 
+			if (part->is_special_outline) {
+				part->outline = part->special_outline;
+			}
 		} // if !outline_done
 
 		if (!BoardElementIsVisible(part) && !PartIsHighlighted(part)) continue;
