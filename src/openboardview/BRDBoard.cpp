@@ -191,6 +191,9 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 			if (net_map.count(net_name)) {
 				// there is a net with that name in our map
 				pin->net = net_map[net_name].get();
+				if (is_prefix(kNetUnconnectedPrefix, net_name)) {
+					pin->type = Pin::kPinTypeNotConnected;
+				}
 			} else {
 				// no net with that name registered, so create one
 				if (!net_name.empty()) {
