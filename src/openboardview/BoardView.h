@@ -17,6 +17,7 @@
 #include "PDFBridge/PDFFile.h"
 #include <cstdint>
 #include <vector>
+#include <array>
 
 #define DPIF(x) (((x)*dpi) / 100.f)
 #define DPI(x) (((x)*dpi) / 100)
@@ -106,6 +107,22 @@ struct ColorScheme {
 	uint32_t orMaskPins    = 0x00000000;
 	uint32_t orMaskParts   = 0x00000000;
 	uint32_t orMaskOutline = 0x00000000;
+
+	uint32_t viaColor = 0xFFC7C7C7;
+	std::array<uint32_t, 2> layerColor[11] = {
+	    {0xFFFFFFFF, 0xFFFFFFFF},
+	    {0xFFFF0000, 0xFFFF8080},
+	    {0xFF00FF00, 0xFF80FF80},
+	    {0xFF0000FF, 0xFF8080FF},
+	    {0xFFFFFF00, 0xFFFFFF80},
+	    {0xFF00FFFF, 0xFF80FFFF},
+	    {0xFFFF00FF, 0xFFFF80FF},
+	    {0xFF800000, 0xFFC08080},
+	    {0xFF008000, 0xFF80C080},
+	    {0xFF000080, 0xFF8080C0},
+	    {0xFF808000, 0xFFC0C080},
+	};
+	uint32_t defaultBoardSelectColor = 0xFF00FFFF;
 };
 
 // enum DrawChannel { kChannelImages = 0, kChannelFill, kChannelPolylines = 1, kChannelPins = 2, kChannelText = 3,
@@ -134,16 +151,17 @@ struct BoardView {
 	SpellCorrector scparts;
 	KeyBindings keybindings;
 	Preferences::Keyboard keyboardPreferences{keybindings, obvconfig};
-	Preferences::BoardSettings boardSettings{keybindings, backgroundImage, pdfFile};
 
 #ifdef ENABLE_PDFBRIDGE_EVINCE
 	PDFBridgeEvince pdfBridge;
 #elif defined(_WIN32)
 	PDFBridgeSumatra &pdfBridge = PDFBridgeSumatra::GetInstance(obvconfig);
+	PDFFile pdfFile{pdfBridge};
 #else
 	PDFBridge pdfBridge; // Dummy implementation
-#endif
 	PDFFile pdfFile{pdfBridge};
+#endif
+	Preferences::BoardSettings boardSettings{keybindings, backgroundImage, pdfFile};
 
 	bool debug                   = false;
 	int history_file_has_changed = 0;
@@ -187,6 +205,13 @@ struct BoardView {
 	bool reloadConfig  = false;
 	int pinBlank       = 0;
 	uint32_t FZKey[44] = {0};
+	enum ShowMode : int {
+		ShowMode_None, ShowMode_Diode, ShowMode_Voltage, ShowMode_Ohm
+	};
+	ShowMode showMode = ShowMode::ShowMode_Diode;
+	bool inferValue = true;
+	bool showPartType = true;
+
 
 	int ConfigParse(void);
 	uint32_t byte4swap(uint32_t x);
@@ -216,6 +241,7 @@ struct BoardView {
 
 	bool infoPanelCenterZoomNets   = true;
 	bool infoPanelSelectPartsOnNet = false;
+	bool infoPanelSelectPartsOnNetOnlyNotGround = false;
 	void CenterZoomNet(string netname);
 
 	bool m_centerZoomSearchResults = true;
@@ -248,6 +274,7 @@ struct BoardView {
 	ImVec2 m_showContextMenuPos;
 
 	std::shared_ptr<Pin> m_pinSelected = nullptr;
+	std::shared_ptr<Via> m_viaSelected = nullptr;
 	//	vector<Net *> m_netHiglighted;
 	SharedVector<Pin> m_pinHighlighted;
 	SharedVector<Component> m_partHighlighted;
@@ -268,7 +295,8 @@ struct BoardView {
 	                            // when window is resized?
 	float m_lastHeight;
 	int m_rotation; // set to 0 for original orientation [0-4]
-	int m_current_side;
+	EBoardSide m_current_side;
+	bool m_track_mode = false;
 	int m_boardWidth; // board size in what coordinates? thou?
 	int m_boardHeight;
 	float m_menu_height;
@@ -327,6 +355,9 @@ struct BoardView {
 	void DrawOutlineSegments(ImDrawList *draw);
 	void DrawPins(ImDrawList *draw);
 	void DrawParts(ImDrawList *draw);
+	void DrawVies(ImDrawList *draw);
+	void DrawTracks(ImDrawList *draw);
+	void DrawArcs(ImDrawList *draw);
 	void DrawBoard();
 	void DrawNetWeb(ImDrawList *draw);
 	void LoadBoard(BRDFileBase *file);

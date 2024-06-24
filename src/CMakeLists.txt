@@ -62,11 +62,28 @@ set(GLAD_REPRODUCIBLE ON CACHE BOOL "Reproducible build" FORCE)
 add_subdirectory(glad)
 
 ## SDL2 ##
-find_package(SDL2 REQUIRED CONFIG)
+if(APPLE)
+	find_package(SDL2 REQUIRED)
+	set(SDL2_INCLUDE_DIRS "${SDL2_INCLUDE_DIR}")
+	set(SDL2_LIBRARIES "${SDL2_LIBRARY}")
+elseif(WIN32 AND NOT MINGW)
+	execute_process(
+		COMMAND git submodule update --init src/SDL2
+		WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+	)
+	# Build and use only static SDL2 lib with MSVC
+	set(SDL_STATIC ON)
+	set(SDL_SHARED OFF)
+	add_subdirectory(SDL2)
+	set(SDL2_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/SDL2/include")
+	set(SDL2_LIBRARIES "SDL2main" "SDL2-static")
+else()
+	pkg_check_modules(SDL2 REQUIRED sdl2)
+endif()
 add_definitions(-DENABLE_SDL2)
 
 # Create namespace targets for system with SDL2 older than 2.0.12
-if(NOT TARGET SDL2::SDL2)
+if(NOT MSVC AND NOT TARGET SDL2::SDL2)
 	add_library(SDL2::SDL2 SHARED IMPORTED)
 	find_library(SDL2_LIBRARY SDL2)
 	set_target_properties(SDL2::SDL2 PROPERTIES
@@ -114,7 +131,7 @@ set(SOURCES
 	imgui/imgui_tables.cpp
 	imgui/imgui_widgets.cpp
 	imgui/misc/cpp/imgui_stdlib.cpp
-	imgui/backends/imgui_impl_sdl.cpp)
+	imgui/backends/imgui_impl_sdl2.cpp)
 
 
 if(ENABLE_GL1)
@@ -132,7 +149,9 @@ add_library(imgui STATIC ${SOURCES})
 target_link_libraries(imgui
 	${GLAD_LIBRARIES}
 )
-if(MINGW)
+if(MSVC)
+target_include_directories(imgui PRIVATE ${SDL2_INCLUDE_DIRS})
+elseif(MINGW)
 target_link_libraries(imgui
 	SDL2::SDL2-static
 )
@@ -150,15 +169,15 @@ set(IMGUI_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/imgui ${CMAKE_CURRENT_SOURCE_
 ## filesystem ##
 message(CHECK_START "Checking for std::filesystem")
 ## GCC 9 and Clang 9 include filesystem in the standard library. Apple is of course messing with us and AppleClang 11.4 is Clang 9.0
-if(((CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU") AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 9.0))
-	#OR (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 11.4))
+if(((CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU") AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 9.0)
+	OR (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 11.4))
 	message(CHECK_PASS "available")
 	set(CMAKE_CXX_STANDARD 17)
 	set(FILESYSTEM_LIBRARIES)
 	add_definitions(-DWITH_STD_FILESYSTEM)
 # Clang 8 requires explicit linking with lc++fs. AppleClang 11.0 is Clang 8.0
-elseif((CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 8.0))
-	#OR (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 11.0))
+elseif((CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 8.0)
+	OR (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 11.0))
 	message(CHECK_PASS "available")
 	set(CMAKE_CXX_STANDARD 17)
 	set(FILESYSTEM_LIBRARIES lc++fs)
@@ -168,6 +187,10 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSI
 	message(CHECK_PASS "available")
 	set(CMAKE_CXX_STANDARD 17)
 	set(FILESYSTEM_LIBRARIES stdc++fs)
+	add_definitions(-DWITH_STD_FILESYSTEM)
+elseif (MSVC)
+	set(CMAKE_CXX_STANDARD 17)
+	add_compile_options(/Zc:__cplusplus)
 	add_definitions(-DWITH_STD_FILESYSTEM)
 else() # Other compiler/version are unsupported, use external lib
 	message(CHECK_FAIL "not available, using ghc::filesystem")

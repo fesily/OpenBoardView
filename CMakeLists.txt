@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.13)
 # We now use project() VERSION parameter
 if(POLICY CMP0048)
 	cmake_policy(SET CMP0048 NEW)
@@ -98,7 +98,8 @@ if(NOT MSVC)
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wextra")
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wextra -Werror=format-security")
 endif()
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_OSX_DEPLOYMENT_TARGET 10.15)
 
 # Inject variables into version.h
 configure_file("${PROJECT_SOURCE_DIR}/src/openboardview/version.in.h"

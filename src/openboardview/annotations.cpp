@@ -6,6 +6,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+#include <fstream>
+#include <sstream>
+#include <concepts>
+#define RYML_SINGLE_HDR_DEFINE_NOW 1
+#include "../rapidyaml.hpp"
 using namespace std;
 
 #include "annotations.h"
@@ -55,6 +60,69 @@ int Annotations::Init(void) {
 	}
 
 	return 0;
+}
+namespace c4::yml {
+	void write(c4::yml::NodeRef *node, const PinInfo &pi) {
+		(*node) |= c4::yml::MAP;
+		if (!pi.diode.empty()) node->append_child() << key("diode") << pi.diode;
+		if (!pi.voltage.empty()) node->append_child() << key("voltage") << pi.voltage;
+		if (!pi.ohm.empty()) node->append_child() << key("ohm") << pi.ohm;
+		if (!pi.ohm_black.empty()) node->append_child() << key("ohm_black") << pi.ohm_black;
+		if (pi.voltage_flag != PinVoltageFlag::unknown) node->append_child() << key("voltage_flag") << pi.voltage_flag;
+	}
+
+	bool read(const c4::yml::ConstNodeRef& node, PinInfo* pi) {
+		if (node.has_child("diode")) node["diode"] >> pi->diode;
+		if (node.has_child("voltage")) node["voltage"] >> pi->voltage;
+		if (node.has_child("ohm")) node["ohm"] >> pi->ohm;
+		if (node.has_child("ohm_black")) node["ohm_black"] >> pi->ohm_black;
+		if (node.has_child("voltage_flag")) node["voltage_flag"] >> pi->voltage_flag;
+		return true;
+	}
+
+	void write(c4::yml::NodeRef *node, const PartInfo &pi) {
+		(*node) |= c4::yml::MAP;
+		if (!pi.part_type.empty()) node->append_child() << key("part_type") << pi.part_type;
+		if (!pi.pins.empty()) node->append_child() << key("pins") << pi.pins;
+		if (pi.angle != PartAngle::unknown) node->append_child() << key("angle") << pi.angle;
+	}
+
+	bool read(const c4::yml::ConstNodeRef& node, PartInfo* pi) {
+		if (node.has_child("part_type")) node["part_type"] >> pi->part_type;
+		if (node.has_child("pins")) node["pins"] >> pi->pins;
+		if (node.has_child("angle")) node["angle"] >> pi->angle;
+		return true;
+	}
+}
+
+static void serialize(const std::map<std::string, PartInfo>& partInfos, const std::string& filename) {
+    ryml::Tree tree;
+    auto root = tree.rootref();
+    
+	root << partInfos;
+    std::ofstream fout(filename, std::ios_base::trunc|std::ios_base::out);
+    fout << tree;
+}
+
+static void deserialize(std::map<std::string, PartInfo>& partInfos, const std::string& filename) {
+    std::ifstream fin(filename);
+    std::stringstream buffer;
+    buffer << fin.rdbuf();
+	auto buf = buffer.str();
+    auto tree = ryml::parse_in_place(ryml::substr{(char*)buf.data(), buf.size()});
+    auto root = tree.rootref();
+
+    for (auto child1 : root.children()) {
+        std::string partName = {child1.key().str, child1.key().size()};
+		PartInfo partInfo;
+		child1 >> partInfo;
+		partInfo.partName = partName;
+		for (auto& pin: partInfo.pins) {
+			pin.second.partName = partName;
+			pin.second.pinName = pin.first;
+		}
+		partInfos[partName] = partInfo;
+    }
 }
 
 int Annotations::Load(void) {
@@ -195,4 +263,27 @@ void Annotations::Update(int id, char *note) {
 	} else {
 		if (debug) fprintf(stdout, "Records created successfully\n");
 	}
+}
+
+PartInfo& Annotations::NewPartInfo(const char* partName) {
+	auto& i = partInfos[partName];
+	i.partName = partName;
+	return i;
+}
+
+
+PinInfo& Annotations::NewPinInfo(const char* partName, const char* pinName) {
+	auto& pinInfo = NewPartInfo(partName).pins[pinName];
+	pinInfo.partName = partName;
+	pinInfo.pinName = pinName;
+	return pinInfo;
+}
+
+void Annotations::SavePinInfos() {
+	serialize(partInfos, filename + ".yaml");
+}
+
+void Annotations::RefreshPinInfos() {
+	partInfos.clear();
+	deserialize(partInfos, filename + ".yaml");
 }

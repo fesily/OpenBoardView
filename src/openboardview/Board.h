@@ -14,9 +14,13 @@
 #define kBoardComponentPrefix "c_"
 #define kBoardPinPrefix "p_"
 #define kBoardNetPrefix "n_"
+#define kBoardTrackPrefix "t_"
+#define kBoardViaPrefix "v_"
+#define kBoardArcPrefix "a_"
 #define kBoardElementNameLength 127
 
 using namespace std;
+#include "annotations.h"
 
 struct Point;
 struct BoardElement;
@@ -34,9 +38,25 @@ template <class T>
 using SharedStringMap = map<string, shared_ptr<T>>;
 
 enum EBoardSide {
-	kBoardSideTop    = 0,
-	kBoardSideBottom = 1,
-	kBoardSideBoth   = 2,
+	kBoardSideBoth,
+	kBoardSideS1,
+	kBoardSideS2,
+	kBoardSideS3,
+	kBoardSideS4,
+	kBoardSideS5,
+	kBoardSideS6,
+	kBoardSideS7,
+	kBoardSideS8,
+	kBoardSideS9,
+	kBoardSideS10 ,
+	kBoardSideBottom = kBoardSideS10,
+	kBoardSideTop = kBoardSideS1,
+};
+
+enum EShapeType {
+	kShapeTypeFold = 0,
+	kShapeTypeCircle  = 1,
+	kShapeTypeRect = 2,
 };
 
 // Checking whether str `prefix` is a prefix of str `base`.
@@ -111,6 +131,68 @@ struct Net : BoardElement {
 	std::vector<const std::string *> searchableStringDetails() const;
 };
 
+struct Track: BoardElement {
+
+	Point position_start;
+
+	Point position_end;
+
+	float width = 1.0f;
+
+	mutable string name;
+
+	string UniqueId() const {
+		if (name.empty()) {
+			name = std::to_string(position_start.x) + ":" + std::to_string(position_start.y);
+		}
+		return kBoardTrackPrefix + name;
+	}
+
+	Net *net;
+};
+
+struct Via: BoardElement {
+
+	Point position;
+
+	EBoardSide target_side = kBoardSideBoth;
+
+	float size = 0.0;
+
+	mutable string name;
+
+	string UniqueId() const {
+		if (name.empty()) {
+			name = std::to_string(position.x) + ":" + std::to_string(position.y);
+		}
+		return kBoardViaPrefix + name;
+	}
+
+	Net *net;
+};
+
+struct PcbArc: BoardElement {
+
+	Point position;
+
+	float radius = 0.0;
+	
+	float startAngle = 0.0;
+
+	float endAngle = 0.0;
+
+	mutable string name;
+
+	string UniqueId() const {
+		if (name.empty()) {
+			name = std::to_string(position.x) + ":" + std::to_string(position.y);
+		}
+		return kBoardArcPrefix + name;
+	}
+
+	Net *net;
+};
+
 // Any observeable contact (nails, component pins).
 // Convieniently/Confusingly named Pin not Contact here.
 struct Pin : BoardElement {
@@ -130,17 +212,32 @@ struct Pin : BoardElement {
 
 	string name; // for BGA pads will be AZ82 etc
 
+	EShapeType shape = EShapeType::kShapeTypeCircle;
 	// Position according to board file. (probably in inches)
 	Point position;
-
 	// Contact diameter, e.g. via or pin size. (probably in inches)
 	float diameter;
+
+	// Rect size
+	Point size;
+	// Rect angle
+	int angle;
 
 	// Net this contact is connected to, nulltpr if no info available.
 	Net *net;
 
 	// Contact belonging to this component (pin), nullptr if nail.
 	std::shared_ptr<Component> component;
+
+	string diode_value; // the pin diode
+
+	string voltage_value; // the pin voltage
+
+	string ohm_value;
+
+	string ohm_black_value;
+
+	PinVoltageFlag voltage_flag = PinVoltageFlag::unknown;
 
 	string UniqueId() const {
 		return kBoardPinPrefix + number;
@@ -161,7 +258,9 @@ struct Component : BoardElement {
 		kComponentTypeDiode,
 		kComponentTypeTransistor,
 		kComponentTypeCrystal,
-		kComponentTypeJellyBean
+		kComponentTypeJellyBean,
+		kComponentTypeBoard,
+		kComponentTypeInductor 
 	};
 
 	// How the part is attached to the board, either SMD, .., through-hole?
@@ -173,6 +272,9 @@ struct Component : BoardElement {
 	// Part name as stored in board file.
 	string name;
 
+	// Part type
+	string part_type;
+
 	// Part manufacturing code (aka. part number).
 	string mfgcode;
 
@@ -182,6 +284,8 @@ struct Component : BoardElement {
 	// Post calculated outlines
 	//
 	std::array<ImVec2, 4> outline;
+	std::array<ImVec2, 4> special_outline;
+	bool is_special_outline = false;
 	Point p1{0.0f, 0.0f}, p2{0.0f, 0.0f}; // for debugging
 
 	bool outline_done = false;
@@ -189,6 +293,8 @@ struct Component : BoardElement {
 	ImVec2 omin, omax;
 	ImVec2 centerpoint;
 	double expanse = 0.0f; // quick measure of distance between pins.
+
+	PartAngle angle = PartAngle::unknown;
 
 	// enum ComponentVisualModes { CVMNormal = 0, CVMSelected, CVMShowPins, CVMModeCount };
 	enum ComponentVisualModes { CVMNormal = 0, CVMSelected, CVMModeCount };
@@ -213,6 +319,26 @@ struct Component : BoardElement {
 		return kBoardComponentPrefix + name;
 	}
 
+	void set_part_type(const string& part_type) {
+		if (part_type.empty()) return;
+		const auto t = part_type[0];
+		switch (t) {
+			case 'R':
+			case 'r':
+				component_type = kComponentTypeResistor;
+				break;
+			case 'c':
+			case 'C':
+				component_type = kComponentTypeCapacitor;
+				break;
+			case 'l':
+			case 'L':
+				component_type = kComponentTypeInductor;
+				break;
+		}
+		this->part_type = part_type;
+	}
+
 	std::vector<const std::string *> searchableStringDetails() const;
 };
 
@@ -226,7 +352,11 @@ class Board {
 	virtual SharedVector<Component> &Components()                   = 0;
 	virtual SharedVector<Pin> &Pins()                               = 0;
 	virtual SharedVector<Point> &OutlinePoints()                    = 0;
+	virtual SharedVector<Track> &Tracks()                           = 0;
+	virtual SharedVector<Via> &Vias()                               = 0;
+	virtual SharedVector<PcbArc> &arcs()                               = 0;
 	virtual std::vector<std::pair<Point, Point>> &OutlineSegments() = 0;
+	virtual std::vector<EBoardSide> &AllSide() = 0;
 
 	EBoardType BoardType() {
 		return kBoardTypeUnknown;

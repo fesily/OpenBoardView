@@ -40,7 +40,7 @@ struct BRDPoint {
 	}
 };
 
-enum class BRDPartMountingSide { Both, Bottom, Top };
+enum class BRDPartMountingSide { Both, Top, S1 = Top, S2, S3, S4, S5, S6, S7, S8, S9, S10, Bottom = S10 };
 enum class BRDPartType { SMD, ThroughHole };
 
 struct BRDPart {
@@ -51,12 +51,17 @@ struct BRDPart {
 	unsigned int end_of_pins = 0;
 	BRDPoint p1{0, 0};
 	BRDPoint p2{0, 0};
+	std::vector<BRDPoint> format;
 };
 
-enum class BRDPinSide { Both, Bottom, Top };
+enum class BRDPinSide { Both, Top, S1 = Top, S2, S3, S4, S5, S6, S7, S8, S9, S10, Bottom = S10 };
+enum class BPDPinShape { Fold, Circle, Rect };
 
 struct BRDPin {
 	BRDPoint pos;
+	BRDPoint size = {0, 0};
+	float angle = 0.0;
+	BPDPinShape shape = BPDPinShape::Circle;
 	int probe = 0;
 	unsigned int part = 0;
 	BRDPinSide side{};
@@ -64,6 +69,8 @@ struct BRDPin {
 	double radius    = 0.5f;
 	const char *snum = nullptr;
 	const char *name = nullptr;
+	const char *diode_vale = nullptr;
+	const char *voltage_value = nullptr;
 
 	bool operator<(const BRDPin &p) const // For sorting the vector
 	{
@@ -78,18 +85,45 @@ struct BRDNail {
 	const char *net = "UNCONNECTED";
 };
 
+struct BRDVia {
+	BRDPoint pos;
+	float size;
+	BRDPartMountingSide side{};
+	BRDPartMountingSide target_side{};
+	const char *net = "UNCONNECTED";
+};
+
+struct BRDTrack {
+	std::pair<BRDPoint, BRDPoint> points;
+	BRDPartMountingSide side{};
+	float width = 1.0f;
+	const char *net = "UNCONNECTED";
+};
+
+struct BRDArc {
+	BRDPoint pos;
+	BRDPartMountingSide side{};
+	float radius;
+	float startAngle, endAngle;
+	const char *net = "UNCONNECTED";
+};
+
 class BRDFileBase {
   public:
 	unsigned int num_format = 0;
 	unsigned int num_parts  = 0;
 	unsigned int num_pins   = 0;
 	unsigned int num_nails  = 0;
+	float scale = 1.0f;
 
 	std::vector<BRDPoint> format;
 	std::vector<std::pair<BRDPoint, BRDPoint>> outline_segments;
 	std::vector<BRDPart> parts;
 	std::vector<BRDPin> pins;
 	std::vector<BRDNail> nails;
+	std::vector<BRDTrack> tracks;
+	std::vector<BRDVia> vias;
+	std::vector<BRDArc> arcs;
 
 	bool valid = false;
 	std::string error_msg = "";
