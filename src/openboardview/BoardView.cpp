@@ -469,7 +469,7 @@ int BoardView::LoadFile(const filesystem::path &filepath) {
 				history_file_has_changed = 1; // used by main to know when to update the window title
 				boardMinMaxDone          = false;
 				m_rotation               = 0;
-				m_current_side           = 0;
+				m_current_side           = kBoardSideTop;
 				EPCCheck(); // check to see we don't have a flipped board outline
 
 				m_annotations.SetFilename(filepath.string());
@@ -1512,7 +1512,7 @@ void BoardView::ContextMenu(void) {
 						}
 
 						ImGui::Text("%c(%0.0f,%0.0f) %s, %s%c%s%c",
-						            m_current_side ? 'B' : 'T',
+						            m_current_side == kBoardSideBottom ? 'B' : 'T',
 						            tx,
 						            ty,
 						            ann.net.c_str(),
@@ -1553,7 +1553,7 @@ void BoardView::ContextMenu(void) {
 				 */
 				if ((m_annotation_clicked_id < 0) && (m_annotationnew_retain == false)) {
 					ImGui::Text("%c(%0.0f,%0.0f) %s %s%c%s%c",
-					            m_current_side ? 'B' : 'T',
+					            m_current_side == kBoardSideBottom ? 'B' : 'T',
 					            tx,
 					            ty,
 					            net.c_str(),
@@ -1571,7 +1571,7 @@ void BoardView::ContextMenu(void) {
 					}
 
 					ImGui::Text("Create new annotation for: %c(%0.0f,%0.0f) %s %s%c%s%c",
-					            m_current_side ? 'B' : 'T',
+					            m_current_side == kBoardSideBottom ? 'B' : 'T',
 					            tx,
 					            ty,
 					            net.c_str(),
@@ -1593,7 +1593,7 @@ void BoardView::ContextMenu(void) {
 						m_annotationnew_retain = false;
 						if (debug) fprintf(stderr, "DATA:'%s'\n\n", contextbufnew);
 
-						m_annotations.Add(m_current_side, tx, ty, net.c_str(), partn.c_str(), pin.c_str(), contextbufnew);
+						m_annotations.Add(m_current_side == kBoardSideBottom, tx, ty, net.c_str(), partn.c_str(), pin.c_str(), contextbufnew);
 						m_annotations.GenerateList();
 						m_needsRedraw = true;
 
@@ -2368,7 +2368,7 @@ void BoardView::Pan(int direction, int amount) {
 	switch (direction) {
 		case DIR_UP: amount = -amount;
 		case DIR_DOWN:
-			if ((m_current_side) && (m_rotation % 2)) amount = -amount;
+			if ((m_current_side == kBoardSideBottom ) && (m_rotation % 2)) amount = -amount;
 			switch (m_rotation) {
 				case 0: m_dy += amount; break;
 				case 1: m_dx -= amount; break;
@@ -2378,7 +2378,7 @@ void BoardView::Pan(int direction, int amount) {
 			break;
 		case DIR_LEFT: amount = -amount;
 		case DIR_RIGHT:
-			if ((m_current_side) && ((m_rotation % 2) == 0)) amount = -amount;
+			if ((m_current_side == kBoardSideBottom) && ((m_rotation % 2) == 0)) amount = -amount;
 			switch (m_rotation) {
 				case 0: m_dx -= amount; break;
 				case 1: m_dy -= amount; break;
@@ -3929,6 +3929,111 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 	} // for each part
 }
 
+inline void BoardView::DrawTracks(ImDrawList *draw) {
+	uint32_t cmask  = 0xFFFFFFFF;
+	uint32_t omask  = 0x00000000;
+	auto io         = ImGui::GetIO();
+
+	if (pinSelectMasks) {
+		if (m_pinSelected || m_pinHighlighted.size()) {
+			cmask = m_colors.selectedMaskPins;
+			omask = m_colors.orMaskPins;
+		}
+	}
+	draw->ChannelsSetCurrent(kChannelPolylines);
+
+	const auto& tracks = m_board->Tracks();
+	for (const auto &track : tracks) {
+		if (!(m_pinSelected && m_pinSelected->net == track->net) && !BoardElementIsVisible(track)) continue;
+		ImVec2 pos_start = CoordToScreen(track->position_start.x, track->position_start.y);
+		ImVec2 pos_end = CoordToScreen(track->position_end.x, track->position_end.y);
+
+		uint32_t color      = (m_colors.layerColor[track->board_side] & cmask) | omask;
+		auto radius = 1 * m_scale;
+		if (m_pinSelected && m_pinSelected->net == track->net) {
+			//color      = m_colors.pinSelectedColor;
+			//auto h = 1 * m_scale;
+			//draw->AddQuad(ImVec2(pos_start.x-h, pos_start.y-h),ImVec2(pos_start.x-h, pos_start.y+h),ImVec2(pos_end.x+h, pos_end.y-h),ImVec2(pos_end.x+h, pos_end.y+h), color);
+		}
+		draw->AddLine(pos_start, pos_end, color, radius);
+	}
+}
+
+#define IM_PI 3.1415
+static void DrawFilledSemiCircle(ImDrawList* draw_list, ImVec2 center, float radius, ImU32 color, bool right_half, int num_segments = 50)
+{
+	ImVec2* points = new ImVec2[num_segments + 2];
+	points[0] = center;
+
+	float start_angle = right_half ? 3.0f * IM_PI / 2 : IM_PI / 2;
+	float end_angle   = right_half ? IM_PI * 5 / 2 : 3.0f * IM_PI / 2;
+
+	for (int i = 0; i <= num_segments; i++)
+	{
+		float angle = start_angle + (end_angle - start_angle) * (float)i / (float)num_segments;
+		points[i + 1].x = center.x + cosf(angle) * radius;
+		points[i + 1].y = center.y + sinf(angle) * radius;
+	}
+
+	draw_list->AddConvexPolyFilled(points, num_segments + 2, color);
+	delete[] points;
+}
+inline void BoardView::DrawVies(ImDrawList *draw) {
+	uint32_t cmask  = 0xFFFFFFFF;
+	uint32_t omask  = 0x00000000;
+	auto io         = ImGui::GetIO();
+
+	if (pinSelectMasks) {
+		if (m_pinSelected || m_pinHighlighted.size()) {
+			cmask = m_colors.selectedMaskPins;
+			omask = m_colors.orMaskPins;
+		}
+	}
+	draw->ChannelsSetCurrent(kChannelPolylines);
+
+	const auto& vias = m_board->Vias();
+	for (const auto &via : vias) {
+		if (!(m_pinSelected && m_pinSelected->net == via->net) && !BoardElementIsVisible(via)) continue;
+		auto pos = CoordToScreen(via->position.x, via->position.y);
+		auto radius = via->size * m_scale;
+		if (!IsVisibleScreen(pos.x, pos.y, radius, io)) continue;
+
+		uint32_t color      = (m_colors.viaColor & cmask) | omask;
+		if (m_pinSelected && m_pinSelected->net == via->net) {
+			color      = m_colors.pinSelectedColor;
+		}
+		draw->AddCircleFilled(pos, radius, color);
+		if (radius > 3) {
+			const auto offset = radius * 0.5;
+			const auto leftPos = ImVec2(pos.x - offset, pos.y - offset);
+			const auto rightPos = ImVec2(pos.x + 0.5f, pos.y - offset);
+			auto text = std::to_string(via->board_side);
+			auto text1 = std::to_string(via->target_side);
+			ImFont *font = ImGui::GetIO().Fonts->Fonts[0]; // Default font
+			ImVec2 text_size_normalized = font->CalcTextSizeA(1.0f, FLT_MAX, 0.0f, text.c_str());
+
+			float maxfontwidth = radius * 1/ text_size_normalized.x; // Fit horizontally with 6.75% overflow (should still avoid colliding with neighbours)
+			float maxfontheight = radius * 1/ text_size_normalized.y; // Fit vertically with 25% top/bottom padding
+			float maxfontsize = min(maxfontwidth, maxfontheight);
+
+
+			if (maxfontheight < font->FontSize * 0.75) {
+				font = ImGui::GetIO().Fonts->Fonts[2]; // Use smaller font for pin name
+			} else if (maxfontheight > font->FontSize * 1.5 && ImGui::GetIO().Fonts->Fonts[1]->FontSize > font->FontSize) {
+				font = ImGui::GetIO().Fonts->Fonts[1]; // Use larger font for pin name
+			}
+
+			DrawFilledSemiCircle(draw, pos, radius*0.8, m_colors.layerColor[via->board_side], false);
+			DrawFilledSemiCircle(draw, pos, radius*0.8, m_colors.layerColor[via->target_side], true);
+
+			draw->ChannelsSetCurrent(kChannelText);
+			draw->AddText(font, maxfontsize, leftPos, 0xFFFFFFFF, text.c_str());
+			draw->AddText(font, maxfontsize, rightPos, 0xFFFFFFFF, text1.c_str());
+			draw->ChannelsSetCurrent(kChannelPins);
+		}
+	}
+}
+
 void BoardView::DrawPartTooltips(ImDrawList *draw) {
 	ImVec2 spos = ImGui::GetMousePos();
 	ImVec2 pos  = ScreenToCoord(spos.x, spos.y);
@@ -4073,7 +4178,7 @@ inline void BoardView::DrawAnnotations(ImDrawList *draw) {
 	draw->ChannelsSetCurrent(kChannelAnnotations);
 
 	for (auto &ann : m_annotations.annotations) {
-		if (ann.side == m_current_side) {
+		if (ann.side == m_current_side || (m_track_mode && m_current_side == kBoardSideTop)) {
 			ImVec2 a, b, s;
 			if (debug) fprintf(stderr, "%d:%d:%f %f: %s\n", ann.id, ann.side, ann.x, ann.y, ann.note.c_str());
 			a = s = CoordToScreen(ann.x, ann.y);
@@ -4091,7 +4196,7 @@ inline void BoardView::DrawAnnotations(ImDrawList *draw) {
 				ImGui::PushStyleColor(ImGuiCol_PopupBg, m_colors.annotationPopupBackgroundColor);
 				ImGui::BeginTooltip();
 				ImGui::Text("%c(%0.0f,%0.0f) %s %s%c%s%c\n%s%s",
-				            m_current_side ? 'B' : 'T',
+				            m_current_side == kBoardSideBottom ? 'B' : 'T',
 				            ann.x,
 				            ann.y,
 				            ann.net.c_str(),
@@ -4225,6 +4330,8 @@ void BoardView::DrawBoard() {
 	//	DrawFill(draw);
 	OutlineGenFillDraw(draw, boardFillSpacing, 1);
 	DrawOutline(draw);
+	DrawTracks(draw);
+	DrawVies(draw);
 	DrawParts(draw);
 	//	DrawSelectedPins(draw);
 	DrawPins(draw);
@@ -4360,10 +4467,14 @@ void BoardView::LoadBoard(BRDFileBase *file) {
 
 	m_firstFrame  = true;
 	m_needsRedraw = true;
+
+	m_track_mode = !m_board->Tracks().empty();
 }
 
 ImVec2 BoardView::CoordToScreen(float x, float y, float w) {
-	float side = m_current_side ? -1.0f : 1.0f;
+	float side = m_current_side == kBoardSideBottom ? -1.0f : 1.0f;
+	if (m_track_mode)
+		side = 1.0f;
 	float tx   = side * m_scale * (x + w * (m_dx - m_mx));
 	float ty   = -1.0f * m_scale * (y + w * (m_dy - m_my));
 	switch (m_rotation) {
@@ -4395,7 +4506,9 @@ ImVec2 BoardView::ScreenToCoord(float x, float y, float w) {
 			ty = x;
 			break;
 	}
-	float side     = m_current_side ? -1.0f : 1.0f;
+	float side     = m_current_side == kBoardSideBottom ? -1.0f : 1.0f;
+	if (m_track_mode)
+		side = 1.0f;
 	float invscale = 1.0f / m_scale;
 
 	tx = tx * side * invscale + w * (m_mx - m_dx);
@@ -4410,12 +4523,16 @@ void BoardView::Rotate(int count) {
 		m_rotation = (m_rotation + 1) & 3;
 		float dx   = m_dx;
 		float dy   = m_dy;
-		if (m_current_side == 0) {
+		if (m_current_side == kBoardSideTop) {
 			m_dx = -dy;
 			m_dy = dx;
 		} else {
 			m_dx = dy;
 			m_dy = -dx;
+		}
+		if (m_track_mode) {
+			m_dx = -dy;
+			m_dy = dx;
 		}
 		--count;
 		m_needsRedraw = true;
@@ -4424,10 +4541,14 @@ void BoardView::Rotate(int count) {
 		m_rotation = (m_rotation - 1) & 3;
 		float dx   = m_dx;
 		float dy   = m_dy;
-		if (m_current_side == 1) {
+		if (m_current_side == kBoardSideBottom) {
 			m_dx = -dy;
 			m_dy = dx;
 		} else {
+			m_dx = dy;
+			m_dy = -dx;
+		}
+		if (m_track_mode) {
 			m_dx = dy;
 			m_dy = -dx;
 		}
@@ -4494,6 +4615,12 @@ inline bool BoardView::BoardElementIsVisible(const std::shared_ptr<BoardElement>
 	if (be->board_side == m_current_side) return true;
 
 	if (be->board_side == kBoardSideBoth) return true;
+
+	if (auto via = dynamic_pointer_cast<Via>(be); via != nullptr) {
+		if (via->target_side == m_current_side) {
+			return true;
+		}
+	}
 
 	return false;
 }
@@ -4606,8 +4733,22 @@ void BoardView::FlipBoard(int mode) {
 	else
 		mode = flipMode;
 
-	m_current_side ^= 1;
-	m_dx = -m_dx;
+ 	if (m_track_mode) {
+		const auto &all_side = m_board->AllSide();
+		// skip empty side
+		auto iter = std::find(all_side.cbegin(), all_side.cend(), m_current_side);
+		if (iter != all_side.cend()) {
+			++iter;
+		}
+		m_current_side = iter == all_side.cend() ? kBoardSideTop : *iter;
+		m_needsRedraw = true;
+		return;
+	}
+
+	m_current_side = m_current_side == kBoardSideTop ? kBoardSideBottom : kBoardSideTop;
+
+	m_dx           = -m_dx;
+
 	if (m_flipVertically) {
 		Rotate(2);
 		if (io.KeyShift ^ mode) {

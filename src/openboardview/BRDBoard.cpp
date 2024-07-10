@@ -9,7 +9,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
-
+#include <set>
 using namespace std;
 using namespace std::placeholders;
 
@@ -24,11 +24,16 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 	vector<BRDPin> m_pins(m_file->num_pins);
 	vector<BRDNail> m_nails(m_file->num_nails);
 	vector<BRDPoint> m_points(m_file->num_format);
+	vector<BRDTrack> m_tracks(m_file->tracks.size());
+	vector<BRDVia> m_vias(m_file->vias.size());
+	set<EBoardSide> all_side;
 
 	m_parts  = m_file->parts;
 	m_pins   = m_file->pins;
 	m_nails  = m_file->nails;
 	m_points = m_file->format;
+	m_tracks = m_file->tracks;
+	m_vias = m_file->vias;
 
 	// Set outline
 	{
@@ -225,7 +230,9 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 			//  (.fz) contains a radius field
 			//    else pin->diameter = 0.5f;
 			pin->diameter = brd_pin.radius; // some format (.fz) contains a radius field
-
+			pin->size = {brd_pin.size.x, brd_pin.size.y};
+			pin->shape = EShapeType(brd_pin.shape);
+			pin->angle = brd_pin.angle;
 			pin->net->pins.push_back(pin);
 			pins_.push_back(pin);
 		}
@@ -238,6 +245,59 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 		components_.push_back(comp_dummy);
 	}
 
+	const auto transform_side_fn = [](BRDPartMountingSide side){
+		static_assert((int)BRDPartMountingSide::Both == (int)kBoardSideBoth, "");
+		static_assert((int)BRDPartMountingSide::Top == (int)kBoardSideTop, "");
+		static_assert((int)BRDPartMountingSide::Bottom == (int)kBoardSideBottom, "");
+		return EBoardSide(side);
+	};
+	for (auto& board_track : m_tracks) {
+		auto track = make_shared<Track>();
+		track->board_side = transform_side_fn(board_track.side);
+		all_side.emplace(track->board_side);
+		track->position_start.x = board_track.points.first.x;
+		track->position_start.y = board_track.points.first.y;
+		track->position_end.x = board_track.points.second.x;
+		track->position_end.y = board_track.points.second.y;
+		auto net_name = string(board_track.net);
+		if (!net_name.empty()) {
+			if (!net_map.count(net_name)) {
+				auto net        = make_shared<Net>();
+				net->name       = net_name;
+				net->board_side = track->board_side;
+				// NOTE: net->number not set
+				net_map[net_name] = net;
+				track->net = net.get();
+			} else {
+				track->net = net_map[net_name].get();
+			}
+		}
+		tracks_.push_back(track);
+	}
+	for (auto& board_via : m_vias) {
+		auto via = make_shared<Via>();
+		via->board_side = transform_side_fn(board_via.side);
+		all_side.emplace(via->board_side);
+		via->target_side = transform_side_fn(board_via.target_side);
+		all_side.emplace(via->target_side);
+		via->size = board_via.size;
+		via->position.x = board_via.pos.x;
+		via->position.y = board_via.pos.y;
+		auto net_name = string(board_via.net);
+		if (!net_name.empty()) {
+			if (!net_map.count(net_name)) {
+				auto net        = make_shared<Net>();
+				net->name       = net_name;
+				net->board_side = via->board_side;
+				// NOTE: net->number not set
+				net_map[net_name] = net;
+				via->net = net.get();
+			} else {
+				via->net = net_map[net_name].get();
+			}
+		}
+		vias_.push_back(via);
+	}
 	// Populate Net vector by using the map. (sorted by keys)
 	for (auto &net : net_map) {
 		// check whether the pin represents ground
@@ -249,6 +309,9 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 	sort(begin(components_), end(components_), [](const shared_ptr<Component> &lhs, const shared_ptr<Component> &rhs) {
 		return lhs->name < rhs->name;
 	});
+
+	std::move(all_side.begin(), all_side.end(), std::back_inserter(all_side_));
+	std::sort(all_side_.begin(), all_side_.end());
 }
 
 BRDBoard::~BRDBoard() {}
@@ -267,6 +330,18 @@ SharedVector<Net> &BRDBoard::Nets() {
 
 SharedVector<Point> &BRDBoard::OutlinePoints() {
 	return outline_points_;
+}
+
+SharedVector<Track> &BRDBoard::Tracks() {
+	return tracks_;
+}
+
+SharedVector<Via> &BRDBoard::Vias() {
+	return vias_;
+}
+
+std::vector<EBoardSide> BRDBoard::AllSide() {
+	return all_side_;
 }
 
 std::vector<std::pair<Point, Point>> &BRDBoard::OutlineSegments() {

@@ -106,6 +106,21 @@ struct ColorScheme {
 	uint32_t orMaskPins    = 0x00000000;
 	uint32_t orMaskParts   = 0x00000000;
 	uint32_t orMaskOutline = 0x00000000;
+
+	uint32_t viaColor = 0xFFC7C7C7;
+	uint32_t layerColor[11] = {
+	    0xFFFFFFFF,
+	    0xFF860000,
+	    0xFFF60000,
+	    0xFF228B00,
+	    0xFF00FF00,
+	    0xFF0b098B,
+	    0xFF00FFFF,
+	    0xFF87068D,
+	    0xFFF814FF,
+	    0xFF8A8A00,
+	    0xFFF88A00
+	};
 };
 
 // enum DrawChannel { kChannelImages = 0, kChannelFill, kChannelPolylines = 1, kChannelPins = 2, kChannelText = 3,
@@ -268,7 +283,8 @@ struct BoardView {
 	                            // when window is resized?
 	float m_lastHeight;
 	int m_rotation; // set to 0 for original orientation [0-4]
-	int m_current_side;
+	EBoardSide m_current_side;
+	bool m_track_mode = false;
 	int m_boardWidth; // board size in what coordinates? thou?
 	int m_boardHeight;
 	float m_menu_height;
@@ -327,6 +343,8 @@ struct BoardView {
 	void DrawOutlineSegments(ImDrawList *draw);
 	void DrawPins(ImDrawList *draw);
 	void DrawParts(ImDrawList *draw);
+	void DrawVies(ImDrawList *draw);
+	void DrawTracks(ImDrawList *draw);
 	void DrawBoard();
 	void DrawNetWeb(ImDrawList *draw);
 	void LoadBoard(BRDFileBase *file);

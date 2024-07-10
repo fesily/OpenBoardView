@@ -14,6 +14,8 @@
 #define kBoardComponentPrefix "c_"
 #define kBoardPinPrefix "p_"
 #define kBoardNetPrefix "n_"
+#define kBoardTrackPrefix "t_"
+#define kBoardViaPrefix "v_"
 #define kBoardElementNameLength 127
 
 using namespace std;
@@ -34,9 +36,25 @@ template <class T>
 using SharedStringMap = map<string, shared_ptr<T>>;
 
 enum EBoardSide {
-	kBoardSideTop    = 0,
-	kBoardSideBottom = 1,
-	kBoardSideBoth   = 2,
+	kBoardSideBoth,
+	kBoardSideS1,
+	kBoardSideS2,
+	kBoardSideS3,
+	kBoardSideS4,
+	kBoardSideS5,
+	kBoardSideS6,
+	kBoardSideS7,
+	kBoardSideS8,
+	kBoardSideS9,
+	kBoardSideS10 ,
+	kBoardSideBottom = kBoardSideS10,
+	kBoardSideTop = kBoardSideS1,
+};
+
+enum EShapeType {
+	kShapeTypeCircle  = 0,
+	kShapeTypeRect = 1,
+	kShapeTypeFold = 2,
 };
 
 // Checking whether str `prefix` is a prefix of str `base`.
@@ -111,6 +129,43 @@ struct Net : BoardElement {
 	std::vector<const std::string *> searchableStringDetails() const;
 };
 
+struct Track: BoardElement {
+
+	Point position_start;
+
+	Point position_end;
+
+	mutable string name;
+
+	string UniqueId() const {
+		if (name.empty()) {
+			name = std::to_string(position_start.x) + ":" + std::to_string(position_start.y);
+		}
+		return kBoardTrackPrefix + name;
+	}
+
+	Net *net;
+};
+
+struct Via: BoardElement {
+
+	Point position;
+
+	EBoardSide target_side = kBoardSideBoth;
+
+	float size = 0.0;
+
+	mutable string name;
+
+	string UniqueId() const {
+		if (name.empty()) {
+			name = std::to_string(position.x) + ":" + std::to_string(position.y);
+		}
+		return kBoardViaPrefix + name;
+	}
+
+	Net *net;
+};
 // Any observeable contact (nails, component pins).
 // Convieniently/Confusingly named Pin not Contact here.
 struct Pin : BoardElement {
@@ -130,11 +185,16 @@ struct Pin : BoardElement {
 
 	string name; // for BGA pads will be AZ82 etc
 
+	EShapeType shape = EShapeType::kShapeTypeCircle;
 	// Position according to board file. (probably in inches)
 	Point position;
-
 	// Contact diameter, e.g. via or pin size. (probably in inches)
 	float diameter;
+
+	// Rect size
+	Point size;
+	// Rect angle
+	int angle;
 
 	// Net this contact is connected to, nulltpr if no info available.
 	Net *net;
@@ -232,7 +292,10 @@ class Board {
 	virtual SharedVector<Component> &Components()                   = 0;
 	virtual SharedVector<Pin> &Pins()                               = 0;
 	virtual SharedVector<Point> &OutlinePoints()                    = 0;
+	virtual SharedVector<Track> &Tracks()                           = 0;
+	virtual SharedVector<Via> &Vias()                               = 0;
 	virtual std::vector<std::pair<Point, Point>> &OutlineSegments() = 0;
+	virtual std::vector<EBoardSide> AllSide() = 0;
 
 	EBoardType BoardType() {
 		return kBoardTypeUnknown;

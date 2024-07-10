@@ -21,7 +21,11 @@ class BRDBoard : public Board {
 	SharedVector<Component> &Components();
 	SharedVector<Pin> &Pins();
 	SharedVector<Point> &OutlinePoints();
+	SharedVector<Track> &Tracks();
+	SharedVector<Via> &Vias();
 	std::vector<std::pair<Point, Point>> &OutlineSegments();
+	std::vector<EBoardSide> AllSide();
+
 
   private:
 	static const string kNetUnconnectedPrefix;
@@ -31,5 +35,8 @@ class BRDBoard : public Board {
 	SharedVector<Component> components_;
 	SharedVector<Pin> pins_;
 	SharedVector<Point> outline_points_;
+	SharedVector<Track> tracks_;
+	SharedVector<Via> vias_;
+	std::vector<EBoardSide> all_side_;
 	std::vector<std::pair<Point, Point>> outline_segments_;
 };

@@ -17,6 +17,23 @@ bool BVR3File::verifyFormat(std::vector<char> &buf) {
 	return find_str_in_buf("BVRAW_FORMAT_3", buf);
 }
 
+template<typename T>
+static T readSide(const char* side) {
+	if (!strcmp(side, "T"))
+		return T::Top;
+	else if (!strcmp(side, "B"))
+		return T::Bottom;
+	else if (!strcmp(side, "O"))
+		return T::Both;
+	else if (!strcmp(side, "1"))
+		return T::Top;
+	else{
+		char* p = (char*)side;
+		int side_p = strtol(side, &p, 10);
+		return (T)side_p;
+	}
+}
+
 BVR3File::BVR3File(std::vector<char> &buf) {
 	auto buffer_size = buf.size();
 
@@ -36,8 +53,12 @@ BVR3File::BVR3File(std::vector<char> &buf) {
 
 	BRDPart blank_part;
 	BRDPin blank_pin;
+	BRDTrack blank_track;
+	BRDVia blank_via;
 	BRDPart part;
 	BRDPin pin;
+	BRDTrack track;
+	BRDVia via;
 	std::list<std::pair<BRDPoint, BRDPoint>> outline_segments;
 
 	std::vector<char *> lines;
@@ -56,12 +77,7 @@ BVR3File::BVR3File(std::vector<char> &buf) {
 		} else if (!strncmp(line, "PART_SIDE ", 10)) {
 			p += 10;
 			char *side = READ_STR();
-			if (!strcmp(side, "T"))
-				part.mounting_side = BRDPartMountingSide::Top;
-			else if (!strcmp(side, "B"))
-				part.mounting_side = BRDPartMountingSide::Bottom;
-			else if (!strcmp(side, "O"))
-				part.mounting_side = BRDPartMountingSide::Both;
+			part.mounting_side = readSide<BRDPartMountingSide>(side);
 		} else if (!strncmp(line, "PART_ORIGIN ", 12)) {
 			// Value ignored, used as reference point for relative pin placements, not currently supported
 		} else if (!strncmp(line, "PART_MOUNT ", 11)) {
@@ -72,7 +88,8 @@ BVR3File::BVR3File(std::vector<char> &buf) {
 			else
 				part.part_type = BRDPartType::ThroughHole;
 		} else if (!strncmp(line, "PART_OUTLINE_RELATIVE ", 22)) {
-			p += 22;
+		} else if (!strncmp(line, "PART_OUTLINE_RELATIVE_CUSTOM ", 29)) {
+			p += 29;
 			while (p[0]) {
 				auto pold = p;
 				BRDPoint point;
@@ -97,12 +114,7 @@ BVR3File::BVR3File(std::vector<char> &buf) {
 		} else if (!strncmp(line, "PIN_SIDE ", 9)) {
 			p += 9;
 			char *side = READ_STR();
-			if (!strcmp(side, "T"))
-				pin.side = BRDPinSide::Top;
-			else if (!strcmp(side, "B"))
-				pin.side = BRDPinSide::Bottom;
-			else if (!strcmp(side, "O"))
-				pin.side = BRDPinSide::Both;
+			pin.side = readSide<BRDPinSide>(side);
 		} else if (!strncmp(line, "PIN_ORIGIN ", 11)) {
 			p += 11;
 			double origin_x = READ_DOUBLE();
@@ -127,6 +139,18 @@ BVR3File::BVR3File(std::vector<char> &buf) {
 			pin.voltage_value = READ_STR();
 		} else if (!strncmp(line, "PIN_OUTLINE_RELATIVE ", 21)) {
 			// Value ignored, custom outline for pins not yet supported
+		} else if (!strncmp(line, "PIN_SIZE ", 9)) {
+			p += 9;
+			double x = READ_DOUBLE();
+			pin.size.x = trunc(x);
+			double y = READ_DOUBLE();
+			pin.size.y = trunc(y);
+		} else if (!strncmp(line, "PIN_ANGLE ", 10)) {
+			p += 10;
+			pin.angle = READ_DOUBLE();
+		} else if (!strncmp(line, "PIN_SHAPE ", 10)) {
+			p += 10;
+			pin.shape = BPDPinShape(READ_UINT());
 		} else if (!strcmp(line, "PIN_END")) {
 			pin.part = parts.size() + 1; // pin is for current part, which will not yet have been added to parts vector
 			pins.push_back(pin);
@@ -135,6 +159,59 @@ BVR3File::BVR3File(std::vector<char> &buf) {
 			part.end_of_pins = pins.size();
 			parts.push_back(part);
 			part = blank_part;
+		} else if (!strncmp(line, "TRACK_ID ", 9)) {
+
+		} else if (!strncmp(line, "TRACK_NET ", 10)) {
+			p += 10;
+			track.net = READ_STR();
+		} else if (!strncmp(line, "TRACK_POINT_START ", 18)) {
+			p += 18;
+			BRDPoint point;
+			double x = READ_DOUBLE();
+			point.x  = trunc(x);
+			double y = READ_DOUBLE();
+			point.y  = trunc(y);
+			track.points.first = point;
+		} else if (!strncmp(line, "TRACK_POINT_END ", 16)) {
+			p += 16;
+			BRDPoint point;
+			double x = READ_DOUBLE();
+			point.x  = trunc(x);
+			double y = READ_DOUBLE();
+			point.y  = trunc(y);
+			track.points.second = point;
+		} else if (!strncmp(line, "TRACK_SIDE ", 11)) {
+			p += 11;
+			char *side = READ_STR();
+			track.side = readSide<BRDPartMountingSide>(side);
+		} else if (!strncmp(line, "TRACK_END ", 10)) {
+			tracks.push_back(track);
+			track = blank_track;
+		} else if (!strncmp(line, "VIA_ID ", 7)) {
+
+		} else if (!strncmp(line, "VIA_SIZE ", 9)) {
+			p += 9;
+			via.size = READ_DOUBLE();
+		} else if (!strncmp(line, "VIA_NET ", 8)) {
+			p += 8;
+			via.net = READ_STR();
+		} else if (!strncmp(line, "VIA_POS ", 8)) {
+			p += 8;
+			double x = READ_DOUBLE();
+			via.pos.x  = trunc(x);
+			double y = READ_DOUBLE();
+			via.pos.y  = trunc(y);
+		} else if (!strncmp(line, "VIA_SIDE ", 9)) {
+			p += 9;
+			char *side = READ_STR();
+			via.side = readSide<BRDPartMountingSide>(side);
+		} else if (!strncmp(line, "VIA_SIDE_TARGET ", 16)) {
+			p += 16;
+			char *side = READ_STR();
+			via.target_side = readSide<BRDPartMountingSide>(side);
+		} else if (!strncmp(line, "VIA_END ", 8)) {
+			vias.push_back(via);
+			via = blank_via;
 		} else if (!strncmp(line, "OUTLINE_POINTS ", 15)) {
 			p += 15;
 			while (p[0]) {
