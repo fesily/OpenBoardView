@@ -100,9 +100,11 @@ struct BRDTrack {
 };
 
 struct BRDArc {
-	BRDPoint position;
+	BRDPoint pos;
+	BRDPartMountingSide side{};
 	float radius;
 	float startAngle, endAngle;
+	const char *net = "UNCONNECTED";
 };
 
 class BRDFileBase {
@@ -119,6 +121,7 @@ class BRDFileBase {
 	std::vector<BRDNail> nails;
 	std::vector<BRDTrack> tracks;
 	std::vector<BRDVia> vias;
+	std::vector<BRDArc> arcs;
 
 	bool valid = false;
 	std::string error_msg = "";

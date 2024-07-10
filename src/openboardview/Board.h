@@ -16,6 +16,7 @@
 #define kBoardNetPrefix "n_"
 #define kBoardTrackPrefix "t_"
 #define kBoardViaPrefix "v_"
+#define kBoardArcPrefix "a_"
 #define kBoardElementNameLength 127
 
 using namespace std;
@@ -166,6 +167,29 @@ struct Via: BoardElement {
 
 	Net *net;
 };
+
+struct Arc: BoardElement {
+
+	Point position;
+
+	float radius = 0.0;
+	
+	float startAngle = 0.0;
+
+	float endAngle = 0.0;
+
+	mutable string name;
+
+	string UniqueId() const {
+		if (name.empty()) {
+			name = std::to_string(position.x) + ":" + std::to_string(position.y);
+		}
+		return kBoardArcPrefix + name;
+	}
+
+	Net *net;
+};
+
 // Any observeable contact (nails, component pins).
 // Convieniently/Confusingly named Pin not Contact here.
 struct Pin : BoardElement {
@@ -294,6 +318,7 @@ class Board {
 	virtual SharedVector<Point> &OutlinePoints()                    = 0;
 	virtual SharedVector<Track> &Tracks()                           = 0;
 	virtual SharedVector<Via> &Vias()                               = 0;
+	virtual SharedVector<Arc> &arcs()                               = 0;
 	virtual std::vector<std::pair<Point, Point>> &OutlineSegments() = 0;
 	virtual std::vector<EBoardSide> AllSide() = 0;
 

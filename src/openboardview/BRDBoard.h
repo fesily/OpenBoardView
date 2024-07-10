@@ -23,6 +23,7 @@ class BRDBoard : public Board {
 	SharedVector<Point> &OutlinePoints();
 	SharedVector<Track> &Tracks();
 	SharedVector<Via> &Vias();
+	SharedVector<Arc> &arcs();
 	std::vector<std::pair<Point, Point>> &OutlineSegments();
 	std::vector<EBoardSide> AllSide();
 
@@ -37,6 +38,7 @@ class BRDBoard : public Board {
 	SharedVector<Point> outline_points_;
 	SharedVector<Track> tracks_;
 	SharedVector<Via> vias_;
+	SharedVector<Arc> arcs_;
 	std::vector<EBoardSide> all_side_;
 	std::vector<std::pair<Point, Point>> outline_segments_;
 };

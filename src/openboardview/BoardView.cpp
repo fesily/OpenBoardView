@@ -3995,7 +3995,7 @@ inline void BoardView::DrawVies(ImDrawList *draw) {
 	for (const auto &via : vias) {
 		if (!(m_pinSelected && m_pinSelected->net == via->net) && !BoardElementIsVisible(via)) continue;
 		auto pos = CoordToScreen(via->position.x, via->position.y);
-		auto radius = via->size * m_scale;
+		auto radius = via->size * 0.5 * m_scale;
 		if (!IsVisibleScreen(pos.x, pos.y, radius, io)) continue;
 
 		uint32_t color      = (m_colors.viaColor & cmask) | omask;

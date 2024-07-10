@@ -55,10 +55,12 @@ BVR3File::BVR3File(std::vector<char> &buf) {
 	BRDPin blank_pin;
 	BRDTrack blank_track;
 	BRDVia blank_via;
+	BRDArc blank_arc;
 	BRDPart part;
 	BRDPin pin;
 	BRDTrack track;
 	BRDVia via;
+	BRDArc arc;
 	std::list<std::pair<BRDPoint, BRDPoint>> outline_segments;
 
 	std::vector<char *> lines;
@@ -212,6 +214,32 @@ BVR3File::BVR3File(std::vector<char> &buf) {
 		} else if (!strncmp(line, "VIA_END ", 8)) {
 			vias.push_back(via);
 			via = blank_via;
+		} else if (!strncmp(line, "ARC_ID ", 7)) {
+		} else if (!strncmp(line, "ARC_POS ", 8)) {
+			p += 8;
+			double x = READ_DOUBLE();
+			arc.pos.x  = trunc(x);
+			double y = READ_DOUBLE();
+			arc.pos.y  = trunc(y);
+		} else if (!strncmp(line, "ARC_SIDE ", 9)) {
+			p += 9;
+			char *side = READ_STR();
+			arc.side = readSide<BRDPartMountingSide>(side);
+		} else if (!strncmp(line, "ARC_NET ", 8)) {
+			p += 8;
+			arc.net = READ_STR();
+		} else if (!strncmp(line, "ARC_RADIUS ", 10)) {
+			p += 10;
+			arc.radius = READ_DOUBLE();
+		} else if (!strncmp(line, "ARC_STARTANGLE ", 15)) {
+			p += 15;
+			arc.startAngle = READ_DOUBLE();
+		} else if (!strncmp(line, "ARC_ENDANGLE ", 13)) {
+			p += 13;
+			arc.endAngle = READ_DOUBLE();
+		} else if (!strncmp(line, "ARC_END ", 8)) {
+			arcs.push_back(arc);
+			arc = blank_arc;
 		} else if (!strncmp(line, "OUTLINE_POINTS ", 15)) {
 			p += 15;
 			while (p[0]) {

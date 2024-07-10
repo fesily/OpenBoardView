@@ -26,6 +26,7 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 	vector<BRDPoint> m_points(m_file->num_format);
 	vector<BRDTrack> m_tracks(m_file->tracks.size());
 	vector<BRDVia> m_vias(m_file->vias.size());
+	vector<BRDArc> m_arcs(m_file->arcs.size());
 	set<EBoardSide> all_side;
 
 	m_parts  = m_file->parts;
@@ -34,6 +35,7 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 	m_points = m_file->format;
 	m_tracks = m_file->tracks;
 	m_vias = m_file->vias;
+	m_arcs = m_file->arcs;
 
 	// Set outline
 	{
@@ -298,6 +300,30 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 		}
 		vias_.push_back(via);
 	}
+	
+	for (auto& board_arc : m_arcs) {
+		auto arc = make_shared<Arc>();
+		arc->board_side = transform_side_fn(board_arc.side);
+		arc->radius = board_arc.radius;
+		arc->startAngle = board_arc.startAngle;
+		arc->endAngle = board_arc.endAngle;
+		arc->position.x = board_arc.pos.x;
+		arc->position.y = board_arc.pos.y;
+		auto net_name = string(board_arc.net);
+		if (!net_name.empty()) {
+			if (!net_map.count(net_name)) {
+				auto net        = make_shared<Net>();
+				net->name       = net_name;
+				net->board_side = arc->board_side;
+				// NOTE: net->number not set
+				net_map[net_name] = net;
+				arc->net = net.get();
+			} else {
+				arc->net = net_map[net_name].get();
+			}
+		}
+		arcs_.push_back(arc);
+	}
 	// Populate Net vector by using the map. (sorted by keys)
 	for (auto &net : net_map) {
 		// check whether the pin represents ground
@@ -338,6 +364,10 @@ SharedVector<Track> &BRDBoard::Tracks() {
 
 SharedVector<Via> &BRDBoard::Vias() {
 	return vias_;
+}
+
+SharedVector<Arc> &BRDBoard::arcs() {
+	return arcs_;
 }
 
 std::vector<EBoardSide> BRDBoard::AllSide() {
