@@ -231,12 +231,12 @@ BVR3File::BVR3File(std::vector<char> &buf) {
 		} else if (!strncmp(line, "ARC_RADIUS ", 10)) {
 			p += 10;
 			arc.radius = READ_DOUBLE();
-		} else if (!strncmp(line, "ARC_STARTANGLE ", 15)) {
-			p += 15;
-			arc.startAngle = READ_DOUBLE();
-		} else if (!strncmp(line, "ARC_ENDANGLE ", 13)) {
-			p += 13;
-			arc.endAngle = READ_DOUBLE();
+		} else if (!strncmp(line, "ARC_START_ANGLE ", 16)) {
+			p += 16;
+			arc.startAngle = READ_DOUBLE() * (M_PI / 180.0);
+		} else if (!strncmp(line, "ARC_END_ANGLE ", 14)) {
+			p += 14;
+			arc.endAngle = READ_DOUBLE() * (M_PI / 180.0);
 		} else if (!strncmp(line, "ARC_END ", 8)) {
 			arcs.push_back(arc);
 			arc = blank_arc;

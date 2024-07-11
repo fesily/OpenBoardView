@@ -13,6 +13,7 @@
 #ifdef ENABLE_SDL2
 #include <SDL.h>
 #endif
+#include <cmath>
 
 #include "BRDBoard.h"
 #include "Board.h"
@@ -3948,25 +3949,68 @@ inline void BoardView::DrawTracks(ImDrawList *draw) {
 		ImVec2 pos_start = CoordToScreen(track->position_start.x, track->position_start.y);
 		ImVec2 pos_end = CoordToScreen(track->position_end.x, track->position_end.y);
 
-		uint32_t color      = (m_colors.layerColor[track->board_side] & cmask) | omask;
+		uint32_t color      = (m_colors.layerColor[track->board_side][0] & cmask) | omask;
 		auto radius = 1 * m_scale;
 		if (m_pinSelected && m_pinSelected->net == track->net) {
-			//color      = m_colors.pinSelectedColor;
-			//auto h = 1 * m_scale;
-			//draw->AddQuad(ImVec2(pos_start.x-h, pos_start.y-h),ImVec2(pos_start.x-h, pos_start.y+h),ImVec2(pos_end.x+h, pos_end.y-h),ImVec2(pos_end.x+h, pos_end.y+h), color);
+			color      = m_colors.layerColor[track->board_side][1];
+			draw->AddLine(pos_start, pos_end, m_colors.defaultBoardSelectColor, radius*2);
 		}
 		draw->AddLine(pos_start, pos_end, color, radius);
 	}
 }
 
-#define IM_PI 3.1415
+static void DrawArc(ImDrawList* draw_list, ImVec2 center, float radius, ImU32 color, float start_angle, float end_angle, int num_segments = 50, float thickness = 1.0f)
+{
+	ImVec2* points = new ImVec2[num_segments + 1];
+
+	float slice_angle = (end_angle - start_angle) / (float)num_segments;
+	for (int i = 0; i <= num_segments; i++)
+	{
+		float angle = start_angle + slice_angle * (float)i;
+		points[i].x = center.x + cosf(angle) * radius;
+		points[i].y = center.y - sinf(angle) * radius;
+	}
+
+	draw_list->AddPolyline(points, num_segments + 1, color, false, thickness);
+	delete[] points;
+}
+
+inline void BoardView::DrawArcs(ImDrawList *draw) {
+	uint32_t cmask  = 0xFFFFFFFF;
+	uint32_t omask  = 0x00000000;
+	auto io         = ImGui::GetIO();
+
+	if (pinSelectMasks) {
+		if (m_pinSelected || m_pinHighlighted.size()) {
+			cmask = m_colors.selectedMaskPins;
+			omask = m_colors.orMaskPins;
+		}
+	}
+	draw->ChannelsSetCurrent(kChannelPolylines);
+
+	const auto& arcs = m_board->arcs();
+	for (const auto &arc : arcs) {
+		if (!(m_pinSelected && m_pinSelected->net == arc->net) && !BoardElementIsVisible(arc)) continue;
+		ImVec2 pos = CoordToScreen(arc->position.x, arc->position.y);
+
+		uint32_t color      = (m_colors.layerColor[arc->board_side][0] & cmask) | omask;
+		auto radius = arc->radius * m_scale;
+		if (m_pinSelected && m_pinSelected->net == arc->net) {
+			DrawArc(draw, pos, radius, m_colors.defaultBoardSelectColor, arc->startAngle, arc->endAngle, 50, m_scale*1.5);
+		}
+		DrawArc(draw, pos, radius, color, arc->startAngle, arc->endAngle, 50, m_scale);
+		//draw->AddText(pos, color, std::to_string(arc->startAngle * 180 / 3.1415).c_str());
+		//draw->AddText(ImVec2(pos.x, pos.y - 10), color, std::to_string(arc->endAngle * 180 / 3.1415).c_str());
+	}
+}
+
 static void DrawFilledSemiCircle(ImDrawList* draw_list, ImVec2 center, float radius, ImU32 color, bool right_half, int num_segments = 50)
 {
 	ImVec2* points = new ImVec2[num_segments + 2];
 	points[0] = center;
 
-	float start_angle = right_half ? 3.0f * IM_PI / 2 : IM_PI / 2;
-	float end_angle   = right_half ? IM_PI * 5 / 2 : 3.0f * IM_PI / 2;
+	float start_angle = right_half ? 3.0f * M_PI / 2 : M_PI / 2;
+	float end_angle   = right_half ? M_PI * 5 / 2 : 3.0f * M_PI / 2;
 
 	for (int i = 0; i <= num_segments; i++)
 	{
@@ -4023,8 +4067,8 @@ inline void BoardView::DrawVies(ImDrawList *draw) {
 				font = ImGui::GetIO().Fonts->Fonts[1]; // Use larger font for pin name
 			}
 
-			DrawFilledSemiCircle(draw, pos, radius*0.8, m_colors.layerColor[via->board_side], false);
-			DrawFilledSemiCircle(draw, pos, radius*0.8, m_colors.layerColor[via->target_side], true);
+			DrawFilledSemiCircle(draw, pos, radius*0.8, m_colors.layerColor[via->board_side][0], false);
+			DrawFilledSemiCircle(draw, pos, radius*0.8, m_colors.layerColor[via->target_side][0], true);
 
 			draw->ChannelsSetCurrent(kChannelText);
 			draw->AddText(font, maxfontsize, leftPos, 0xFFFFFFFF, text.c_str());
@@ -4331,6 +4375,7 @@ void BoardView::DrawBoard() {
 	OutlineGenFillDraw(draw, boardFillSpacing, 1);
 	DrawOutline(draw);
 	DrawTracks(draw);
+	DrawArcs(draw);
 	DrawVies(draw);
 	DrawParts(draw);
 	//	DrawSelectedPins(draw);

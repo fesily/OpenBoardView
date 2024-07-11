@@ -17,6 +17,7 @@
 #include "PDFBridge/PDFFile.h"
 #include <cstdint>
 #include <vector>
+#include <array>
 
 #define DPIF(x) (((x)*dpi) / 100.f)
 #define DPI(x) (((x)*dpi) / 100)
@@ -108,19 +109,20 @@ struct ColorScheme {
 	uint32_t orMaskOutline = 0x00000000;
 
 	uint32_t viaColor = 0xFFC7C7C7;
-	uint32_t layerColor[11] = {
-	    0xFFFFFFFF,
-	    0xFF860000,
-	    0xFFF60000,
-	    0xFF228B00,
-	    0xFF00FF00,
-	    0xFF0b098B,
-	    0xFF00FFFF,
-	    0xFF87068D,
-	    0xFFF814FF,
-	    0xFF8A8A00,
-	    0xFFF88A00
+	std::array<uint32_t, 2> layerColor[11] = {
+	    {0xFFFFFFFF, 0xFFFFFFFF},
+	    {0xFFFF0000, 0xFFFF8080},
+	    {0xFF00FF00, 0xFF80FF80},
+	    {0xFF0000FF, 0xFF8080FF},
+	    {0xFFFFFF00, 0xFFFFFF80},
+	    {0xFF00FFFF, 0xFF80FFFF},
+	    {0xFFFF00FF, 0xFFFF80FF},
+	    {0xFF800000, 0xFFC08080},
+	    {0xFF008000, 0xFF80C080},
+	    {0xFF000080, 0xFF8080C0},
+	    {0xFF808000, 0xFFC0C080},
 	};
+	uint32_t defaultBoardSelectColor = 0xFF00FFFF;
 };
 
 // enum DrawChannel { kChannelImages = 0, kChannelFill, kChannelPolylines = 1, kChannelPins = 2, kChannelText = 3,
@@ -345,6 +347,7 @@ struct BoardView {
 	void DrawParts(ImDrawList *draw);
 	void DrawVies(ImDrawList *draw);
 	void DrawTracks(ImDrawList *draw);
+	void DrawArcs(ImDrawList *draw);
 	void DrawBoard();
 	void DrawNetWeb(ImDrawList *draw);
 	void LoadBoard(BRDFileBase *file);
