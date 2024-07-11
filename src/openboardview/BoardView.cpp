@@ -3396,8 +3396,8 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 					break;
 				default:
 					if ((psz > 3) && (psz > threshold)) {
-						if (pinShapeSquare || slowCPU) {
-							if (fill_pin)
+						if (pinShapeSquare || slowCPU || pin->shape == kShapeTypeRect) {
+							if (fill_pin || pin->shape == kShapeTypeRect)
 								draw->AddRectFilled(ImVec2(pos.x - h, pos.y - h), ImVec2(pos.x + h, pos.y + h), fill_color);
 							if (draw_ring) draw->AddRect(ImVec2(pos.x - h, pos.y - h), ImVec2(pos.x + h, pos.y + h), color);
 						} else {

@@ -53,9 +53,9 @@ enum EBoardSide {
 };
 
 enum EShapeType {
-	kShapeTypeCircle  = 0,
-	kShapeTypeRect = 1,
-	kShapeTypeFold = 2,
+	kShapeTypeFold = 0,
+	kShapeTypeCircle  = 1,
+	kShapeTypeRect = 2,
 };
 
 // Checking whether str `prefix` is a prefix of str `base`.

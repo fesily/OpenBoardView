@@ -55,7 +55,7 @@ struct BRDPart {
 };
 
 enum class BRDPinSide { Both, Top, S1 = Top, S2, S3, S4, S5, S6, S7, S8, S9, S10, Bottom = S10 };
-enum class BPDPinShape { Rect, Circle, Fold};
+enum class BPDPinShape { Fold, Circle, Rect };
 
 struct BRDPin {
 	BRDPoint pos;
