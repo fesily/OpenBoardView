@@ -25,7 +25,7 @@ class BRDBoard : public Board {
 	SharedVector<Via> &Vias();
 	SharedVector<Arc> &arcs();
 	std::vector<std::pair<Point, Point>> &OutlineSegments();
-	std::vector<EBoardSide> AllSide();
+	std::vector<EBoardSide> &AllSide();
 
 
   private:

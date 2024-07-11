@@ -4659,6 +4659,12 @@ inline bool BoardView::BoardElementIsVisible(const std::shared_ptr<BoardElement>
 
 	if (be->board_side == m_current_side) return true;
 
+	if (m_track_mode) {
+		const auto sz = m_board->AllSide().size();
+		if (sz + 1 - be->board_side == m_current_side)
+			return true;
+	}
+
 	if (be->board_side == kBoardSideBoth) return true;
 
 	if (auto via = dynamic_pointer_cast<Via>(be); via != nullptr) {
@@ -4786,6 +4792,10 @@ void BoardView::FlipBoard(int mode) {
 			++iter;
 		}
 		m_current_side = iter == all_side.cend() ? kBoardSideTop : *iter;
+		if (m_current_side == kBoardSideBottom)
+			m_current_side = kBoardSideTop;
+		else if (m_current_side == *(all_side.data() + all_side.size()/2))
+			m_current_side = EBoardSide(m_current_side + 1);
 		m_needsRedraw = true;
 		return;
 	}

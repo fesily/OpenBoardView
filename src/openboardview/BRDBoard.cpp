@@ -370,7 +370,7 @@ SharedVector<Arc> &BRDBoard::arcs() {
 	return arcs_;
 }
 
-std::vector<EBoardSide> BRDBoard::AllSide() {
+std::vector<EBoardSide> &BRDBoard::AllSide() {
 	return all_side_;
 }
 

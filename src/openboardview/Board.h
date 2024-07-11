@@ -320,7 +320,7 @@ class Board {
 	virtual SharedVector<Via> &Vias()                               = 0;
 	virtual SharedVector<Arc> &arcs()                               = 0;
 	virtual std::vector<std::pair<Point, Point>> &OutlineSegments() = 0;
-	virtual std::vector<EBoardSide> AllSide() = 0;
+	virtual std::vector<EBoardSide> &AllSide() = 0;
 
 	EBoardType BoardType() {
 		return kBoardTypeUnknown;
