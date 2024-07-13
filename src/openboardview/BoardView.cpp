@@ -3416,8 +3416,8 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				default:
 					if ((psz > 3) && (psz > threshold)) {
 						if (pinShapeSquare || slowCPU || pin->shape == kShapeTypeRect) {
-							if (fill_pin || pin->shape == kShapeTypeRect)
-								draw->AddRectFilled(ImVec2(pos.x - h, pos.y - h), ImVec2(pos.x + h, pos.y + h), fill_color);
+							if (fill_pin)
+								draw->AddRectFilled(ImVec2(pos.x - h, pos.y - h), ImVec2(pos.x + h, pos.y + h),  fill_color);
 							if (draw_ring) draw->AddRect(ImVec2(pos.x - h, pos.y - h), ImVec2(pos.x + h, pos.y + h), color);
 						} else {
 							if (fill_pin) draw->AddCircleFilled(ImVec2(pos.x, pos.y), psz, fill_color, segments);
@@ -4689,6 +4689,11 @@ inline bool BoardView::BoardElementIsVisible(const std::shared_ptr<BoardElement>
 	if (auto via = dynamic_pointer_cast<Via>(be); via != nullptr) {
 		if (via->target_side == m_current_side) {
 			return true;
+		}
+		if (m_track_mode) {
+			const auto sz = m_board->AllSide().size();
+			if (sz + 1 - via->target_side == m_current_side)
+				return true;
 		}
 	}
 
