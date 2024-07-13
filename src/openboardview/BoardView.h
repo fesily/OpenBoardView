@@ -265,6 +265,7 @@ struct BoardView {
 	ImVec2 m_showContextMenuPos;
 
 	std::shared_ptr<Pin> m_pinSelected = nullptr;
+	std::shared_ptr<Via> m_viaSelected = nullptr;
 	//	vector<Net *> m_netHiglighted;
 	SharedVector<Pin> m_pinHighlighted;
 	SharedVector<Component> m_partHighlighted;

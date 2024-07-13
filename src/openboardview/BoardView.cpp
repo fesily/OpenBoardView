@@ -2483,7 +2483,26 @@ void BoardView::HandleInput() {
 						m_partHighlighted.push_back(m_pinSelected->component);
 					}
 
+					m_viaSelected = nullptr;
 					if (m_pinSelected == nullptr) {
+						for (auto &via : m_board->Vias()) {
+							if (BoardElementIsVisible(via)) {
+								float dx   = via->position.x - pos.x;
+								float dy   = via->position.y - pos.y;
+								float dist = dx * dx + dy * dy;
+								if ((dist < (via->size * via->size)) && (dist < min_dist)) {
+									m_viaSelected = via;
+									min_dist  = dist;
+								}
+							}
+						}
+					}
+
+					if (m_viaSelected) {
+						for (auto& pin : m_viaSelected->net->pins) m_pinHighlighted.push_back(pin);
+					}
+
+					if (m_pinSelected == nullptr && m_viaSelected == nullptr) {
 						bool any_hits = false;
 
 						for (auto &part : m_board->Components()) {
@@ -3945,13 +3964,13 @@ inline void BoardView::DrawTracks(ImDrawList *draw) {
 
 	const auto& tracks = m_board->Tracks();
 	for (const auto &track : tracks) {
-		if (!(m_pinSelected && m_pinSelected->net == track->net) && !BoardElementIsVisible(track)) continue;
+		if (!(m_pinSelected && m_pinSelected->net == track->net) && !(m_viaSelected && m_viaSelected->net == track->net) && !BoardElementIsVisible(track)) continue;
 		ImVec2 pos_start = CoordToScreen(track->position_start.x, track->position_start.y);
 		ImVec2 pos_end = CoordToScreen(track->position_end.x, track->position_end.y);
 
 		uint32_t color      = (m_colors.layerColor[track->board_side][0] & cmask) | omask;
 		auto radius = 1 * m_scale;
-		if (m_pinSelected && m_pinSelected->net == track->net) {
+		if ((m_pinSelected && m_pinSelected->net == track->net) || (m_viaSelected && m_viaSelected->net == track->net)) {
 			color      = m_colors.layerColor[track->board_side][1];
 			draw->AddLine(pos_start, pos_end, m_colors.defaultBoardSelectColor, radius*2);
 		}
@@ -3990,12 +4009,12 @@ inline void BoardView::DrawArcs(ImDrawList *draw) {
 
 	const auto& arcs = m_board->arcs();
 	for (const auto &arc : arcs) {
-		if (!(m_pinSelected && m_pinSelected->net == arc->net) && !BoardElementIsVisible(arc)) continue;
+		if (!(m_pinSelected && m_pinSelected->net == arc->net) && !(m_viaSelected && m_viaSelected->net == arc->net) && !BoardElementIsVisible(arc)) continue;
 		ImVec2 pos = CoordToScreen(arc->position.x, arc->position.y);
 
 		uint32_t color      = (m_colors.layerColor[arc->board_side][0] & cmask) | omask;
 		auto radius = arc->radius * m_scale;
-		if (m_pinSelected && m_pinSelected->net == arc->net) {
+		if ((m_pinSelected && m_pinSelected->net == arc->net ) || (m_viaSelected && m_viaSelected->net == arc->net)) {
 			DrawArc(draw, pos, radius, m_colors.defaultBoardSelectColor, arc->startAngle, arc->endAngle, 50, m_scale*1.5);
 		}
 		DrawArc(draw, pos, radius, color, arc->startAngle, arc->endAngle, 50, m_scale);
@@ -4037,13 +4056,13 @@ inline void BoardView::DrawVies(ImDrawList *draw) {
 
 	const auto& vias = m_board->Vias();
 	for (const auto &via : vias) {
-		if (!(m_pinSelected && m_pinSelected->net == via->net) && !BoardElementIsVisible(via)) continue;
+		if (!(m_pinSelected && m_pinSelected->net == via->net) && !(m_viaSelected && m_viaSelected->net == via->net) && !BoardElementIsVisible(via)) continue;
 		auto pos = CoordToScreen(via->position.x, via->position.y);
 		auto radius = via->size * 0.5 * m_scale;
 		if (!IsVisibleScreen(pos.x, pos.y, radius, io)) continue;
 
 		uint32_t color      = (m_colors.viaColor & cmask) | omask;
-		if (m_pinSelected && m_pinSelected->net == via->net) {
+		if ((m_pinSelected && m_pinSelected->net == via->net) || (m_viaSelected && m_viaSelected->net == via->net)) {
 			color      = m_colors.pinSelectedColor;
 		}
 		draw->AddCircleFilled(pos, radius, color);
