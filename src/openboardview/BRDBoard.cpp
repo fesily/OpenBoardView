@@ -333,6 +333,12 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 		nets_.push_back(net.second);
 	}
 
+	for (auto& comp : components_) {
+		if (comp->pins.size() == 1 && comp->pins.front()->net->is_ground) {
+			comp->component_type = Component::kComponentTypeBoard;
+		}
+	}
+
 	// Sort components by name
 	sort(begin(components_), end(components_), [](const shared_ptr<Component> &lhs, const shared_ptr<Component> &rhs) {
 		return lhs->name < rhs->name;

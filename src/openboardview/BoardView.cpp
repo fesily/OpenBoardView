@@ -2488,7 +2488,7 @@ void BoardView::HandleInput() {
 					min_dist *= min_dist; // all distance squared
 					std::shared_ptr<Pin> selection = nullptr;
 					for (auto &pin : m_board->Pins()) {
-						if (BoardElementIsVisible(pin)) {
+						if (!pin->net->is_ground && BoardElementIsVisible(pin)) {
 							float dx   = pin->position.x - pos.x;
 							float dy   = pin->position.y - pos.y;
 							float dist = dx * dx + dy * dy;
@@ -2539,6 +2539,7 @@ void BoardView::HandleInput() {
 							//							auto p_part = part.get();
 
 							if (!BoardElementIsVisible(part)) continue;
+							if (part->component_type == Component::kComponentTypeBoard) continue;
 
 							// Work out if the point is inside the hull
 							{
@@ -3425,6 +3426,14 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 			if (segments > 32) segments = 32;
 			if (segments < 8) segments = 8;
 			float h = psz / 2 + 0.5f;
+			float w = h;
+			if (pin->shape == kShapeTypeRect) {
+				w = pin->size.x * m_scale / 2 + 0.5f;
+				h = pin->size.y * m_scale / 2 + 0.5f;
+			}
+			if (pin->angle == 90 || pin->angle == 270) {
+				std::swap(w, h);
+			}
 
 			/*
 			 * if we're going to be showing the text of a pin, then we really
@@ -3439,22 +3448,22 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 						draw->AddCircleFilled(ImVec2(pos.x, pos.y), psz, fill_color, segments);
 						draw->AddCircle(ImVec2(pos.x, pos.y), psz, color, segments);
 					} else if (psz > threshold) {
-						draw->AddRectFilled(ImVec2(pos.x - h, pos.y - h), ImVec2(pos.x + h, pos.y + h), fill_color);
+						draw->AddRectFilled(ImVec2(pos.x - w, pos.y - h), ImVec2(pos.x + w, pos.y + h), fill_color);
 					}
 					break;
 				default:
 					if ((psz > 3) && (psz > threshold)) {
 						if (pinShapeSquare || slowCPU || pin->shape == kShapeTypeRect) {
 							if (fill_pin)
-								draw->AddRectFilled(ImVec2(pos.x - h, pos.y - h), ImVec2(pos.x + h, pos.y + h),  fill_color);
-							if (draw_ring) draw->AddRect(ImVec2(pos.x - h, pos.y - h), ImVec2(pos.x + h, pos.y + h), color);
+								draw->AddRectFilled(ImVec2(pos.x - w, pos.y - h), ImVec2(pos.x + w, pos.y + h),  fill_color);
+							if (draw_ring) draw->AddRect(ImVec2(pos.x - w, pos.y - h), ImVec2(pos.x + w, pos.y + h), color);
 						} else {
 							if (fill_pin) draw->AddCircleFilled(ImVec2(pos.x, pos.y), psz, fill_color, segments);
 							if (draw_ring) draw->AddCircle(ImVec2(pos.x, pos.y), psz, color, segments);
 						}
 					} else if (psz > threshold) {
-						if (fill_pin) draw->AddRectFilled(ImVec2(pos.x - h, pos.y - h), ImVec2(pos.x + h, pos.y + h), fill_color);
-						if (draw_ring) draw->AddRect(ImVec2(pos.x - h, pos.y - h), ImVec2(pos.x + h, pos.y + h), color);
+						if (fill_pin) draw->AddRectFilled(ImVec2(pos.x - w, pos.y - h), ImVec2(pos.x + w, pos.y + h), fill_color);
+						if (draw_ring) draw->AddRect(ImVec2(pos.x - w, pos.y - h), ImVec2(pos.x + w, pos.y + h), color);
 					}
 			}
 
@@ -3866,6 +3875,9 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 				draw->AddQuad(a, b, c, d, m_colors.partHighlightedColor);
 			}
 
+			if (part->component_type == Component::kComponentTypeBoard) {
+				draw->AddQuadFilled(a, b, c, d, m_colors.boardFillColor);
+			}
 			/*
 			 * Draw the convex hull of the part if it has one
 			 */
@@ -4160,6 +4172,7 @@ void BoardView::DrawPartTooltips(ImDrawList *draw) {
 
 	currentlyHoveredPart = nullptr;
 	for (auto &part : m_board->Components()) {
+		if (part->component_type == Component::kComponentTypeBoard) continue;
 		int hit = 0;
 		//		auto p_part = part.get();
 
@@ -4190,7 +4203,7 @@ void BoardView::DrawPartTooltips(ImDrawList *draw) {
 				float dy   = pin->position.y - pos.y;
 				float dist = dx * dx + dy * dy;
 
-				if (!BoardElementIsVisible(pin)) {
+				if (pin->net->is_ground || !BoardElementIsVisible(pin)) {
 					continue;
 				}
 
