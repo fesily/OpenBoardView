@@ -293,6 +293,9 @@ BVR3File::BVR3File(std::vector<char> &buf) {
 			std::vector<std::pair<BRDPoint, BRDPoint>> segments = arc_to_segments(startAngle, endAngle, radius, p1, p2, pc);
 			std::move(segments.begin(), segments.end(), std::back_inserter(this->outline_segments));
 
+		} else if (!strncmp(line, "BVRAW_SCALE ", 12)) {
+			p += 12;
+			scale = READ_DOUBLE();
 		} else if (!strncmp(line, "OUTLINE_SEGMENTED ", 18)) {
 			p += 18;
 			while (p[0]) {

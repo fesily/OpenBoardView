@@ -28,6 +28,7 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 	vector<BRDVia> m_vias(m_file->vias.size());
 	vector<BRDArc> m_arcs(m_file->arcs.size());
 	set<EBoardSide> all_side;
+	auto scale = m_file->scale;
 
 	m_parts  = m_file->parts;
 	m_pins   = m_file->pins;
@@ -40,14 +41,14 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 	// Set outline
 	{
 		for (auto &brdPoint : m_points) {
-			auto point = make_shared<Point>(brdPoint.x, brdPoint.y);
+			auto point = make_shared<Point>(brdPoint.x / scale, brdPoint.y/ scale);
 			outline_points_.push_back(point);
 		}
 	}
 
 	outline_segments_.reserve(m_file->outline_segments.size());
-	std::transform(m_file->outline_segments.begin(), m_file->outline_segments.end(), std::back_inserter(outline_segments_), [](const std::pair<BRDPoint, BRDPoint> &s) -> std::pair<Point, Point> {
-		return {{s.first.x, s.first.y}, {s.second.x, s.second.y}};
+	std::transform(m_file->outline_segments.begin(), m_file->outline_segments.end(), std::back_inserter(outline_segments_), [scale](const std::pair<BRDPoint, BRDPoint> &s) -> std::pair<Point, Point> {
+		return {{s.first.x / scale, s.first.y/ scale}, {s.second.x/ scale, s.second.y / scale}};
 	});
 
 	// Populate map of unique nets
@@ -110,7 +111,7 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 			if (brd_part.format.size() == 4) {
 				auto iter = comp->special_outline.begin();
 				for (auto &item : brd_part.format) {
-					*iter = {float(item.x), float(item.y)};
+					*iter = {float(item.x / scale), float(item.y / scale)};
 					iter++;
 				}
 				comp->is_special_outline = true;
@@ -175,7 +176,7 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 			}
 
 			// copy position
-			pin->position = Point(brd_pin.pos.x, brd_pin.pos.y);
+			pin->position = Point(brd_pin.pos.x / scale, brd_pin.pos.y / scale);
 
 			// Set board side for pins from specific setting
 			if (brd_pin.side == BRDPinSide::Top) {
@@ -231,8 +232,8 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 			//  if(brd_pin.radius) pin->diameter = brd_pin.radius; // some format
 			//  (.fz) contains a radius field
 			//    else pin->diameter = 0.5f;
-			pin->diameter = brd_pin.radius; // some format (.fz) contains a radius field
-			pin->size = {brd_pin.size.x, brd_pin.size.y};
+			pin->diameter = brd_pin.radius / scale; // some format (.fz) contains a radius field
+			pin->size = {brd_pin.size.x / scale, brd_pin.size.y / scale};
 			pin->shape = EShapeType(brd_pin.shape);
 			pin->angle = brd_pin.angle;
 			pin->net->pins.push_back(pin);
@@ -257,10 +258,10 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 		auto track = make_shared<Track>();
 		track->board_side = transform_side_fn(board_track.side);
 		all_side.emplace(track->board_side);
-		track->position_start.x = board_track.points.first.x;
-		track->position_start.y = board_track.points.first.y;
-		track->position_end.x = board_track.points.second.x;
-		track->position_end.y = board_track.points.second.y;
+		track->position_start.x = board_track.points.first.x / scale;
+		track->position_start.y = board_track.points.first.y / scale;
+		track->position_end.x = board_track.points.second.x / scale;
+		track->position_end.y = board_track.points.second.y / scale;
 		auto net_name = string(board_track.net);
 		if (!net_name.empty()) {
 			if (!net_map.count(net_name)) {
@@ -282,9 +283,9 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 		all_side.emplace(via->board_side);
 		via->target_side = transform_side_fn(board_via.target_side);
 		all_side.emplace(via->target_side);
-		via->size = board_via.size;
-		via->position.x = board_via.pos.x;
-		via->position.y = board_via.pos.y;
+		via->size = board_via.size / scale;
+		via->position.x = board_via.pos.x / scale;
+		via->position.y = board_via.pos.y / scale;
 		auto net_name = string(board_via.net);
 		if (!net_name.empty()) {
 			if (!net_map.count(net_name)) {
@@ -300,15 +301,15 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 		}
 		vias_.push_back(via);
 	}
-	
+
 	for (auto& board_arc : m_arcs) {
 		auto arc = make_shared<Arc>();
 		arc->board_side = transform_side_fn(board_arc.side);
-		arc->radius = board_arc.radius;
+		arc->radius = board_arc.radius/ scale;
 		arc->startAngle = board_arc.startAngle;
 		arc->endAngle = board_arc.endAngle;
-		arc->position.x = board_arc.pos.x;
-		arc->position.y = board_arc.pos.y;
+		arc->position.x = board_arc.pos.x/ scale;
+		arc->position.y = board_arc.pos.y/ scale;
 		auto net_name = string(board_arc.net);
 		if (!net_name.empty()) {
 			if (!net_map.count(net_name)) {

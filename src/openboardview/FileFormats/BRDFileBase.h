@@ -113,6 +113,7 @@ class BRDFileBase {
 	unsigned int num_parts  = 0;
 	unsigned int num_pins   = 0;
 	unsigned int num_nails  = 0;
+	float scale = 1.0f;
 
 	std::vector<BRDPoint> format;
 	std::vector<std::pair<BRDPoint, BRDPoint>> outline_segments;
