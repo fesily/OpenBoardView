@@ -4424,10 +4424,10 @@ void BoardView::DrawBoard() {
 	DrawOutline(draw);
 	DrawTracks(draw);
 	DrawArcs(draw);
-	DrawVies(draw);
 	DrawParts(draw);
 	//	DrawSelectedPins(draw);
 	DrawPins(draw);
+	DrawVies(draw);
 	// DrawPinTooltips(draw);
 	DrawPartTooltips(draw);
 	DrawAnnotations(draw);
