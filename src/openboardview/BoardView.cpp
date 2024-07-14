@@ -1564,11 +1564,21 @@ void BoardView::ContextMenu(void) {
 					            partn.empty() || pin.empty() ? ' ' : ']');
 				}
 				if ((m_annotation_clicked_id < 0) || ImGui::Button("Add New##1") || m_annotationnew_retain) {
+					static char diodeNew[128];
+					static char voltageNew[128];
+					static bool pinMode = false;
 					if (m_annotationnew_retain == false) {
 						contextbufnew[0]        = 0;
 						m_annotationnew_retain  = true;
 						m_annotation_clicked_id = -1;
 						m_annotationedit_retain = false;
+						memset(diodeNew, 0, sizeof (diodeNew));
+						memset(voltageNew, 0, sizeof (voltageNew));
+						if (selection) {
+							memcpy(diodeNew, selection->diode_value.c_str(), std::min<size_t >(sizeof(diodeNew), selection->diode_value.size()));
+							memcpy(voltageNew, selection->voltage_value.c_str(), std::min<size_t>(sizeof(diodeNew), selection->voltage_value.size()));
+						}
+						pinMode = selection;
 					}
 
 					ImGui::Text("Create new annotation for: %c(%0.0f,%0.0f) %s %s%c%s%c",
@@ -1581,21 +1591,40 @@ void BoardView::ContextMenu(void) {
 					            pin.c_str(),
 					            partn.empty() || pin.empty() ? ' ' : ']');
 					ImGui::Spacing();
-					ImGui::InputTextMultiline("New##annotationnew",
-					                          contextbufnew,
-					                          sizeof(contextbufnew),
-					                          ImVec2(DPI(600), ImGui::GetTextLineHeight() * 8),
-					                          0,
-					                          NULL,
-					                          contextbufnew);
+					if (pinMode) {
+						ImGui::InputText("Diode##diodeNew",
+						                 diodeNew,
+						                 sizeof(diodeNew));
+
+						ImGui::InputText("voltage##voltageNew",
+						                 voltageNew,
+						                 sizeof(voltageNew));
+					} else {
+						ImGui::InputTextMultiline("New##annotationnew",
+						                          contextbufnew,
+						                          sizeof(contextbufnew),
+						                          ImVec2(DPI(600), ImGui::GetTextLineHeight() * 8),
+						                          0,
+						                          NULL,
+						                          contextbufnew);
+					}
+
 
 					if (ImGui::Button("Apply##1") || keybindings.isPressed("Validate")) {
 						m_tooltips_enabled     = true;
 						m_annotationnew_retain = false;
-						if (debug) fprintf(stderr, "DATA:'%s'\n\n", contextbufnew);
+						if (debug) {
+							fprintf(stderr, "DATA:'%s'\n\n", contextbufnew, diodeNew, voltageNew);
+						}
+						if (pinMode) {
+							selection->diode_value = diodeNew;
+							selection->voltage_value = voltageNew;
+						}
 
-						m_annotations.Add(m_current_side == kBoardSideBottom, tx, ty, net.c_str(), partn.c_str(), pin.c_str(), contextbufnew);
-						m_annotations.GenerateList();
+						if (!std::string_view {contextbufnew}.empty()) {
+							m_annotations.Add(m_current_side == kBoardSideBottom, tx, ty, net.c_str(), partn.c_str(), pin.c_str(), contextbufnew);
+							m_annotations.GenerateList();
+						}
 						m_needsRedraw = true;
 
 						ImGui::CloseCurrentPopup();
@@ -4687,13 +4716,14 @@ inline bool BoardView::BoardElementIsVisible(const std::shared_ptr<BoardElement>
 	if (be->board_side == kBoardSideBoth) return true;
 
 	if (auto via = dynamic_pointer_cast<Via>(be); via != nullptr) {
-		if (via->target_side == m_current_side) {
-			return true;
-		}
+		auto minLayer = std::min(via->board_side, via->target_side);
+		auto maxLayer = std::max(via->board_side, via->target_side);
+		if (m_current_side >= minLayer && m_current_side <= maxLayer) return true;
 		if (m_track_mode) {
 			const auto sz = m_board->AllSide().size();
-			if (sz + 1 - via->target_side == m_current_side)
-				return true;
+			auto minLayer1 = EBoardSide(sz + 1 - maxLayer);
+			auto maxLayer1 = EBoardSide(sz + 1 - minLayer);
+			if (m_current_side >= minLayer1 && m_current_side <= maxLayer1) return true;
 		}
 	}
 
