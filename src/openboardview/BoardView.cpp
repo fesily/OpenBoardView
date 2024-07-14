@@ -3969,7 +3969,7 @@ inline void BoardView::DrawTracks(ImDrawList *draw) {
 		ImVec2 pos_end = CoordToScreen(track->position_end.x, track->position_end.y);
 
 		uint32_t color      = (m_colors.layerColor[track->board_side][0] & cmask) | omask;
-		auto radius = 1 * m_scale;
+		auto radius = track->width * m_scale;
 		if ((m_pinSelected && m_pinSelected->net == track->net) || (m_viaSelected && m_viaSelected->net == track->net)) {
 			color      = m_colors.layerColor[track->board_side][1];
 			draw->AddLine(pos_start, pos_end, m_colors.defaultBoardSelectColor, radius*2);

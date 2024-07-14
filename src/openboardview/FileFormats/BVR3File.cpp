@@ -174,6 +174,9 @@ BVR3File::BVR3File(std::vector<char> &buf) {
 			double y = READ_DOUBLE();
 			point.y  = trunc(y);
 			track.points.first = point;
+		} else if (!strncmp(line, "TRACK_WIDTH ", 12)) {
+			p += 12;
+			track.width = READ_DOUBLE();
 		} else if (!strncmp(line, "TRACK_POINT_END ", 16)) {
 			p += 16;
 			BRDPoint point;

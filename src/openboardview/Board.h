@@ -136,6 +136,8 @@ struct Track: BoardElement {
 
 	Point position_end;
 
+	float width = 1.0f;
+
 	mutable string name;
 
 	string UniqueId() const {

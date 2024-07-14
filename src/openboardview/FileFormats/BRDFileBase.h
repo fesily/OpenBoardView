@@ -96,6 +96,7 @@ struct BRDVia {
 struct BRDTrack {
 	std::pair<BRDPoint, BRDPoint> points;
 	BRDPartMountingSide side{};
+	float width = 1.0f;
 	const char *net = "UNCONNECTED";
 };
 

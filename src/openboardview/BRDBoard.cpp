@@ -262,6 +262,7 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 		track->position_start.y = board_track.points.first.y / scale;
 		track->position_end.x = board_track.points.second.x / scale;
 		track->position_end.y = board_track.points.second.y / scale;
+		track->width = board_track.width / scale;
 		auto net_name = string(board_track.net);
 		if (!net_name.empty()) {
 			if (!net_map.count(net_name)) {
