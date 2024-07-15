@@ -411,6 +411,27 @@ int BoardView::ConfigParse(void) {
 	return 0;
 }
 
+void ReloadPinInfos(Annotations& m_annotations, Board* m_board) {
+	for (auto &pinInfo : m_annotations.GetPinInfos()) {
+		for (auto& part : m_board->Components()) {
+			if (part->name != pinInfo.partName) continue;
+			for (auto& pin : part->pins) {
+				if (pin->name != pinInfo.pinName) continue;
+				if (pinInfo.diode && strlen(pinInfo.diode) > 0)
+					pin->diode_value = pinInfo.diode;
+				if (pinInfo.voltage && strlen(pinInfo.voltage) > 0)
+					pin->voltage_value = pinInfo.voltage;
+				if (pinInfo.ohm && strlen(pinInfo.ohm) > 0)
+					pin->ohm_value = pinInfo.ohm;
+				if (pinInfo.ohm_black && strlen(pinInfo.ohm_black) > 0)
+					pin->ohm_black_value = pinInfo.ohm_black;
+				break;
+			}
+			break;
+		}
+	}
+}
+
 int BoardView::LoadFile(const filesystem::path &filepath) {
 	m_lastFileOpenWasInvalid = true;
 	m_validBoard             = false;
@@ -492,6 +513,8 @@ int BoardView::LoadFile(const filesystem::path &filepath) {
 					if (p->diameter <= 0)
 						p->diameter = 7;
 				}
+
+				ReloadPinInfos(m_annotations, m_board);
 
 				CenterView();
 				m_lastFileOpenWasInvalid = false;
@@ -1566,6 +1589,8 @@ void BoardView::ContextMenu(void) {
 				if ((m_annotation_clicked_id < 0) || ImGui::Button("Add New##1") || m_annotationnew_retain) {
 					static char diodeNew[128];
 					static char voltageNew[128];
+					static char ohmNew[128];
+					static char ohmBlackNew[128];
 					static bool pinMode = false;
 					if (m_annotationnew_retain == false) {
 						contextbufnew[0]        = 0;
@@ -1574,9 +1599,13 @@ void BoardView::ContextMenu(void) {
 						m_annotationedit_retain = false;
 						memset(diodeNew, 0, sizeof (diodeNew));
 						memset(voltageNew, 0, sizeof (voltageNew));
+						memset(ohmNew, 0, sizeof (ohmNew));
+						memset(ohmBlackNew, 0, sizeof (ohmBlackNew));
 						if (selection) {
 							memcpy(diodeNew, selection->diode_value.c_str(), std::min<size_t >(sizeof(diodeNew), selection->diode_value.size()));
 							memcpy(voltageNew, selection->voltage_value.c_str(), std::min<size_t>(sizeof(diodeNew), selection->voltage_value.size()));
+							memcpy(ohmNew, selection->ohm_value.c_str(), std::min<size_t>(sizeof(ohmNew), selection->ohm_value.size()));
+							memcpy(ohmBlackNew, selection->ohm_black_value.c_str(), std::min<size_t>(sizeof(ohmBlackNew), selection->ohm_black_value.size()));
 						}
 						pinMode = selection;
 					}
@@ -1599,6 +1628,14 @@ void BoardView::ContextMenu(void) {
 						ImGui::InputText("voltage##voltageNew",
 						                 voltageNew,
 						                 sizeof(voltageNew));
+
+						ImGui::InputText("Ohm##ohmNew",
+						                 ohmNew,
+						                 sizeof(ohmNew));
+
+						ImGui::InputText("ohmBlack##ohmBlackNew",
+						                 ohmBlackNew,
+						                 sizeof(ohmBlackNew));
 					} else {
 						ImGui::InputTextMultiline("New##annotationnew",
 						                          contextbufnew,
@@ -1614,11 +1651,14 @@ void BoardView::ContextMenu(void) {
 						m_tooltips_enabled     = true;
 						m_annotationnew_retain = false;
 						if (debug) {
-							fprintf(stderr, "DATA:'%s'\n\n", contextbufnew, diodeNew, voltageNew);
+							fprintf(stderr, "DATA:'%s'\n\n", contextbufnew);
 						}
 						if (pinMode) {
 							selection->diode_value = diodeNew;
 							selection->voltage_value = voltageNew;
+							selection->ohm_value = ohmNew;
+							selection->ohm_black_value = ohmBlackNew;
+							m_annotations.AddPinInfo(selection->component->name.c_str(), selection->name.c_str(), diodeNew, voltageNew, ohmNew, ohmBlackNew);
 						}
 
 						if (!std::string_view {contextbufnew}.empty()) {
@@ -2277,13 +2317,16 @@ void BoardView::Update() {
 	ImGui::Begin("status", nullptr, flags | ImGuiWindowFlags_NoFocusOnAppearing);
 	if (m_file && m_board && m_pinSelected) {
 		auto pin = m_pinSelected;
-		ImGui::Text("Part: %s   Pin: %s   Net: %s   Probe: %d   (%s.) Voltage: %s",
+		ImGui::Text("Part: %s   Pin: %s   Net: %s   Probe: %d   (%s.) Voltage: %s  Ohm: %s OhmBlack: %s",
 		            pin->component->name.c_str(),
 		            pin->name.c_str(),
 		            pin->net->name.c_str(),
 		            pin->net->number,
 		            pin->component->mount_type_str().c_str(),
-		            pin->voltage_value.c_str());
+		            pin->voltage_value.c_str(),
+		            pin->ohm_value.c_str(),
+		            pin->ohm_black_value.c_str()
+					);
 	} else {
 		ImVec2 spos = ImGui::GetMousePos();
 		ImVec2 pos  = ScreenToCoord(spos.x, spos.y);

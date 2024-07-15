@@ -123,11 +123,6 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 
 	// Populate pins
 	{
-		// generate dummy component as reference
-		auto comp_dummy            = make_shared<Component>();
-		comp_dummy->name           = kComponentDummyName;
-		comp_dummy->component_type = Component::kComponentTypeDummy;
-
 		// NOTE: originally the pin diameter depended on part.name[0] == 'U' ?
 		unsigned int pin_idx  = 0;
 		unsigned int part_idx = 1;
@@ -146,14 +141,12 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 			if (comp->is_dummy()) {
 				// component is virtual, i.e. "...", pin is test pad
 				pin->type      = Pin::kPinTypeTestPad;
-				pin->component = comp_dummy;
-				comp_dummy->pins.push_back(pin);
 			} else {
 				// component is regular / not virtual
 				pin->type       = Pin::kPinTypeComponent;
-				pin->component  = comp;
-				comp->pins.push_back(pin);
 			}
+			pin->component  = comp;
+			comp->pins.push_back(pin);
 
 			// determine pin number on part
 			++pin_idx;
@@ -240,12 +233,11 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 			pins_.push_back(pin);
 		}
 
-		// remove all dummy components from vector, add our official dummy
-		components_.erase(
-		    remove_if(begin(components_), end(components_), [](shared_ptr<Component> &comp) { return comp->is_dummy(); }),
-		    end(components_));
-
-		components_.push_back(comp_dummy);
+		for (auto& comp : components_) {
+			if (comp->is_dummy()) {
+				comp->name = comp->name.substr(3);
+			}
+		}
 	}
 
 	const auto transform_side_fn = [](BRDPartMountingSide side){

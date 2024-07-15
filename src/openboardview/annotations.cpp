@@ -41,7 +41,17 @@ int Annotations::Init(void) {
 	    "POSX INTEGER,"
 	    "POSY INTEGER,"
 	    "SIDE INTEGER,"
-	    "NOTE TEXT );";
+	    "NOTE TEXT );"
+		"CREATE TABLE components ("
+		"partName TEXT NOT NULL,"
+		"pinName TEXT NOT NULL,"
+		"diode TEXT DEFAULT '',"
+		"voltage TEXT DEFAULT '',"
+		"ohm TEXT DEFAULT '',"
+		"ohm_black TEXT DEFAULT '',"
+		"PRIMARY KEY (partName, pinName)"
+		");"
+		;
 
 	if (!sqldb) return 1;
 
@@ -195,4 +205,77 @@ void Annotations::Update(int id, char *note) {
 	} else {
 		if (debug) fprintf(stdout, "Records created successfully\n");
 	}
+}
+
+
+void Annotations::AddPinInfo(
+    const char *partName, const char *pinName, const char *diode, const char *voltage, const char *ohm, const char *ohm_black) {
+	char sql[10240];
+	char *zErrMsg = 0;
+	int r;
+
+	sqlite3_snprintf(sizeof(sql),
+	                 sql,
+	                 "INSERT or REPLACE into components ( partName, pinName, diode, voltage, ohm, ohm_black) \
+			values (  '%s', '%s', '%s', '%s', '%s', '%s' );",
+	                 partName,
+	                 pinName,
+	                 diode,
+	                 voltage,
+	                 ohm,
+	                 ohm_black);
+
+	r = sqlite3_exec(sqldb, sql, NULL, 0, &zErrMsg);
+	if (r != SQLITE_OK) {
+		if (debug) fprintf(stderr, "SQL error: %s\n", zErrMsg);
+		sqlite3_free(zErrMsg);
+	} else {
+		if (debug) fprintf(stdout, "Records created successfully\n");
+	}
+}
+
+typedef struct {
+    char partName[100];
+    char pinName[100];
+    char diode[100];
+    char voltage[100];
+    char ohm[100];
+    char ohm_black[100];
+} Component;
+
+std::list<pinInfo> Annotations::GetPinInfos() {
+	char *zErrMsg = 0;
+	static std::list<Component> components;
+
+	auto r = sqlite3_exec(sqldb, "select * from components", [](void *ptr, int argc, char **argv, char **azColName) {
+		components.push_back({});
+		Component *component = &components.back();
+		strcpy(component->partName, argv[0] ? argv[0] : "");
+		strcpy(component->pinName, argv[1] ? argv[1] : "");
+		strcpy(component->diode, argv[2] ? argv[2] : "");
+		strcpy(component->voltage, argv[3] ? argv[3] : "");
+		strcpy(component->ohm, argv[4] ? argv[4] : "");
+		strcpy(component->ohm_black, argv[5] ? argv[5] : "");
+		return 0;
+	}, 0, &zErrMsg);
+	std::list<pinInfo> res;
+	for (auto &component : components)
+	{
+		res.push_back(pinInfo{
+			component.partName,
+			component.pinName,
+			component.diode,
+			component.voltage,
+			component.ohm,
+			component.ohm_black
+		});
+	}
+
+	if (r != SQLITE_OK) {
+		if (debug) fprintf(stderr, "SQL error: %s\n", zErrMsg);
+		sqlite3_free(zErrMsg);
+	} else {
+		if (debug) fprintf(stdout, "Records created successfully\n");
+	}
+	return res;
 }

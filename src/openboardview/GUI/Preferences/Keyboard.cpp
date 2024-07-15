@@ -138,7 +138,6 @@ void Keyboard::render() {
 	}
 
 	if (!close_button_not_clicked) { // modal title bar close button clicked
-		printf("Close\n");
 		keybindings.readFromConfig(obvconfig);
 	}
 

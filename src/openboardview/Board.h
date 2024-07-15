@@ -232,6 +232,10 @@ struct Pin : BoardElement {
 
 	string voltage_value; // the pin voltage
 
+	string ohm_value;
+
+	string ohm_black_value;
+
 	string UniqueId() const {
 		return kBoardPinPrefix + number;
 	}

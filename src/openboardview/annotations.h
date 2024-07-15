@@ -1,5 +1,5 @@
 #include "sqlite3.h"
-
+#include <list>
 #ifndef __ANNOTATIONS
 #define __ANNOTATIONS
 #define ANNOTATION_FNAME_LEN_MAX 2048
@@ -12,10 +12,19 @@ struct Annotation {
 	bool hovered;
 };
 
+struct pinInfo {
+	const char* partName;
+	const char* pinName;
+	const char* diode;
+	const char* voltage;
+	const char* ohm;
+	const char* ohm_black;
+};
+
 struct Annotations {
 	std::string filename;
 	sqlite3 *sqldb;
-	bool debug = false;
+	bool debug = true;
 	vector<Annotation> annotations;
 
 	int Init(void);
@@ -27,6 +36,9 @@ struct Annotations {
 	void Add(int side, double x, double y, const char *net, const char *part, const char *pin, const char *note);
 	void Update(int id, char *note);
 	void GenerateList(void);
+
+	void AddPinInfo(const char* partName, const char* pinName, const char* diode, const char* voltage, const char* ohm, const char* ohm_black);
+	std::list<pinInfo> GetPinInfos();
 };
 
 #endif
