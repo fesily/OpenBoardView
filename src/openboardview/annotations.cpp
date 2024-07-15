@@ -6,6 +6,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+#include <fstream>
+#include <sstream>
+#define RYML_SINGLE_HDR_DEFINE_NOW 1
+#include "../rapidyaml.hpp"
 using namespace std;
 
 #include "annotations.h"
@@ -41,17 +45,7 @@ int Annotations::Init(void) {
 	    "POSX INTEGER,"
 	    "POSY INTEGER,"
 	    "SIDE INTEGER,"
-	    "NOTE TEXT );"
-		"CREATE TABLE components ("
-		"partName TEXT NOT NULL,"
-		"pinName TEXT NOT NULL,"
-		"diode TEXT DEFAULT '',"
-		"voltage TEXT DEFAULT '',"
-		"ohm TEXT DEFAULT '',"
-		"ohm_black TEXT DEFAULT '',"
-		"PRIMARY KEY (partName, pinName)"
-		");"
-		;
+	    "NOTE TEXT );";
 
 	if (!sqldb) return 1;
 
@@ -65,6 +59,56 @@ int Annotations::Init(void) {
 	}
 
 	return 0;
+}
+namespace c4::yml {
+void write(c4::yml::NodeRef *node, const pinInfo &pi) {
+	(*node) |= c4::yml::MAP;
+	if (!pi.diode.empty()) node->append_child() << key("diode") << pi.diode;
+	if (!pi.voltage.empty()) node->append_child() << key("voltage") << pi.voltage;
+	if (!pi.ohm.empty()) node->append_child() << key("ohm") << pi.ohm;
+	if (!pi.ohm_black.empty()) node->append_child() << key("ohm_black") << pi.ohm_black;
+}
+
+    template<>
+	bool read(const c4::yml::ConstNodeRef& node, pinInfo* pi) {
+		if (node.has_child("diode")) node["diode"] >> pi->diode;
+		if (node.has_child("voltage")) node["voltage"] >> pi->voltage;
+		if (node.has_child("ohm")) node["ohm"] >> pi->ohm;
+		if (node.has_child("ohm_black")) node["ohm_black"] >> pi->ohm_black;
+		return true;
+	}
+}
+
+static void serialize(const std::map<std::string, std::map<std::string, pinInfo>>& pinInfos, const std::string& filename) {
+    ryml::Tree tree;
+    auto root = tree.rootref();
+    
+	root << pinInfos;
+    std::ofstream fout(filename, std::ios_base::trunc|std::ios_base::out);
+    fout << tree;
+}
+
+static void deserialize(std::map<std::string, std::map<std::string, pinInfo>>& pinInfos, const std::string& filename) {
+    std::ifstream fin(filename);
+    std::stringstream buffer;
+    buffer << fin.rdbuf();
+	auto buf = buffer.str();
+    auto tree = ryml::parse_in_place(ryml::substr(buf.data()));
+    auto root = tree.rootref();
+
+    for (auto child1 : root.children()) {
+        std::string partName = {child1.key().str, child1.key().size()};
+        std::map<std::string, pinInfo> subMap;
+        for (auto child2 : child1.children()) {
+            std::string pinName = {child2.key().str, child2.key().size()};
+            pinInfo pi;
+            child2 >> pi;
+			pi.pinName = pinName;
+			pi.partName = partName;
+            subMap[pinName] = pi;
+        }
+        pinInfos[partName] = subMap;
+    }
 }
 
 int Annotations::Load(void) {
@@ -207,75 +251,19 @@ void Annotations::Update(int id, char *note) {
 	}
 }
 
-
-void Annotations::AddPinInfo(
+void Annotations::AddPinInfo(	
     const char *partName, const char *pinName, const char *diode, const char *voltage, const char *ohm, const char *ohm_black) {
-	char sql[10240];
-	char *zErrMsg = 0;
-	int r;
-
-	sqlite3_snprintf(sizeof(sql),
-	                 sql,
-	                 "INSERT or REPLACE into components ( partName, pinName, diode, voltage, ohm, ohm_black) \
-			values (  '%s', '%s', '%s', '%s', '%s', '%s' );",
-	                 partName,
-	                 pinName,
-	                 diode,
-	                 voltage,
-	                 ohm,
-	                 ohm_black);
-
-	r = sqlite3_exec(sqldb, sql, NULL, 0, &zErrMsg);
-	if (r != SQLITE_OK) {
-		if (debug) fprintf(stderr, "SQL error: %s\n", zErrMsg);
-		sqlite3_free(zErrMsg);
-	} else {
-		if (debug) fprintf(stdout, "Records created successfully\n");
-	}
+	auto& pinInfo = pinInfos[partName][pinName];
+	pinInfo.partName = partName;
+	pinInfo.pinName = pinName;
+	pinInfo.diode = diode;
+	pinInfo.voltage = voltage;
+	pinInfo.ohm = ohm;
+	pinInfo.ohm_black = ohm_black;
+	serialize(pinInfos, filename + ".yaml");
 }
 
-typedef struct {
-    char partName[100];
-    char pinName[100];
-    char diode[100];
-    char voltage[100];
-    char ohm[100];
-    char ohm_black[100];
-} Component;
-
-std::list<pinInfo> Annotations::GetPinInfos() {
-	char *zErrMsg = 0;
-	static std::list<Component> components;
-
-	auto r = sqlite3_exec(sqldb, "select * from components", [](void *ptr, int argc, char **argv, char **azColName) {
-		components.push_back({});
-		Component *component = &components.back();
-		strcpy(component->partName, argv[0] ? argv[0] : "");
-		strcpy(component->pinName, argv[1] ? argv[1] : "");
-		strcpy(component->diode, argv[2] ? argv[2] : "");
-		strcpy(component->voltage, argv[3] ? argv[3] : "");
-		strcpy(component->ohm, argv[4] ? argv[4] : "");
-		strcpy(component->ohm_black, argv[5] ? argv[5] : "");
-		return 0;
-	}, 0, &zErrMsg);
-	std::list<pinInfo> res;
-	for (auto &component : components)
-	{
-		res.push_back(pinInfo{
-			component.partName,
-			component.pinName,
-			component.diode,
-			component.voltage,
-			component.ohm,
-			component.ohm_black
-		});
-	}
-
-	if (r != SQLITE_OK) {
-		if (debug) fprintf(stderr, "SQL error: %s\n", zErrMsg);
-		sqlite3_free(zErrMsg);
-	} else {
-		if (debug) fprintf(stdout, "Records created successfully\n");
-	}
-	return res;
+void Annotations::RefreshPinInfos() {
+	pinInfos.clear();
+	deserialize(pinInfos, filename + ".yaml");
 }

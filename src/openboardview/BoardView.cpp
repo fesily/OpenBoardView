@@ -411,23 +411,18 @@ int BoardView::ConfigParse(void) {
 	return 0;
 }
 
-void ReloadPinInfos(Annotations& m_annotations, Board* m_board) {
-	for (auto &pinInfo : m_annotations.GetPinInfos()) {
-		for (auto& part : m_board->Components()) {
-			if (part->name != pinInfo.partName) continue;
-			for (auto& pin : part->pins) {
-				if (pin->name != pinInfo.pinName) continue;
-				if (pinInfo.diode && strlen(pinInfo.diode) > 0)
-					pin->diode_value = pinInfo.diode;
-				if (pinInfo.voltage && strlen(pinInfo.voltage) > 0)
-					pin->voltage_value = pinInfo.voltage;
-				if (pinInfo.ohm && strlen(pinInfo.ohm) > 0)
-					pin->ohm_value = pinInfo.ohm;
-				if (pinInfo.ohm_black && strlen(pinInfo.ohm_black) > 0)
-					pin->ohm_black_value = pinInfo.ohm_black;
-				break;
-			}
-			break;
+void ReloadPinInfos(Annotations &m_annotations, Board *m_board) {
+	m_annotations.RefreshPinInfos();
+	for (auto &part : m_board->Components()) {
+		if (m_annotations.pinInfos.count(part->name) == 0) continue;
+		auto &pins = m_annotations.pinInfos[part->name];
+		for (auto &pin : part->pins) {
+			if (pins.count(pin->name) == 0) continue;
+			auto &pinInfo = pins[pin->name];
+			if (pinInfo.diode.size() > 0) pin->diode_value = pinInfo.diode;
+			if (pinInfo.voltage.size() > 0) pin->voltage_value = pinInfo.voltage;
+			if (pinInfo.ohm.size() > 0) pin->ohm_value = pinInfo.ohm;
+			if (pinInfo.ohm_black.size() > 0) pin->ohm_black_value = pinInfo.ohm_black;
 		}
 	}
 }
