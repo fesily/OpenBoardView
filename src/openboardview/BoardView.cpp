@@ -2535,7 +2535,7 @@ void BoardView::HandleInput() {
 							float dx   = pin->position.x - pos.x;
 							float dy   = pin->position.y - pos.y;
 							float dist = dx * dx + dy * dy;
-							if ((dist < (pin->diameter * pin->diameter)) && (dist < min_dist)) {
+							if ((dist < std::max(pin->diameter * pin->diameter, min_dist))) {
 								selection = pin;
 								min_dist  = dist;
 							}
