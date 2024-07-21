@@ -131,8 +131,8 @@ void BoardView::ThemeSetStyle(const char *name) {
 		m_colors.pinDefaultColor          = byte4swap(0x4040ffff);
 		m_colors.pinDefaultTextColor      = byte4swap(0xccccccff);
 		m_colors.pinTextBackgroundColor   = byte4swap(0xffffff80);
-		m_colors.pinGroundColor           = byte4swap(0x0300C3ff);
-		m_colors.pinNotConnectedColor     = byte4swap(0xaaaaaaff);
+		m_colors.pinGroundColor           = byte4swap(0x5f5f5fff);
+		m_colors.pinNotConnectedColor     = byte4swap(0x483D8Bff);
 		m_colors.pinTestPadColor          = byte4swap(0x888888ff);
 		m_colors.pinTestPadFillColor      = byte4swap(0x6c5b1fff);
 		m_colors.pinA1PadColor            = byte4swap(0xdd0000ff);
@@ -3342,6 +3342,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 		bool fill_pin       = false;
 		bool show_text      = false;
 		bool draw_ring      = true;
+		bool show_net_name  = true;
 
 		// continue if pin is not visible anyway
 		if (!BoardElementIsVisible(pin)) continue;
@@ -3403,8 +3404,9 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 
 			if (!pin->net || pin->type == Pin::kPinTypeNotConnected) {
 				color = (m_colors.pinNotConnectedColor & cmask) | omask;
-			} else {
-				if (pin->net->is_ground) color = (m_colors.pinGroundColor & cmask) | omask;
+				fill_pin = true;
+				fill_color = color;
+				show_net_name = false;
 			}
 
 			// pin is on the same net as selected pin: highlight > rest
@@ -3432,6 +3434,13 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				threshold  = 0;
 			}
 
+			//ground pin
+			if (pin->net->is_ground) {
+				color = m_colors.pinGroundColor;
+				fill_color = color;
+				fill_pin = true;
+				show_net_name = false;
+			}
 			// Check for BGA pin '1'
 			//
 			if (pin->name == "A1") {
@@ -3560,14 +3569,16 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				}
 
 				// Background rectangle
-				draw->AddRectFilled(ImVec2(pos_net_name.x - m_scale * 0.5f, pos_net_name.y), // Begining of text with slight padding
-										ImVec2(pos_net_name.x + size_net_name.x + m_scale * 0.5f, pos_net_name.y + size_net_name.y), // End of text with slight padding
-										m_colors.pinTextBackgroundColor,
-										m_scale * 0.5f/*rounding*/);
+				if (show_net_name)
+					draw->AddRectFilled(ImVec2(pos_net_name.x - m_scale * 0.5f, pos_net_name.y), // Begining of text with slight padding
+											ImVec2(pos_net_name.x + size_net_name.x + m_scale * 0.5f, pos_net_name.y + size_net_name.y), // End of text with slight padding
+											m_colors.pinTextBackgroundColor,
+											m_scale * 0.5f/*rounding*/);
 
 				draw->ChannelsSetCurrent(kChannelText);
 				draw->AddText(font_pin_name, maxfontheight, pos_pin_name, text_color, pin->name.c_str());
-				draw->AddText(font_net_name, maxfontsize, pos_net_name, text_color, pin->net->name.c_str());
+				if (show_net_name)
+					draw->AddText(font_net_name, maxfontsize, pos_net_name, text_color, pin->net->name.c_str());
 				if (!pin->diode_value.empty()) {
 					draw->AddText(font_diode_value, maxfontheight, pos_diode_value, m_colors.annotationBoxColor, pin->diode_value.c_str());
 				}
@@ -4471,14 +4482,14 @@ void BoardView::DrawBoard() {
 	// size for the parts based on the part/pad geometry and spacing. -Inflex
 	// OutlineGenerateFill();
 	//	DrawFill(draw);
-	OutlineGenFillDraw(draw, boardFillSpacing, 1);
-	DrawOutline(draw);
 	DrawTracks(draw);
 	DrawArcs(draw);
 	DrawParts(draw);
 	//	DrawSelectedPins(draw);
 	DrawPins(draw);
 	DrawVies(draw);
+	OutlineGenFillDraw(draw, boardFillSpacing, 1);
+	DrawOutline(draw);
 	// DrawPinTooltips(draw);
 	DrawPartTooltips(draw);
 	DrawAnnotations(draw);
