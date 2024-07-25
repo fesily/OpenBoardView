@@ -327,6 +327,11 @@ struct BoardView {
 	bool m_lastFileOpenWasInvalid;
 	bool m_validBoard = false;
 	bool m_wantsQuit;
+	enum ShowMode : int {
+		ShowMode_Diode, ShowMode_Voltage, ShowMode_Ohm
+	};
+	ShowMode m_showMode = ShowMode::ShowMode_Diode;
+	bool m_infer_value = true;
 
 	std::string m_error_msg;
 

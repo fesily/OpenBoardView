@@ -93,7 +93,7 @@ static void deserialize(std::map<std::string, std::map<std::string, pinInfo>>& p
     std::stringstream buffer;
     buffer << fin.rdbuf();
 	auto buf = buffer.str();
-    auto tree = ryml::parse_in_place(ryml::substr(buf.data()));
+    auto tree = ryml::parse_in_place(ryml::substr{(char*)buf.data(), buf.size()});
     auto root = tree.rootref();
 
     for (auto child1 : root.children()) {

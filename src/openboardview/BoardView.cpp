@@ -17,18 +17,7 @@
 
 #include "BRDBoard.h"
 #include "Board.h"
-#include "FileFormats/ADFile.h"
-#include "FileFormats/ASCFile.h"
-#include "FileFormats/BDVFile.h"
-#include "FileFormats/BRD2File.h"
-#include "FileFormats/BRDAllegroFile.h"
-#include "FileFormats/BRDFile.h"
-#include "FileFormats/BVRFile.h"
 #include "FileFormats/BVR3File.h"
-#include "FileFormats/CADFile.h"
-#include "FileFormats/CSTFile.h"
-#include "FileFormats/FZFile.h"
-#include "FileFormats/GenCADFile.h"
 #include "annotations.h"
 #include "imgui/imgui.h"
 #include "imgui/misc/cpp/imgui_stdlib.h"
@@ -453,30 +442,8 @@ int BoardView::LoadFile(const filesystem::path &filepath) {
 		SetLastFileOpenName(filepath.string());
 		std::vector<char> buffer = file_as_buffer(filepath, m_error_msg);
 		if (!buffer.empty()) {
-			if (check_fileext(filepath, ".fz")) { // Since it is encrypted we cannot use the below logic. Trust the ext.
-				m_file = new FZFile(buffer, FZKey);
-			} else if (check_fileext(filepath, ".bom") || check_fileext(filepath, ".asc"))
-				m_file = new ASCFile(buffer, filepath);
-			else if (GenCADFile::verifyFormat(buffer))
-				m_file = new GenCADFile(buffer);
-			else if (ADFile::verifyFormat(buffer))
-				m_file = new ADFile(buffer);
-			else if (CADFile::verifyFormat(buffer))
-				m_file = new CADFile(buffer);
-			else if (check_fileext(filepath, ".cst"))
-				m_file = new CSTFile(buffer);
-			else if (BRDFile::verifyFormat(buffer))
-				m_file = new BRDFile(buffer);
-			else if (BRD2File::verifyFormat(buffer))
-				m_file = new BRD2File(buffer);
-			else if (BDVFile::verifyFormat(buffer))
-				m_file = new BDVFile(buffer);
-			else if (BVRFile::verifyFormat(buffer))
-				m_file = new BVRFile(buffer);
-			else if (BVR3File::verifyFormat(buffer))
+			if (BVR3File::verifyFormat(buffer))
 				m_file = new BVR3File(buffer);
-			else if (BRDAllegroFile::verifyFormat(buffer))
-				m_file = new BRDAllegroFile(buffer);
 			else
 				m_error_msg = "Unrecognized file format.";
 
@@ -2169,6 +2136,19 @@ void BoardView::Update() {
 		}
 
 		ImGui::SameLine();
+		if (ImGui::RadioButton("diode", (int*)&m_showMode, ShowMode_Diode)) {
+			m_needsRedraw = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::RadioButton("voltage", (int*)&m_showMode, ShowMode_Voltage)) {
+			m_needsRedraw = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::RadioButton("ohm", (int*)&m_showMode, ShowMode_Ohm)) {
+			m_needsRedraw = true;
+		}
+
+		ImGui::SameLine();
 		ImGui::Dummy(ImVec2(DPI(40), 1));
 
 		ImGui::SameLine();
@@ -3539,12 +3519,31 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				// Font size for net name also depends on width of full text to avoid overflowing too much and colliding with text from other pin
 				ImVec2 size_net_name = font->CalcTextSizeA(maxfontsize, FLT_MAX, 0.0f, pin->net->name.c_str());
 
-				ImVec2 size_diode_value = font->CalcTextSizeA(maxfontheight, FLT_MAX, 0.0f, pin->diode_value.c_str());
+				auto show_value_ptr = [this]{
+					switch (m_showMode) {
+						case ShowMode_Ohm:
+							return &Pin::ohm_value;
+						case ShowMode_Voltage:
+							return &Pin::voltage_value;
+						case ShowMode_Diode:
+						defualt:
+							return &Pin::diode_value;
+					}
+				}();
+				auto show_value = &((*pin).*show_value_ptr);
+				if (show_value->empty() && m_infer_value) {
+					auto iter = std::find_if(pin->net->pins.cbegin(), pin->net->pins.cend(),[show_value_ptr](auto& opin) {
+						return !((*opin).*show_value_ptr).empty();
+					});
+					if (iter != pin->net->pins.cend())
+						show_value = &((*(*iter)).*show_value_ptr);
+				}
+				ImVec2 size_show_value = font->CalcTextSizeA(maxfontheight, FLT_MAX, 0.0f, show_value->c_str());
 
 				// Show pin name above net name, full text is centered vertically
 				ImVec2 pos_pin_name   = ImVec2(pos.x - size_pin_name.x * 0.5f, pos.y - size_pin_name.y);
 				ImVec2 pos_net_name   = ImVec2(pos.x - size_net_name.x * 0.5f, pos.y);
-				ImVec2 pos_diode_value = ImVec2(pos.x - size_diode_value.x*0.5f, pos_pin_name.y - size_diode_value.y);
+				ImVec2 pos_show_value = ImVec2(pos.x - size_show_value.x*0.5f, pos_pin_name.y - size_show_value.y);
 
 				ImFont *font_pin_name = font;
 				if (maxfontheight < font->FontSize * 0.75) {
@@ -3561,11 +3560,11 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				}
 
 
-				ImFont *font_diode_value = font;
+				ImFont *font_show_value = font;
 				if (maxfontsize < font->FontSize * 0.75) {
-					font_diode_value = ImGui::GetIO().Fonts->Fonts[2]; // Use smaller font for net name
+					font_show_value = ImGui::GetIO().Fonts->Fonts[2]; // Use smaller font for net name
 				} else if (maxfontsize > font->FontSize * 1.5 && ImGui::GetIO().Fonts->Fonts[1]->FontSize > font->FontSize) {
-					font_diode_value = ImGui::GetIO().Fonts->Fonts[1]; // Use larger font for net name
+					font_show_value = ImGui::GetIO().Fonts->Fonts[1]; // Use larger font for net name
 				}
 
 				// Background rectangle
@@ -3579,8 +3578,8 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				draw->AddText(font_pin_name, maxfontheight, pos_pin_name, text_color, pin->name.c_str());
 				if (show_net_name)
 					draw->AddText(font_net_name, maxfontsize, pos_net_name, text_color, pin->net->name.c_str());
-				if (!pin->diode_value.empty()) {
-					draw->AddText(font_diode_value, maxfontheight, pos_diode_value, m_colors.annotationBoxColor, pin->diode_value.c_str());
+				if (!show_value->empty()) {
+					draw->AddText(font_show_value, maxfontheight, pos_show_value, m_colors.annotationBoxColor, show_value->c_str());
 				}
 				draw->ChannelsSetCurrent(kChannelPins);
 			}
