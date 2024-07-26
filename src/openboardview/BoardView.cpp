@@ -287,6 +287,8 @@ int BoardView::ConfigParse(void) {
 	fillParts                 = obvconfig.ParseBool("fillParts", true);
 	showPartName              = obvconfig.ParseBool("showPartName", true);
 	showPinName               = obvconfig.ParseBool("showPinName", true);
+	showPartType              = obvconfig.ParseBool("showPartType", true);
+	showMode                  = (ShowMode)obvconfig.ParseInt("showMode", ShowMode_Diode);
 	m_centerZoomSearchResults = obvconfig.ParseBool("centerZoomSearchResults", true);
 	flipMode                  = obvconfig.ParseInt("flipMode", 0);
 
@@ -403,8 +405,10 @@ int BoardView::ConfigParse(void) {
 void ReloadPinInfos(Annotations &m_annotations, Board *m_board) {
 	m_annotations.RefreshPinInfos();
 	for (auto &part : m_board->Components()) {
-		if (m_annotations.pinInfos.count(part->name) == 0) continue;
-		auto &pins = m_annotations.pinInfos[part->name];
+		if (m_annotations.partInfos.count(part->name) == 0) continue;
+		auto& partInfo = m_annotations.partInfos[part->name];
+		part->part_type = partInfo.part_type;
+		auto &pins = partInfo.pins;
 		for (auto &pin : part->pins) {
 			if (pins.count(pin->name) == 0) continue;
 			auto &pinInfo = pins[pin->name];
@@ -959,7 +963,7 @@ void BoardView::Preferences(void) {
 			ImGui::Text("FZ Key");
 			ImGui::SameLine();
 			for (i = 0; i < 44; i++) {
-				sprintf(keybuf + (i * 12),
+				snprintf(keybuf + (i * 12), (1023 - (i * 12)),
 				        "0x%08lx%s",
 				        (long unsigned int)FZKey[i],
 				        (i != 43) ? ((i + 1) % 4 ? "  " : "\r\n")
@@ -1443,45 +1447,48 @@ void BoardView::ContextMenu(void) {
 			/*
 			 * If there was a pin selected, we can extract net/part off it
 			 */
-
+			Component* selection_component = nullptr;
 			if (selection != nullptr) {
 				pin   = selection->name;
 				partn = selection->component->name;
 				net   = selection->net->name;
-			} else {
+			} 
 
-				/*
-				 * ELSE if we didn't get a pin selected, we can still
-				 * check for a part.
-				 *
-				 * There is a problem where we can be on two parts
-				 * but haven't decided what to do in such a situation
-				 */
+			/*
+				* ELSE if we didn't get a pin selected, we can still
+				* check for a part.
+				*
+				* There is a problem where we can be on two parts
+				* but haven't decided what to do in such a situation
+				*/
 
-				for (auto &part : m_board->Components()) {
-					int hit = 0;
-					//					auto p_part = part.get();
+			for (auto &part : m_board->Components()) {
+				int hit = 0;
+				//					auto p_part = part.get();
 
-					if (!BoardElementIsVisible(part)) continue;
+				if (!BoardElementIsVisible(part)) continue;
 
-					// Work out if the point is inside the hull
-					{
-						auto poly = part->outline;
+				// Work out if the point is inside the hull
+				{
+					auto poly = part->outline;
 
-						for (size_t i = 0, j = poly.size() - 1; i < poly.size(); j = i++) {
-							if (((poly[i].y > pos.y) != (poly[j].y > pos.y)) &&
-							    (pos.x < (poly[j].x - poly[i].x) * (pos.y - poly[i].y) / (poly[j].y - poly[i].y) + poly[i].x))
-								hit = !hit;
-						}
-					} // hull test
-					if (hit) {
+					for (size_t i = 0, j = poly.size() - 1; i < poly.size(); j = i++) {
+						if (((poly[i].y > pos.y) != (poly[j].y > pos.y)) &&
+							(pos.x < (poly[j].x - poly[i].x) * (pos.y - poly[i].y) / (poly[j].y - poly[i].y) + poly[i].x))
+							hit = !hit;
+					}
+				} // hull test
+				if (hit) {
+					selection_component = part.get();
+					if (selection != nullptr) {
 						partn = part->name;
 
 						ImGui::SameLine();
 					}
 
-				} // for each part
-			}
+				}
+
+			} // for each part
 
 			{
 
@@ -1553,6 +1560,7 @@ void BoardView::ContextMenu(void) {
 					static char voltageNew[128];
 					static char ohmNew[128];
 					static char ohmBlackNew[128];
+					static char partTypeNew[128];
 					static bool pinMode = false;
 					if (m_annotationnew_retain == false) {
 						contextbufnew[0]        = 0;
@@ -1563,6 +1571,10 @@ void BoardView::ContextMenu(void) {
 						memset(voltageNew, 0, sizeof (voltageNew));
 						memset(ohmNew, 0, sizeof (ohmNew));
 						memset(ohmBlackNew, 0, sizeof (ohmBlackNew));
+						memset(partTypeNew, 0, sizeof (partTypeNew));
+
+						if (selection_component)
+							memcpy(partTypeNew, selection_component->part_type.c_str(), std::min<size_t>(sizeof(partTypeNew), selection_component->part_type.size()));
 						if (selection) {
 							memcpy(diodeNew, selection->diode_value.c_str(), std::min<size_t >(sizeof(diodeNew), selection->diode_value.size()));
 							memcpy(voltageNew, selection->voltage_value.c_str(), std::min<size_t>(sizeof(diodeNew), selection->voltage_value.size()));
@@ -1582,6 +1594,18 @@ void BoardView::ContextMenu(void) {
 					            pin.c_str(),
 					            partn.empty() || pin.empty() ? ' ' : ']');
 					ImGui::Spacing();
+					ImGui::InputTextMultiline("New##annotationnew",
+						                          contextbufnew,
+						                          sizeof(contextbufnew),
+						                          ImVec2(DPI(600), ImGui::GetTextLineHeight() * 8),
+						                          0,
+						                          NULL,
+						                          contextbufnew);
+					if (selection_component) {
+						ImGui::InputText("partType##partTypeNew",
+						                 partTypeNew,
+						                 sizeof(partTypeNew));
+					}
 					if (pinMode) {
 						ImGui::InputText("Diode##diodeNew",
 						                 diodeNew,
@@ -1598,14 +1622,6 @@ void BoardView::ContextMenu(void) {
 						ImGui::InputText("ohmBlack##ohmBlackNew",
 						                 ohmBlackNew,
 						                 sizeof(ohmBlackNew));
-					} else {
-						ImGui::InputTextMultiline("New##annotationnew",
-						                          contextbufnew,
-						                          sizeof(contextbufnew),
-						                          ImVec2(DPI(600), ImGui::GetTextLineHeight() * 8),
-						                          0,
-						                          NULL,
-						                          contextbufnew);
 					}
 
 
@@ -1616,12 +1632,17 @@ void BoardView::ContextMenu(void) {
 							fprintf(stderr, "DATA:'%s'\n\n", contextbufnew);
 						}
 						if (pinMode) {
-							selection->diode_value = diodeNew;
-							selection->voltage_value = voltageNew;
-							selection->ohm_value = ohmNew;
-							selection->ohm_black_value = ohmBlackNew;
-							m_annotations.AddPinInfo(selection->component->name.c_str(), selection->name.c_str(), diodeNew, voltageNew, ohmNew, ohmBlackNew);
+							auto& pinInfo = m_annotations.NewPinInfo(selection->component->name.c_str(), selection->name.c_str());
+							pinInfo.diode = selection->diode_value = diodeNew;
+							pinInfo.voltage = selection->voltage_value = voltageNew;
+							pinInfo.ohm = selection->ohm_value = ohmNew;
+							pinInfo.ohm_black = selection->ohm_black_value = ohmBlackNew;					
 						}
+						if (selection_component) {
+							auto& partInfo = m_annotations.NewPartInfo(selection_component->name.c_str());;
+							partInfo.part_type = selection_component->part_type = partTypeNew;
+						}
+						m_annotations.SavePinInfos();
 
 						if (!std::string_view {contextbufnew}.empty()) {
 							m_annotations.Add(m_current_side == kBoardSideBottom, tx, ty, net.c_str(), partn.c_str(), pin.c_str(), contextbufnew);
@@ -2082,6 +2103,11 @@ void BoardView::Update() {
 				m_needsRedraw = true;
 			}
 
+			if (ImGui::Checkbox("Part type", &showPartType)) {
+				obvconfig.WriteBool("showPartType", showPartType);
+				m_needsRedraw = true;
+			}
+
 			ImGui::Separator();
 
 			if (ImGui::MenuItem("Info Panel", keybindings.getKeyNames("InfoPanel").c_str())) {
@@ -2136,19 +2162,6 @@ void BoardView::Update() {
 		}
 
 		ImGui::SameLine();
-		if (ImGui::RadioButton("diode", (int*)&m_showMode, ShowMode_Diode)) {
-			m_needsRedraw = true;
-		}
-		ImGui::SameLine();
-		if (ImGui::RadioButton("voltage", (int*)&m_showMode, ShowMode_Voltage)) {
-			m_needsRedraw = true;
-		}
-		ImGui::SameLine();
-		if (ImGui::RadioButton("ohm", (int*)&m_showMode, ShowMode_Ohm)) {
-			m_needsRedraw = true;
-		}
-
-		ImGui::SameLine();
 		ImGui::Dummy(ImVec2(DPI(40), 1));
 
 		ImGui::SameLine();
@@ -2196,6 +2209,24 @@ void BoardView::Update() {
 		if (ImGui::Button("CLEAR")) {
 			ClearAllHighlights();
 		}
+
+		ImGui::Text(" Show mode:");
+		ImGui::SameLine();
+		if (ImGui::RadioButton("diode", (int*)&showMode, ShowMode_Diode)) {
+			obvconfig.WriteInt("showMode", showMode);
+			m_needsRedraw = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::RadioButton("voltage", (int*)&showMode, ShowMode_Voltage)) {
+			obvconfig.WriteInt("showMode", showMode);
+			m_needsRedraw = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::RadioButton("ohm", (int*)&showMode, ShowMode_Ohm)) {
+			obvconfig.WriteInt("showMode", showMode);
+			m_needsRedraw = true;
+		}
+		
 
 		/*
 		ImGui::SameLine();
@@ -3520,18 +3551,17 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				ImVec2 size_net_name = font->CalcTextSizeA(maxfontsize, FLT_MAX, 0.0f, pin->net->name.c_str());
 
 				auto show_value_ptr = [this]{
-					switch (m_showMode) {
+					switch (showMode) {
 						case ShowMode_Ohm:
 							return &Pin::ohm_value;
 						case ShowMode_Voltage:
 							return &Pin::voltage_value;
 						case ShowMode_Diode:
-						defualt:
 							return &Pin::diode_value;
 					}
 				}();
 				auto show_value = &((*pin).*show_value_ptr);
-				if (show_value->empty() && m_infer_value) {
+				if (show_value->empty() && inferValue) {
 					auto iter = std::find_if(pin->net->pins.cbegin(), pin->net->pins.cend(),[show_value_ptr](auto& opin) {
 						return !((*opin).*show_value_ptr).empty();
 					});
@@ -3772,7 +3802,7 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 			 * overhead but it keeps the code simpler and saves us replicating things.
 			 */
 
-			if ((pincount == 3) && (abs(aspect > 0.5)) &&
+			if ((pincount == 3) && (abs(aspect) > 0.5) &&
 			    ((strchr("DQZ", p0) || (strchr("DQZ", p1)) || strcmp(part->name.c_str(), "LED")))) {
 
 				part->outline = dbox;
@@ -3954,7 +3984,7 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 			}
 
 			if (!part->is_dummy() && !part->name.empty()) {
-				std::string text  = part->name;
+				const auto& text  = showPartType && !part->part_type.empty() ? part->part_type : part->name;
 
 				/*
 				 * Draw part name inside part bounding box
@@ -3990,7 +4020,7 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 					}
 
 					draw->ChannelsSetCurrent(kChannelText);
-					draw->AddText(font, maxfontsize, pos, m_colors.partTextColor, part->name.c_str());
+					draw->AddText(font, maxfontsize, pos, m_colors.partTextColor, text.c_str());
 					draw->ChannelsSetCurrent(kChannelPolylines);
 				}
 

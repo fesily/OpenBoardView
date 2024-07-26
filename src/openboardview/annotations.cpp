@@ -61,34 +61,45 @@ int Annotations::Init(void) {
 	return 0;
 }
 namespace c4::yml {
-void write(c4::yml::NodeRef *node, const pinInfo &pi) {
-	(*node) |= c4::yml::MAP;
-	if (!pi.diode.empty()) node->append_child() << key("diode") << pi.diode;
-	if (!pi.voltage.empty()) node->append_child() << key("voltage") << pi.voltage;
-	if (!pi.ohm.empty()) node->append_child() << key("ohm") << pi.ohm;
-	if (!pi.ohm_black.empty()) node->append_child() << key("ohm_black") << pi.ohm_black;
-}
+	void write(c4::yml::NodeRef *node, const PinInfo &pi) {
+		(*node) |= c4::yml::MAP;
+		if (!pi.diode.empty()) node->append_child() << key("diode") << pi.diode;
+		if (!pi.voltage.empty()) node->append_child() << key("voltage") << pi.voltage;
+		if (!pi.ohm.empty()) node->append_child() << key("ohm") << pi.ohm;
+		if (!pi.ohm_black.empty()) node->append_child() << key("ohm_black") << pi.ohm_black;
+	}
 
-    template<>
-	bool read(const c4::yml::ConstNodeRef& node, pinInfo* pi) {
+	bool read(const c4::yml::ConstNodeRef& node, PinInfo* pi) {
 		if (node.has_child("diode")) node["diode"] >> pi->diode;
 		if (node.has_child("voltage")) node["voltage"] >> pi->voltage;
 		if (node.has_child("ohm")) node["ohm"] >> pi->ohm;
 		if (node.has_child("ohm_black")) node["ohm_black"] >> pi->ohm_black;
 		return true;
 	}
+
+	void write(c4::yml::NodeRef *node, const PartInfo &pi) {
+		(*node) |= c4::yml::MAP;
+		if (!pi.part_type.empty()) node->append_child() << key("part_type") << pi.part_type;
+		if (!pi.pins.empty()) node->append_child() << key("pins") << pi.pins;
+	}
+
+	bool read(const c4::yml::ConstNodeRef& node, PartInfo* pi) {
+		if (node.has_child("part_type")) node["part_type"] >> pi->part_type;
+		if (node.has_child("pins")) node["pins"] >> pi->pins;
+		return true;
+	}
 }
 
-static void serialize(const std::map<std::string, std::map<std::string, pinInfo>>& pinInfos, const std::string& filename) {
+static void serialize(const std::map<std::string, PartInfo>& partInfos, const std::string& filename) {
     ryml::Tree tree;
     auto root = tree.rootref();
     
-	root << pinInfos;
+	root << partInfos;
     std::ofstream fout(filename, std::ios_base::trunc|std::ios_base::out);
     fout << tree;
 }
 
-static void deserialize(std::map<std::string, std::map<std::string, pinInfo>>& pinInfos, const std::string& filename) {
+static void deserialize(std::map<std::string, PartInfo>& partInfos, const std::string& filename) {
     std::ifstream fin(filename);
     std::stringstream buffer;
     buffer << fin.rdbuf();
@@ -98,16 +109,14 @@ static void deserialize(std::map<std::string, std::map<std::string, pinInfo>>& p
 
     for (auto child1 : root.children()) {
         std::string partName = {child1.key().str, child1.key().size()};
-        std::map<std::string, pinInfo> subMap;
-        for (auto child2 : child1.children()) {
-            std::string pinName = {child2.key().str, child2.key().size()};
-            pinInfo pi;
-            child2 >> pi;
-			pi.pinName = pinName;
-			pi.partName = partName;
-            subMap[pinName] = pi;
-        }
-        pinInfos[partName] = subMap;
+		PartInfo partInfo;
+		child1 >> partInfo;
+		partInfo.partName = partName;
+		for (auto& pin: partInfo.pins) {
+			pin.second.partName = partName;
+			pin.second.pinName = pin.first;
+		}
+		partInfos[partName] = partInfo;
     }
 }
 
@@ -251,19 +260,25 @@ void Annotations::Update(int id, char *note) {
 	}
 }
 
-void Annotations::AddPinInfo(	
-    const char *partName, const char *pinName, const char *diode, const char *voltage, const char *ohm, const char *ohm_black) {
-	auto& pinInfo = pinInfos[partName][pinName];
+PartInfo& Annotations::NewPartInfo(const char* partName) {
+	auto& i = partInfos[partName];
+	i.partName = partName;
+	return i;
+}
+
+
+PinInfo& Annotations::NewPinInfo(const char* partName, const char* pinName) {
+	auto& pinInfo = NewPartInfo(partName).pins[pinName];
 	pinInfo.partName = partName;
 	pinInfo.pinName = pinName;
-	pinInfo.diode = diode;
-	pinInfo.voltage = voltage;
-	pinInfo.ohm = ohm;
-	pinInfo.ohm_black = ohm_black;
-	serialize(pinInfos, filename + ".yaml");
+	return pinInfo;
+}
+
+void Annotations::SavePinInfos() {
+	serialize(partInfos, filename + ".yaml");
 }
 
 void Annotations::RefreshPinInfos() {
-	pinInfos.clear();
-	deserialize(pinInfos, filename + ".yaml");
+	partInfos.clear();
+	deserialize(partInfos, filename + ".yaml");
 }

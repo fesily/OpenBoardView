@@ -204,6 +204,13 @@ struct BoardView {
 	bool reloadConfig  = false;
 	int pinBlank       = 0;
 	uint32_t FZKey[44] = {0};
+	enum ShowMode : int {
+		ShowMode_Diode, ShowMode_Voltage, ShowMode_Ohm
+	};
+	ShowMode showMode = ShowMode::ShowMode_Diode;
+	bool inferValue = true;
+	bool showPartType = true;
+
 
 	int ConfigParse(void);
 	uint32_t byte4swap(uint32_t x);
@@ -327,11 +334,6 @@ struct BoardView {
 	bool m_lastFileOpenWasInvalid;
 	bool m_validBoard = false;
 	bool m_wantsQuit;
-	enum ShowMode : int {
-		ShowMode_Diode, ShowMode_Voltage, ShowMode_Ohm
-	};
-	ShowMode m_showMode = ShowMode::ShowMode_Diode;
-	bool m_infer_value = true;
 
 	std::string m_error_msg;
 

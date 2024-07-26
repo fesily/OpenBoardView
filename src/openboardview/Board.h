@@ -268,6 +268,9 @@ struct Component : BoardElement {
 	// Part name as stored in board file.
 	string name;
 
+	// Part type
+	string part_type;
+
 	// Part manufacturing code (aka. part number).
 	string mfgcode;
 

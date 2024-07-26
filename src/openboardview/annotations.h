@@ -13,7 +13,7 @@ struct Annotation {
 	bool hovered;
 };
 
-struct pinInfo {
+struct PinInfo {
 	string partName;
 	string pinName;
 	string diode;
@@ -22,12 +22,18 @@ struct pinInfo {
 	string ohm_black;
 };
 
+struct PartInfo {
+	string partName;
+	string part_type;
+	map<string, PinInfo> pins;
+};
+
 struct Annotations {
 	std::string filename;
 	sqlite3 *sqldb;
 	bool debug = true;
 	vector<Annotation> annotations;
-	map<string, map<string, pinInfo>> pinInfos;
+	map<string, PartInfo> partInfos;
 
 	int Init(void);
 
@@ -39,7 +45,9 @@ struct Annotations {
 	void Update(int id, char *note);
 	void GenerateList(void);
 
-	void AddPinInfo(const char* partName, const char* pinName, const char* diode, const char* voltage, const char* ohm, const char* ohm_black);
+	PartInfo& NewPartInfo(const char* partName);
+	PinInfo& NewPinInfo(const char* partName, const char* pinName);
+	void SavePinInfos();
 	void RefreshPinInfos();
 };
 
