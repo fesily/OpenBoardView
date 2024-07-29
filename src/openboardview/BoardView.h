@@ -240,6 +240,7 @@ struct BoardView {
 
 	bool infoPanelCenterZoomNets   = true;
 	bool infoPanelSelectPartsOnNet = false;
+	bool infoPanelSelectPartsOnNetOnlyNotGround = false;
 	void CenterZoomNet(string netname);
 
 	bool m_centerZoomSearchResults = true;

@@ -407,7 +407,7 @@ void ReloadPinInfos(Annotations &m_annotations, Board *m_board) {
 	for (auto &part : m_board->Components()) {
 		if (m_annotations.partInfos.count(part->name) == 0) continue;
 		auto& partInfo = m_annotations.partInfos[part->name];
-		part->part_type = partInfo.part_type;
+		part->set_part_type(partInfo.part_type);
 		auto &pins = partInfo.pins;
 		for (auto &pin : part->pins) {
 			if (pins.count(pin->name) == 0) continue;
@@ -1233,6 +1233,9 @@ void BoardView::ShowInfoPane(void) {
 		if (ImGui::Checkbox("Select all parts on net", &infoPanelSelectPartsOnNet)) {
 			obvconfig.WriteBool("infoPanelSelectPartsOnNet", infoPanelSelectPartsOnNet);
 		}
+		if (ImGui::Checkbox("Find all parts not ground", &infoPanelSelectPartsOnNetOnlyNotGround)) {
+
+		}
 	} else {
 		ImGui::Text("No board currently loaded.");
 	}
@@ -1597,7 +1600,7 @@ void BoardView::ContextMenu(void) {
 					ImGui::InputTextMultiline("New##annotationnew",
 						                          contextbufnew,
 						                          sizeof(contextbufnew),
-						                          ImVec2(DPI(600), ImGui::GetTextLineHeight() * 8),
+						                          ImVec2(DPI(600), ImGui::GetTextLineHeight() * 2),
 						                          0,
 						                          NULL,
 						                          contextbufnew);
@@ -1640,7 +1643,8 @@ void BoardView::ContextMenu(void) {
 						}
 						if (selection_component) {
 							auto& partInfo = m_annotations.NewPartInfo(selection_component->name.c_str());;
-							partInfo.part_type = selection_component->part_type = partTypeNew;
+							partInfo.part_type = partTypeNew;
+							selection_component->set_part_type(partTypeNew);
 						}
 						m_annotations.SavePinInfos();
 
@@ -2825,13 +2829,19 @@ void BoardView::CenterZoomNet(string netname) {
 			if (p.y < min.y) min.y = p.y;
 			if (p.x > max.x) max.x = p.x;
 			if (p.y > max.y) max.y = p.y;
-
-			if ((infoPanelSelectPartsOnNet) && (pin->type != Pin::kPinTypeTestPad)) {
-				if (!contains(pin->component, m_partHighlighted)) {
-					pin->component->visualmode = pin->component->CVMSelected;
-					m_partHighlighted.push_back(pin->component);
+			if (!infoPanelSelectPartsOnNet || pin->type == Pin::kPinTypeTestPad) continue;
+			auto& cpt = pin->component;
+			if (contains(cpt, m_partHighlighted)) continue;
+			if (infoPanelSelectPartsOnNetOnlyNotGround) {
+				auto has_ground = std::any_of(cpt->pins.cbegin(), cpt->pins.cend(), [](auto& pin) {
+					return pin->net->is_ground;
+				});
+				if (has_ground && cpt->pins.size() == 2 && cpt->component_type == Component::kComponentTypeCapacitor) {
+					continue;
 				}
 			}
+			cpt->visualmode = cpt->CVMSelected;
+			m_partHighlighted.push_back(cpt);
 		}
 	}
 
@@ -3314,6 +3324,15 @@ void BoardView::DrawNetWeb(ImDrawList *draw) {
 	return;
 }
 
+static Pin* InferPin(Pin* pin, string Pin::* show_value_ptr) {
+	auto iter = std::find_if(pin->net->pins.cbegin(), pin->net->pins.cend(), [show_value_ptr](auto& opin) {
+						return !((*opin).*show_value_ptr).empty();
+					});
+	if (iter != pin->net->pins.cend())
+		return (*iter).get();
+	return nullptr;
+}
+
 inline void BoardView::DrawPins(ImDrawList *draw) {
 
 	uint32_t cmask  = 0xFFFFFFFF;
@@ -3558,17 +3577,21 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 							return &Pin::voltage_value;
 						case ShowMode_Diode:
 							return &Pin::diode_value;
+						default:
+							return &Pin::diode_value;
 					}
 				}();
-				auto show_value = &((*pin).*show_value_ptr);
-				if (show_value->empty() && inferValue) {
-					auto iter = std::find_if(pin->net->pins.cbegin(), pin->net->pins.cend(),[show_value_ptr](auto& opin) {
-						return !((*opin).*show_value_ptr).empty();
-					});
-					if (iter != pin->net->pins.cend())
-						show_value = &((*(*iter)).*show_value_ptr);
+				auto show_value = ((*pin).*show_value_ptr);
+				if (show_value.empty() && inferValue) {
+					auto inferPin = InferPin(pin.get(), show_value_ptr);
+					if (inferPin) {
+						show_value = ((*inferPin).*show_value_ptr);
+						show_value += " (";
+						show_value += inferPin->component->name;
+						show_value += ")";
+					}
 				}
-				ImVec2 size_show_value = font->CalcTextSizeA(maxfontheight, FLT_MAX, 0.0f, show_value->c_str());
+				ImVec2 size_show_value = font->CalcTextSizeA(maxfontheight, FLT_MAX, 0.0f, show_value.c_str());
 
 				// Show pin name above net name, full text is centered vertically
 				ImVec2 pos_pin_name   = ImVec2(pos.x - size_pin_name.x * 0.5f, pos.y - size_pin_name.y);
@@ -3608,8 +3631,8 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				draw->AddText(font_pin_name, maxfontheight, pos_pin_name, text_color, pin->name.c_str());
 				if (show_net_name)
 					draw->AddText(font_net_name, maxfontsize, pos_net_name, text_color, pin->net->name.c_str());
-				if (!show_value->empty()) {
-					draw->AddText(font_show_value, maxfontheight, pos_show_value, m_colors.annotationBoxColor, show_value->c_str());
+				if (!show_value.empty()) {
+					draw->AddText(font_show_value, maxfontheight, pos_show_value, m_colors.annotationBoxColor, show_value.c_str());
 				}
 				draw->ChannelsSetCurrent(kChannelPins);
 			}

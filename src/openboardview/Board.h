@@ -256,7 +256,8 @@ struct Component : BoardElement {
 		kComponentTypeTransistor,
 		kComponentTypeCrystal,
 		kComponentTypeJellyBean,
-		kComponentTypeBoard
+		kComponentTypeBoard,
+		kComponentTypeInductor 
 	};
 
 	// How the part is attached to the board, either SMD, .., through-hole?
@@ -311,6 +312,26 @@ struct Component : BoardElement {
 
 	string UniqueId() const {
 		return kBoardComponentPrefix + name;
+	}
+
+	void set_part_type(const string& part_type) {
+		if (part_type.empty()) return;
+		const auto t = part_type[0];
+		switch (t) {
+			case 'R':
+			case 'r':
+				component_type = kComponentTypeResistor;
+				break;
+			case 'c':
+			case 'C':
+				component_type = kComponentTypeCapacitor;
+				break;
+			case 'l':
+			case 'L':
+				component_type = kComponentTypeInductor;
+				break;
+		}
+		this->part_type = part_type;
 	}
 
 	std::vector<const std::string *> searchableStringDetails() const;
