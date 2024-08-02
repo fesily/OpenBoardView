@@ -2216,6 +2216,10 @@ void BoardView::Update() {
 
 		ImGui::Text(" Show mode:");
 		ImGui::SameLine();
+		if (ImGui::RadioButton("None", (int*)&showMode, ShowMode_None)) {
+			obvconfig.WriteInt("showMode", showMode);
+			m_needsRedraw = true;
+		}
 		if (ImGui::RadioButton("diode", (int*)&showMode, ShowMode_Diode)) {
 			obvconfig.WriteInt("showMode", showMode);
 			m_needsRedraw = true;
@@ -3569,26 +3573,29 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				// Font size for net name also depends on width of full text to avoid overflowing too much and colliding with text from other pin
 				ImVec2 size_net_name = font->CalcTextSizeA(maxfontsize, FLT_MAX, 0.0f, pin->net->name.c_str());
 
-				auto show_value_ptr = [this]{
-					switch (showMode) {
-						case ShowMode_Ohm:
-							return &Pin::ohm_value;
-						case ShowMode_Voltage:
-							return &Pin::voltage_value;
-						case ShowMode_Diode:
-							return &Pin::diode_value;
-						default:
-							return &Pin::diode_value;
-					}
-				}();
-				auto show_value = ((*pin).*show_value_ptr);
-				if (show_value.empty() && inferValue) {
-					auto inferPin = InferPin(pin.get(), show_value_ptr);
-					if (inferPin) {
-						show_value = ((*inferPin).*show_value_ptr);
-						show_value += " (";
-						show_value += inferPin->component->name;
-						show_value += ")";
+				string show_value;
+				if (showMode != ShowMode_None) {
+					auto show_value_ptr = [this]{
+						switch (showMode) {
+							case ShowMode_Ohm:
+								return &Pin::ohm_value;
+							case ShowMode_Voltage:
+								return &Pin::voltage_value;
+							case ShowMode_Diode:
+								return &Pin::diode_value;
+							default:
+								return &Pin::diode_value;
+						}
+					}();
+					show_value = ((*pin).*show_value_ptr);
+					if (show_value.empty() && inferValue) {
+						auto inferPin = InferPin(pin.get(), show_value_ptr);
+						if (inferPin) {
+							show_value = ((*inferPin).*show_value_ptr);
+							show_value += " (";
+							show_value += inferPin->component->name;
+							show_value += ")";
+						}
 					}
 				}
 				ImVec2 size_show_value = font->CalcTextSizeA(maxfontheight, FLT_MAX, 0.0f, show_value.c_str());

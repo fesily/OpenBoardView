@@ -205,7 +205,7 @@ struct BoardView {
 	int pinBlank       = 0;
 	uint32_t FZKey[44] = {0};
 	enum ShowMode : int {
-		ShowMode_Diode, ShowMode_Voltage, ShowMode_Ohm
+		ShowMode_None, ShowMode_Diode, ShowMode_Voltage, ShowMode_Ohm
 	};
 	ShowMode showMode = ShowMode::ShowMode_Diode;
 	bool inferValue = true;
