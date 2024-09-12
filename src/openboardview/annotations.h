@@ -13,6 +13,13 @@ struct Annotation {
 	bool hovered;
 };
 
+
+enum class PinVoltageFlag {
+	unknown,
+	input,
+	output,
+};
+
 struct PinInfo {
 	string partName;
 	string pinName;
@@ -20,11 +27,17 @@ struct PinInfo {
 	string voltage;
 	string ohm;
 	string ohm_black;
+	PinVoltageFlag voltage_flag = PinVoltageFlag::unknown;
 };
 
+enum class PartAngle {
+	unknown,
+	_270,
+};
 struct PartInfo {
 	string partName;
 	string part_type;
+	PartAngle angle = PartAngle::unknown;
 	map<string, PinInfo> pins;
 };
 

@@ -26,6 +26,8 @@
 #include "PartList.h"
 #include "vectorhulls.h"
 
+#include "../linalg.hpp"
+
 using namespace std;
 using namespace std::placeholders;
 
@@ -401,7 +403,19 @@ int BoardView::ConfigParse(void) {
 
 	return 0;
 }
-
+static vector<vector<Pin*>> rotateMatrix90Counterclockwise(const vector<vector<Pin*>>& matrix) {
+    int m = matrix.size();
+    int n = matrix[0].size();
+    vector<vector<Pin*>> result(n, vector<Pin*>(m));
+    
+    for (int i = 0; i < m; ++i) {
+        for (int j = 0; j < n; ++j) {
+            result[n - 1 - j][i] = matrix[i][j];
+        }
+    }
+    
+    return result;
+}
 void ReloadPinInfos(Annotations &m_annotations, Board *m_board) {
 	m_annotations.RefreshPinInfos();
 	for (auto &part : m_board->Components()) {
@@ -416,6 +430,88 @@ void ReloadPinInfos(Annotations &m_annotations, Board *m_board) {
 			if (pinInfo.voltage.size() > 0) pin->voltage_value = pinInfo.voltage;
 			if (pinInfo.ohm.size() > 0) pin->ohm_value = pinInfo.ohm;
 			if (pinInfo.ohm_black.size() > 0) pin->ohm_black_value = pinInfo.ohm_black;
+			if (pinInfo.voltage_flag != PinVoltageFlag::unknown) pin->voltage_flag = pinInfo.voltage_flag;
+		}
+		part->angle = partInfo.angle;
+		if (partInfo.angle != PartAngle::unknown) {
+			auto& pins = part->pins;
+			// build from pins
+			auto A1PinIter = std::find_if(pins.cbegin(), pins.cend(), [](auto& p) {
+				return p->name == "A1";
+			});
+			if (A1PinIter != pins.cend()) {
+				auto& a1Pin = *A1PinIter;
+				auto& max = *std::max_element(pins.cbegin(), pins.cend(), [](auto& l, auto& r){
+					return l->name < r->name;
+				});
+
+				using namespace linalg::aliases;
+				using transformMatrix_t = int3x3;
+
+				transformMatrix_t logicScreenToDataMatrix = {
+				    {1, 0, 0},
+				    {0, -1, 0},
+				    {0, 0, 1},
+				};
+
+				auto key = max->name;
+				auto m = std::atoi(key.data() + 1); // index begin  1
+				auto n = key[0] - 'A' + 1; //index begin 0
+				if (key[0] > 'I')
+					n--;
+
+				auto aMaxIter = std::find_if(pins.cbegin(), pins.cend(), [t = "A" + std::to_string(m)](auto& p){
+					return p->name == t;
+				});
+				if (aMaxIter == pins.cend()) {
+					return;
+				}
+
+				auto& aMax = *aMaxIter;
+				float2 xAsixVec{a1Pin->position.x - aMax->position.x, a1Pin->position.y - aMax->position.y};
+				transformMatrix_t logicScreenToA1LogicMatrix;
+				if (abs(xAsixVec.x) > abs(xAsixVec.y)) {
+					logicScreenToA1LogicMatrix = {
+						{a1Pin->position.x > max->position.x ? -1 : 1, 0, xAsixVec.x > 0 ? n : -n},
+						{0, a1Pin->position.y > max->position.y ? -1 : 1, 0},
+						{0, 0, 1},
+					};
+				} else {
+					return;
+				}
+				
+				
+				auto o1 = linalg::mul(logicScreenToA1LogicMatrix, int3{n, m, 1});
+				transformMatrix_t a1LogincToLogicScreenMatrix = linalg::inverse(logicScreenToA1LogicMatrix);
+				
+				auto orgin = linalg::mul(a1LogincToLogicScreenMatrix, int3{0, 0, 1});
+				vector<vector<Pin*>> matrixPin(n, vector<Pin*>(m));
+				auto printMatrix = [](const auto& matrix) {
+					auto n = matrix.size();
+					auto m = matrix[0].size();
+					for (int i=0;i<n;i++) {
+						for (int j=0;j<m;j++) {
+							auto pin = matrix[i][j];
+							printf("%s ", pin ? pin->name.c_str(): "__");
+						}
+						printf("\n");
+					}
+				};
+
+				for (auto &pin : part->pins) {
+					auto& name = pin->name;
+					auto m1 = std::atoi(name.data() + 1) - 1;
+					auto n1 = name[0] - 'A';
+					if (name[0] > 'I')
+						n1--;
+						
+					if (partInfo.angle == PartAngle::_270) {
+						
+					}
+					matrixPin[n1][m1] = pin.get();
+				}
+				printMatrix(matrixPin);
+			}
 		}
 	}
 }
@@ -1564,7 +1660,17 @@ void BoardView::ContextMenu(void) {
 					static char ohmNew[128];
 					static char ohmBlackNew[128];
 					static char partTypeNew[128];
-					static bool pinMode = false;
+					static PinVoltageFlag voltageFlagNew;
+					static bool pinMode;
+					static bool inferValueMode;
+					static PartAngle partAngleNew;
+					auto init_fun = [](Pin* selection) {
+						memcpy(diodeNew, selection->diode_value.c_str(), std::min<size_t >(sizeof(diodeNew), selection->diode_value.size()));
+						memcpy(voltageNew, selection->voltage_value.c_str(), std::min<size_t>(sizeof(diodeNew), selection->voltage_value.size()));
+						memcpy(ohmNew, selection->ohm_value.c_str(), std::min<size_t>(sizeof(ohmNew), selection->ohm_value.size()));
+						memcpy(ohmBlackNew, selection->ohm_black_value.c_str(), std::min<size_t>(sizeof(ohmBlackNew), selection->ohm_black_value.size()));
+						voltageFlagNew = selection->voltage_flag;
+					};
 					if (m_annotationnew_retain == false) {
 						contextbufnew[0]        = 0;
 						m_annotationnew_retain  = true;
@@ -1575,14 +1681,15 @@ void BoardView::ContextMenu(void) {
 						memset(ohmNew, 0, sizeof (ohmNew));
 						memset(ohmBlackNew, 0, sizeof (ohmBlackNew));
 						memset(partTypeNew, 0, sizeof (partTypeNew));
-
-						if (selection_component)
+						voltageFlagNew = PinVoltageFlag::unknown;
+						inferValueMode = false;
+						partAngleNew = PartAngle::unknown;
+						if (selection_component) {
 							memcpy(partTypeNew, selection_component->part_type.c_str(), std::min<size_t>(sizeof(partTypeNew), selection_component->part_type.size()));
+							partAngleNew = selection_component->angle;
+						}
 						if (selection) {
-							memcpy(diodeNew, selection->diode_value.c_str(), std::min<size_t >(sizeof(diodeNew), selection->diode_value.size()));
-							memcpy(voltageNew, selection->voltage_value.c_str(), std::min<size_t>(sizeof(diodeNew), selection->voltage_value.size()));
-							memcpy(ohmNew, selection->ohm_value.c_str(), std::min<size_t>(sizeof(ohmNew), selection->ohm_value.size()));
-							memcpy(ohmBlackNew, selection->ohm_black_value.c_str(), std::min<size_t>(sizeof(ohmBlackNew), selection->ohm_black_value.size()));
+							init_fun(selection);
 						}
 						pinMode = selection;
 					}
@@ -1608,6 +1715,12 @@ void BoardView::ContextMenu(void) {
 						ImGui::InputText("partType##partTypeNew",
 						                 partTypeNew,
 						                 sizeof(partTypeNew));
+
+						ImGui::Text("Part Angle: ");
+						ImGui::SameLine();
+						ImGui::RadioButton("unknown", (int*)&partAngleNew, (int)PartAngle::unknown);
+						ImGui::SameLine();
+						ImGui::RadioButton("270", (int*)&partAngleNew, (int)PartAngle::_270);
 					}
 					if (pinMode) {
 						ImGui::InputText("Diode##diodeNew",
@@ -1625,6 +1738,14 @@ void BoardView::ContextMenu(void) {
 						ImGui::InputText("ohmBlack##ohmBlackNew",
 						                 ohmBlackNew,
 						                 sizeof(ohmBlackNew));
+						ImGui::Text("Voltage Flag: ");
+						ImGui::SameLine();
+						ImGui::RadioButton("unknown", (int*)&voltageFlagNew, (int)PinVoltageFlag::unknown);
+						ImGui::SameLine();
+						ImGui::RadioButton("Input", (int*)&voltageFlagNew, (int)PinVoltageFlag::input);
+						ImGui::SameLine();
+						ImGui::RadioButton("Output", (int*)&voltageFlagNew, (int)PinVoltageFlag::output);
+
 					}
 
 
@@ -1640,11 +1761,15 @@ void BoardView::ContextMenu(void) {
 							pinInfo.voltage = selection->voltage_value = voltageNew;
 							pinInfo.ohm = selection->ohm_value = ohmNew;
 							pinInfo.ohm_black = selection->ohm_black_value = ohmBlackNew;					
+							pinInfo.voltage_flag = selection->voltage_flag = voltageFlagNew;					
 						}
 						if (selection_component) {
 							auto& partInfo = m_annotations.NewPartInfo(selection_component->name.c_str());;
 							partInfo.part_type = partTypeNew;
 							selection_component->set_part_type(partTypeNew);
+							if (partAngleNew != selection_component->angle) {
+								partInfo.angle = selection_component->angle = partAngleNew;
+							}
 						}
 						m_annotations.SavePinInfos();
 
@@ -3489,6 +3614,10 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 					fill_pin           = m_colors.pinA1PadColor;
 					draw_ring          = false;
 				}
+			}
+
+			if (pin->voltage_flag != PinVoltageFlag::unknown) {
+				
 			}
 
 			// don't show text if it doesn't make sense

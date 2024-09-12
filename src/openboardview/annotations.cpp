@@ -8,6 +8,7 @@
 #include <vector>
 #include <fstream>
 #include <sstream>
+#include <concepts>
 #define RYML_SINGLE_HDR_DEFINE_NOW 1
 #include "../rapidyaml.hpp"
 using namespace std;
@@ -67,6 +68,7 @@ namespace c4::yml {
 		if (!pi.voltage.empty()) node->append_child() << key("voltage") << pi.voltage;
 		if (!pi.ohm.empty()) node->append_child() << key("ohm") << pi.ohm;
 		if (!pi.ohm_black.empty()) node->append_child() << key("ohm_black") << pi.ohm_black;
+		if (pi.voltage_flag != PinVoltageFlag::unknown) node->append_child() << key("voltage_flag") << pi.voltage_flag;
 	}
 
 	bool read(const c4::yml::ConstNodeRef& node, PinInfo* pi) {
@@ -74,6 +76,7 @@ namespace c4::yml {
 		if (node.has_child("voltage")) node["voltage"] >> pi->voltage;
 		if (node.has_child("ohm")) node["ohm"] >> pi->ohm;
 		if (node.has_child("ohm_black")) node["ohm_black"] >> pi->ohm_black;
+		if (node.has_child("voltage_flag")) node["voltage_flag"] >> pi->voltage_flag;
 		return true;
 	}
 
@@ -81,11 +84,13 @@ namespace c4::yml {
 		(*node) |= c4::yml::MAP;
 		if (!pi.part_type.empty()) node->append_child() << key("part_type") << pi.part_type;
 		if (!pi.pins.empty()) node->append_child() << key("pins") << pi.pins;
+		if (pi.angle != PartAngle::unknown) node->append_child() << key("angle") << pi.angle;
 	}
 
 	bool read(const c4::yml::ConstNodeRef& node, PartInfo* pi) {
 		if (node.has_child("part_type")) node["part_type"] >> pi->part_type;
 		if (node.has_child("pins")) node["pins"] >> pi->pins;
+		if (node.has_child("angle")) node["angle"] >> pi->angle;
 		return true;
 	}
 }

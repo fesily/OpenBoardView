@@ -13454,6 +13454,8 @@ inline size_t atod_first(csubstr str, double * C4_RESTRICT v) noexcept
 // are not any of the fixed length types above
 #define _C4_IF_NOT_FIXED_LENGTH_I(T, ty) C4_ALWAYS_INLINE typename std::enable_if<std::  is_signed<T>::value && !is_fixed_length<T>::value_i, ty>
 #define _C4_IF_NOT_FIXED_LENGTH_U(T, ty) C4_ALWAYS_INLINE typename std::enable_if<std::is_unsigned<T>::value && !is_fixed_length<T>::value_u, ty>
+#define _C4_IF_ENUM_I(T, ty) C4_ALWAYS_INLINE typename std::enable_if<std::is_enum_v<T> && std::  is_signed<std::underlying_type_t<T>>::value, ty>
+#define _C4_IF_ENUM_U(T, ty) C4_ALWAYS_INLINE typename std::enable_if<std::is_enum_v<T> && std::is_unsigned<std::underlying_type_t<T>>::value, ty>
 /** @endcond*/
 
 
@@ -13560,6 +13562,8 @@ C4_ALWAYS_INLINE size_t to_chars(substr buf,  int64_t v) noexcept { return itoa(
 C4_ALWAYS_INLINE size_t to_chars(substr buf,    float v) noexcept { return ftoa(buf, v); }
 C4_ALWAYS_INLINE size_t to_chars(substr buf,   double v) noexcept { return dtoa(buf, v); }
 
+template <class T> _C4_IF_ENUM_I(T, size_t)::type to_chars(substr buf, T v) noexcept { return itoa(buf, std::underlying_type_t<T>(v)); }
+template <class T> _C4_IF_ENUM_U(T, size_t)::type to_chars(substr buf, T v) noexcept { return write_dec(buf, std::underlying_type_t<T>(v)); }
 template <class T> _C4_IF_NOT_FIXED_LENGTH_I(T, size_t)::type to_chars(substr buf, T v) noexcept { return itoa(buf, v); }
 template <class T> _C4_IF_NOT_FIXED_LENGTH_U(T, size_t)::type to_chars(substr buf, T v) noexcept { return write_dec(buf, v); }
 template <class T>
@@ -13595,6 +13599,8 @@ C4_ALWAYS_INLINE bool from_chars(csubstr buf,  int64_t *C4_RESTRICT v) noexcept 
 C4_ALWAYS_INLINE bool from_chars(csubstr buf,    float *C4_RESTRICT v) noexcept { return atof(buf, v); }
 C4_ALWAYS_INLINE bool from_chars(csubstr buf,   double *C4_RESTRICT v) noexcept { return atod(buf, v); }
 
+template <class T> _C4_IF_ENUM_I(T, bool  )::type from_chars(csubstr buf, T *C4_RESTRICT v) noexcept { return atoi(buf, (std::underlying_type_t<T>*)v); }
+template <class T> _C4_IF_ENUM_U(T, bool  )::type from_chars(csubstr buf, T *C4_RESTRICT v) noexcept { return atou(buf, (std::underlying_type_t<T>*)v); }
 template <class T> _C4_IF_NOT_FIXED_LENGTH_I(T, bool  )::type from_chars(csubstr buf, T *C4_RESTRICT v) noexcept { return atoi(buf, v); }
 template <class T> _C4_IF_NOT_FIXED_LENGTH_U(T, bool  )::type from_chars(csubstr buf, T *C4_RESTRICT v) noexcept { return atou(buf, v); }
 template <class T>

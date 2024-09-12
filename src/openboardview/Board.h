@@ -20,6 +20,7 @@
 #define kBoardElementNameLength 127
 
 using namespace std;
+#include "annotations.h"
 
 struct Point;
 struct BoardElement;
@@ -236,6 +237,8 @@ struct Pin : BoardElement {
 
 	string ohm_black_value;
 
+	PinVoltageFlag voltage_flag = PinVoltageFlag::unknown;
+
 	string UniqueId() const {
 		return kBoardPinPrefix + number;
 	}
@@ -290,6 +293,8 @@ struct Component : BoardElement {
 	ImVec2 omin, omax;
 	ImVec2 centerpoint;
 	double expanse = 0.0f; // quick measure of distance between pins.
+
+	PartAngle angle = PartAngle::unknown;
 
 	// enum ComponentVisualModes { CVMNormal = 0, CVMSelected, CVMShowPins, CVMModeCount };
 	enum ComponentVisualModes { CVMNormal = 0, CVMSelected, CVMModeCount };
