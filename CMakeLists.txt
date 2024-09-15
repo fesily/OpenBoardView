@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.13)
 # We now use project() VERSION parameter
 if(POLICY CMP0048)
 	cmake_policy(SET CMP0048 NEW)
@@ -94,9 +94,7 @@ set(CMAKE_MACOSX_RPATH ON)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall")
-if(MSVC)
-	add_compile_options("-MT$<$<CONFIG:Debug>:d>") # Link everything statically with MSVC (generator expression to use -MT in release and -MTd in debug mode)
-else()
+if(NOT MSVC)
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wextra")
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wextra -Werror=format-security")
 endif()

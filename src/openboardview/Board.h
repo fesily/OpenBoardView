@@ -171,7 +171,7 @@ struct Via: BoardElement {
 	Net *net;
 };
 
-struct Arc: BoardElement {
+struct PcbArc: BoardElement {
 
 	Point position;
 
@@ -354,7 +354,7 @@ class Board {
 	virtual SharedVector<Point> &OutlinePoints()                    = 0;
 	virtual SharedVector<Track> &Tracks()                           = 0;
 	virtual SharedVector<Via> &Vias()                               = 0;
-	virtual SharedVector<Arc> &arcs()                               = 0;
+	virtual SharedVector<PcbArc> &arcs()                               = 0;
 	virtual std::vector<std::pair<Point, Point>> &OutlineSegments() = 0;
 	virtual std::vector<EBoardSide> &AllSide() = 0;
 

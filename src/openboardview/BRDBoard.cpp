@@ -296,7 +296,7 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 	}
 
 	for (auto& board_arc : m_arcs) {
-		auto arc = make_shared<Arc>();
+		auto arc = make_shared<PcbArc>();
 		arc->board_side = transform_side_fn(board_arc.side);
 		arc->radius = board_arc.radius/ scale;
 		arc->startAngle = board_arc.startAngle;
@@ -366,7 +366,7 @@ SharedVector<Via> &BRDBoard::Vias() {
 	return vias_;
 }
 
-SharedVector<Arc> &BRDBoard::arcs() {
+SharedVector<PcbArc> &BRDBoard::arcs() {
 	return arcs_;
 }
 

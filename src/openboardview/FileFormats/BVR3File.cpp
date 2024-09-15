@@ -38,7 +38,7 @@ BVR3File::BVR3File(std::vector<char> &buf) {
 	auto buffer_size = buf.size();
 
 	char *saved_locale = setlocale(LC_NUMERIC, "C"); // Use '.' as delimiter for strtod
-
+	
 	ENSURE_OR_FAIL(buffer_size > 4, error_msg, return);
 	size_t file_buf_size = 3 * (1 + buffer_size);
 	file_buf             = (char *)calloc(1, file_buf_size);

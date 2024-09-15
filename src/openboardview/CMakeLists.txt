@@ -194,8 +194,10 @@ if(GIO_FOUND)
 	)
 endif()
 
-
-if(MINGW)
+if(MSVC)
+target_link_libraries(${PROJECT_NAME_LOWER} SDL2-static)
+target_include_directories(${PROJECT_NAME_LOWER} PRIVATE ${SDL2_INCLUDE_DIRS})
+elseif(MINGW)
 target_link_libraries(${PROJECT_NAME_LOWER}
 	SDL2::SDL2-static
 )
@@ -204,9 +206,13 @@ target_link_libraries(${PROJECT_NAME_LOWER}
 	SDL2::SDL2
 )
 endif()
+if(MSVC)
+target_link_libraries(${PROJECT_NAME_LOWER} SDL2main)
+else()
 target_link_libraries(${PROJECT_NAME_LOWER}
 	SDL2::SDL2main
 )
+endif()
 
 install(TARGETS
 	${PROJECT_NAME_LOWER}

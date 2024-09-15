@@ -151,16 +151,17 @@ struct BoardView {
 	SpellCorrector scparts;
 	KeyBindings keybindings;
 	Preferences::Keyboard keyboardPreferences{keybindings, obvconfig};
-	Preferences::BoardSettings boardSettings{keybindings, backgroundImage, pdfFile};
 
 #ifdef ENABLE_PDFBRIDGE_EVINCE
 	PDFBridgeEvince pdfBridge;
 #elif defined(_WIN32)
 	PDFBridgeSumatra &pdfBridge = PDFBridgeSumatra::GetInstance(obvconfig);
+	PDFFile pdfFile{pdfBridge};
 #else
 	PDFBridge pdfBridge; // Dummy implementation
-#endif
 	PDFFile pdfFile{pdfBridge};
+#endif
+	Preferences::BoardSettings boardSettings{keybindings, backgroundImage, pdfFile};
 
 	bool debug                   = false;
 	int history_file_has_changed = 0;

@@ -77,18 +77,13 @@ elseif(WIN32 AND NOT MINGW)
 	add_subdirectory(SDL2)
 	set(SDL2_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/SDL2/include")
 	set(SDL2_LIBRARIES "SDL2main" "SDL2-static")
-	if(CMAKE_CL_64)
-		set(SDL2_LIBRARY_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/SDL2/lib/x64")
-	else()
-		set(SDL2_LIBRARY_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/SDL2/lib/x86")
-	endif()
 else()
 	pkg_check_modules(SDL2 REQUIRED sdl2)
 endif()
 add_definitions(-DENABLE_SDL2)
 
 # Create namespace targets for system with SDL2 older than 2.0.12
-if(NOT TARGET SDL2::SDL2)
+if(NOT MSVC AND NOT TARGET SDL2::SDL2)
 	add_library(SDL2::SDL2 SHARED IMPORTED)
 	find_library(SDL2_LIBRARY SDL2)
 	set_target_properties(SDL2::SDL2 PROPERTIES
@@ -154,7 +149,9 @@ add_library(imgui STATIC ${SOURCES})
 target_link_libraries(imgui
 	${GLAD_LIBRARIES}
 )
-if(MINGW)
+if(MSVC)
+target_include_directories(imgui PRIVATE ${SDL2_INCLUDE_DIRS})
+elseif(MINGW)
 target_link_libraries(imgui
 	SDL2::SDL2-static
 )
@@ -190,6 +187,10 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSI
 	message(CHECK_PASS "available")
 	set(CMAKE_CXX_STANDARD 17)
 	set(FILESYSTEM_LIBRARIES stdc++fs)
+	add_definitions(-DWITH_STD_FILESYSTEM)
+elseif (MSVC)
+	set(CMAKE_CXX_STANDARD 17)
+	add_compile_options(/Zc:__cplusplus)
 	add_definitions(-DWITH_STD_FILESYSTEM)
 else() # Other compiler/version are unsupported, use external lib
 	message(CHECK_FAIL "not available, using ghc::filesystem")
