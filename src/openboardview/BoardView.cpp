@@ -1718,7 +1718,7 @@ void BoardView::ContextMenu(void) {
 
 						ImGui::Text("Part Angle: ");
 						ImGui::SameLine();
-						ImGui::RadioButton("unknown", (int*)&partAngleNew, (int)PartAngle::unknown);
+						ImGui::RadioButton("Unknown", (int*)&partAngleNew, (int)PartAngle::unknown);
 						ImGui::SameLine();
 						ImGui::RadioButton("270", (int*)&partAngleNew, (int)PartAngle::_270);
 					}
@@ -1745,7 +1745,7 @@ void BoardView::ContextMenu(void) {
 						ImGui::RadioButton("Input", (int*)&voltageFlagNew, (int)PinVoltageFlag::input);
 						ImGui::SameLine();
 						ImGui::RadioButton("Output", (int*)&voltageFlagNew, (int)PinVoltageFlag::output);
-
+						
 					}
 
 
