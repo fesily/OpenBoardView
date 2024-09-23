@@ -3645,6 +3645,11 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				std::swap(w, h);
 			}
 
+			if (m_rotation == 1 || m_rotation == 3) {
+				std::swap(w, h);
+			}
+
+
 			/*
 			 * if we're going to be showing the text of a pin, then we really
 			 * should make sure that the drawn pin is at least as big as a single
@@ -4292,10 +4297,12 @@ inline void BoardView::DrawArcs(ImDrawList *draw) {
 
 		uint32_t color      = (m_colors.layerColor[arc->board_side][0] & cmask) | omask;
 		auto radius = arc->radius * m_scale;
+		auto startAngle = arc->startAngle - M_PI / 2 * m_rotation;
+		auto endAngle = arc->endAngle - M_PI / 2 * m_rotation;
 		if ((m_pinSelected && m_pinSelected->net == arc->net ) || (m_viaSelected && m_viaSelected->net == arc->net)) {
-			DrawArc(draw, pos, radius, m_colors.defaultBoardSelectColor, arc->startAngle, arc->endAngle, 50, m_scale*1.5);
+			DrawArc(draw, pos, radius, m_colors.defaultBoardSelectColor, startAngle, endAngle, 50, m_scale*1.5);
 		}
-		DrawArc(draw, pos, radius, color, arc->startAngle, arc->endAngle, 50, m_scale);
+		DrawArc(draw, pos, radius, color, startAngle, endAngle, 50, m_scale);
 		//draw->AddText(pos, color, std::to_string(arc->startAngle * 180 / 3.1415).c_str());
 		//draw->AddText(ImVec2(pos.x, pos.y - 10), color, std::to_string(arc->endAngle * 180 / 3.1415).c_str());
 	}
