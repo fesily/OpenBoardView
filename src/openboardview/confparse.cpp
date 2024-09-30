@@ -442,8 +442,11 @@ bool Confparse::WriteStr(const char *key, const char *value) {
 		auto nfn = filepath;
 		nfn += "~";
 		ofstream file;
-
-		filesystem::rename(filepath, nfn);
+		std::error_code ec;
+		filesystem::rename(filepath, nfn, ec);
+		if (ec) {
+			return false;
+		}
 		file.open(filepath, std::ios::out | std::ios::binary | std::ios::trunc);
 		if (!file.is_open()) {
 			return false;
@@ -509,7 +512,11 @@ bool Confparse::WriteStr(const char *key, const char *value) {
 						nfn += "~";
 						ofstream file;
 
-						filesystem::rename(filepath, nfn);
+						std::error_code ec;
+						filesystem::rename(filepath, nfn, ec);
+						if (ec) {
+							return false;
+						}
 						file.open(filepath, std::ios::out | std::ios::binary | std::ios::trunc);
 						if (!file.is_open()) {
 							return false;
