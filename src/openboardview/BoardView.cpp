@@ -441,12 +441,25 @@ void ReloadPinInfos(Annotations &m_annotations, Board *m_board) {
 			});
 			if (A1PinIter != pins.cend()) {
 				auto& a1Pin = *A1PinIter;
+				using namespace linalg::aliases;
+				using transformMatrix_t = int3x3;
+
+				transformMatrix_t logicToComponentLogicMatrix = {
+					{a1Pin->position.x, 0, 0},
+					{0, a1Pin->position.y, 0},
+					{0, 0, 1},
+				};
+
+
 				auto& max = *std::max_element(pins.cbegin(), pins.cend(), [](auto& l, auto& r){
 					return l->name < r->name;
 				});
 
-				using namespace linalg::aliases;
-				using transformMatrix_t = int3x3;
+				transformMatrix_t ComponentLogicToComponentMatrix = {
+					{a1Pin->position.x - max->position.x > 0 ? -1: 1, 0, 0},
+					{0, a1Pin->position.y - max->position.y > 0 ? 1: -1, 0},
+					{0, 0, 1},
+				};
 
 				transformMatrix_t logicScreenToDataMatrix = {
 				    {1, 0, 0},
@@ -473,7 +486,7 @@ void ReloadPinInfos(Annotations &m_annotations, Board *m_board) {
 				if (abs(xAsixVec.x) > abs(xAsixVec.y)) {
 					logicScreenToA1LogicMatrix = {
 						{a1Pin->position.x > max->position.x ? -1 : 1, 0, xAsixVec.x > 0 ? n : -n},
-						{0, a1Pin->position.y > max->position.y ? -1 : 1, 0},
+						{0, a1Pin->position.y > max->position.y ? 1 : -1, 0},
 						{0, 0, 1},
 					};
 				} else {
