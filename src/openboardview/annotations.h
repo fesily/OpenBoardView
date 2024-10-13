@@ -31,13 +31,16 @@ struct PinInfo {
 };
 
 enum class PartAngle {
-	unknown,
+	_0,
 	_270,
+	_180,
+	_90,
+	sorted,
 };
 struct PartInfo {
 	string partName;
 	string part_type;
-	PartAngle angle = PartAngle::unknown;
+	PartAngle angle = PartAngle::_0;
 	map<string, PinInfo> pins;
 };
 

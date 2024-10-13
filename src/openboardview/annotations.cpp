@@ -84,7 +84,7 @@ namespace c4::yml {
 		(*node) |= c4::yml::MAP;
 		if (!pi.part_type.empty()) node->append_child() << key("part_type") << pi.part_type;
 		if (!pi.pins.empty()) node->append_child() << key("pins") << pi.pins;
-		if (pi.angle != PartAngle::unknown) node->append_child() << key("angle") << pi.angle;
+	    if (pi.angle != PartAngle::_0) node->append_child() << key("angle") << pi.angle;
 	}
 
 	bool read(const c4::yml::ConstNodeRef& node, PartInfo* pi) {

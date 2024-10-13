@@ -416,6 +416,94 @@ static vector<vector<Pin*>> rotateMatrix90Counterclockwise(const vector<vector<P
     
     return result;
 }
+
+static bool RotatePart(PartAngle angle, Component* part) {
+	auto &pins = part->pins;
+	// build from pins
+	auto A1PinIter = std::find_if(pins.cbegin(), pins.cend(), [](auto &p) { return p->name == "A1"; });
+	if (A1PinIter == pins.cend()) return false;
+	auto& a1Pin = (*A1PinIter);
+	using namespace linalg::aliases;
+	using transformMatrix_t = int3x3;
+
+	auto name2Pos = [](const std::shared_ptr<Pin> &pin) {
+		auto &key = pin->name;
+		auto x    = std::atoi(key.data() + 1); // index begin  1
+		int y   = key[0] - 'A' + 1.0f;              // index begin 0
+		if (key[0] > 'I') y--;
+		return int2{x - 1, y - 1};
+	};
+
+	auto pos2Name = [](int2 pos) {
+		pos.x++;
+		if (pos.y >= ('I' - 'A')) {
+			pos.y++;
+		}
+		const auto x = int(pos.x), y = int(pos.y);
+		return static_cast<char>(pos.y + 'A') + std::to_string(pos.x);
+	};
+
+	auto &max = *std::max_element(pins.cbegin(), pins.cend(), [](auto &l, auto &r) { return l->name < r->name; });
+	auto [max_x, max_y] = name2Pos(max);
+
+	auto original = *std::min_element(pins.cbegin(), pins.cend(), [](auto& p, auto &p1) {
+		return (p->position.x * p->position.x + p->position.y * p->position.y) <
+		       (p1->position.x * p1->position.x + p1->position.y * p1->position.y);
+	});
+
+	auto [original_x, original_y] = name2Pos(original);
+
+	transformMatrix_t logicToComponentLogicMatrix = {
+		{(a1Pin->position.x > max->position.x ? -1 : 1), 0, 0},
+		{0, (a1Pin->position.y > max->position.y ? -1 : 1), 0},
+	    {(original_x * (a1Pin->position.x > max->position.x ? -1 : 1) * -1),
+	     (original_y * (a1Pin->position.y > max->position.y ? -1 : 1) * -1),
+	     1},
+	};
+
+	auto length                                 = std::max(max_x, max_y);
+	const auto [center_x, center_y]             = std::pair{((length ) / 2), ((length) / 2)};
+	auto offsetCenterMatrix          = transformMatrix_t{{1, 0, 0}, {0, 1, 0}, {-center_x, -center_y, 1}};
+	transformMatrix_t revertOffsetCenterMatrix  = {{1, 0, 0}, {0, 1, 0}, {center_x, center_y, 1}};
+	auto angleR                      = [=]() -> float {
+		switch (angle) {
+			case PartAngle::_270: return 270;
+			case PartAngle::_180: return 180;
+			case PartAngle::_90: return 90;
+			default: return 0;
+		}
+	}();
+
+	angleR *= 3.1415926f / 180;
+	auto angleMatrix = transformMatrix_t {{static_cast<int>(cosf(angleR)), static_cast<int>(sinf(angleR)), 0}, {static_cast<int>(-sinf(angleR)), static_cast<int>(cosf(angleR)), 0}, {0, 0, 1}};
+	// base of rect
+	auto offsetMatrix = [&]() -> transformMatrix_t {
+		auto offset = std::abs(max_y - max_x);
+
+		if (offset != 0) {
+			if (max_x > max_y) {
+				if (angle == PartAngle::_270) return {{1, 0, 0}, {0, 1, 0}, {0, offset, 1}};
+				if (angle == PartAngle::_180) return {{1, 0, 0}, {0, 1, 0}, {offset, 0, 1}};
+			} else {
+				if (angle == PartAngle::_180)
+					return {{1, 0, 0}, {0, 1, 0}, {0, offset, 1}};
+				if (angle == PartAngle::_270) return {{1, 0, 0}, {0, 1, 0}, {offset, 0, 1}};
+			}
+		}
+		return {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+	}();
+	angleMatrix = mul(angleMatrix, offsetCenterMatrix);
+
+
+	auto target_matrix =  mul(offsetMatrix, mul(inverse(logicToComponentLogicMatrix), mul(revertOffsetCenterMatrix, mul(angleMatrix, logicToComponentLogicMatrix))));
+
+	for (auto &pin : part->pins) {
+		auto pos        = name2Pos(pin);
+		const auto pos2 = mul(target_matrix, {pos.x, pos.y, 1});
+		pin->show_name  = pos2Name({pos2.x, pos2.y});
+	}
+}
+
 void ReloadPinInfos(Annotations &m_annotations, Board *m_board) {
 	m_annotations.RefreshPinInfos();
 	for (auto &part : m_board->Components()) {
@@ -426,106 +514,15 @@ void ReloadPinInfos(Annotations &m_annotations, Board *m_board) {
 		for (auto &pin : part->pins) {
 			if (pins.count(pin->name) == 0) continue;
 			auto &pinInfo = pins[pin->name];
-			if (pinInfo.diode.size() > 0) pin->diode_value = pinInfo.diode;
-			if (pinInfo.voltage.size() > 0) pin->voltage_value = pinInfo.voltage;
-			if (pinInfo.ohm.size() > 0) pin->ohm_value = pinInfo.ohm;
-			if (pinInfo.ohm_black.size() > 0) pin->ohm_black_value = pinInfo.ohm_black;
+			if (!pinInfo.diode.empty()) pin->diode_value = pinInfo.diode;
+			if (!pinInfo.voltage.empty()) pin->voltage_value = pinInfo.voltage;
+			if (!pinInfo.ohm.empty()) pin->ohm_value = pinInfo.ohm;
+			if (!pinInfo.ohm_black.empty()) pin->ohm_black_value = pinInfo.ohm_black;
 			if (pinInfo.voltage_flag != PinVoltageFlag::unknown) pin->voltage_flag = pinInfo.voltage_flag;
 		}
 		part->angle = partInfo.angle;
-		if (partInfo.angle != PartAngle::unknown) {
-			auto& pins = part->pins;
-			// build from pins
-			auto A1PinIter = std::find_if(pins.cbegin(), pins.cend(), [](auto& p) {
-				return p->name == "A1";
-			});
-			if (A1PinIter != pins.cend()) {
-				auto& a1Pin = *A1PinIter;
-				using namespace linalg::aliases;
-				using transformMatrix_t = int3x3;
-
-				transformMatrix_t logicToComponentLogicMatrix = {
-					{a1Pin->position.x, 0, 0},
-					{0, a1Pin->position.y, 0},
-					{0, 0, 1},
-				};
-
-
-				auto& max = *std::max_element(pins.cbegin(), pins.cend(), [](auto& l, auto& r){
-					return l->name < r->name;
-				});
-
-				transformMatrix_t ComponentLogicToComponentMatrix = {
-					{a1Pin->position.x - max->position.x > 0 ? -1: 1, 0, 0},
-					{0, a1Pin->position.y - max->position.y > 0 ? 1: -1, 0},
-					{0, 0, 1},
-				};
-
-				transformMatrix_t logicScreenToDataMatrix = {
-				    {1, 0, 0},
-				    {0, -1, 0},
-				    {0, 0, 1},
-				};
-
-				auto key = max->name;
-				auto m = std::atoi(key.data() + 1); // index begin  1
-				auto n = key[0] - 'A' + 1; //index begin 0
-				if (key[0] > 'I')
-					n--;
-
-				auto aMaxIter = std::find_if(pins.cbegin(), pins.cend(), [t = "A" + std::to_string(m)](auto& p){
-					return p->name == t;
-				});
-				if (aMaxIter == pins.cend()) {
-					return;
-				}
-
-				auto& aMax = *aMaxIter;
-				float2 xAsixVec{a1Pin->position.x - aMax->position.x, a1Pin->position.y - aMax->position.y};
-				transformMatrix_t logicScreenToA1LogicMatrix;
-				if (abs(xAsixVec.x) > abs(xAsixVec.y)) {
-					logicScreenToA1LogicMatrix = {
-						{a1Pin->position.x > max->position.x ? -1 : 1, 0, xAsixVec.x > 0 ? n : -n},
-						{0, a1Pin->position.y > max->position.y ? 1 : -1, 0},
-						{0, 0, 1},
-					};
-				} else {
-					return;
-				}
-				
-				
-				auto o1 = linalg::mul(logicScreenToA1LogicMatrix, int3{n, m, 1});
-				transformMatrix_t a1LogincToLogicScreenMatrix = linalg::inverse(logicScreenToA1LogicMatrix);
-				
-				auto orgin = linalg::mul(a1LogincToLogicScreenMatrix, int3{0, 0, 1});
-				vector<vector<Pin*>> matrixPin(n, vector<Pin*>(m));
-				auto printMatrix = [](const auto& matrix) {
-					auto n = matrix.size();
-					auto m = matrix[0].size();
-					for (int i=0;i<n;i++) {
-						for (int j=0;j<m;j++) {
-							auto pin = matrix[i][j];
-							printf("%s ", pin ? pin->name.c_str(): "__");
-						}
-						printf("\n");
-					}
-				};
-
-				for (auto &pin : part->pins) {
-					auto& name = pin->name;
-					auto m1 = std::atoi(name.data() + 1) - 1;
-					auto n1 = name[0] - 'A';
-					if (name[0] > 'I')
-						n1--;
-						
-					if (partInfo.angle == PartAngle::_270) {
-						
-					}
-					matrixPin[n1][m1] = pin.get();
-				}
-				printMatrix(matrixPin);
-			}
-		}
+		if (part->angle != PartAngle::_0)
+			RotatePart(partInfo.angle, part.get());
 	}
 }
 
@@ -1349,7 +1346,7 @@ void BoardView::ShowInfoPane(void) {
 		ImGui::Text("No board currently loaded.");
 	}
 
-	if (m_partHighlighted.size()) {
+	if (!m_partHighlighted.empty()) {
 		ImGui::Separator();
 		ImGui::TextUnformatted((std::to_string(m_partHighlighted.size()) + " parts selected").c_str());
 
@@ -1418,11 +1415,11 @@ void BoardView::ShowInfoPane(void) {
 				if (ImGui::SmallButton(name_and_id)) {
 					// std::string speed is no concern here, since button action is not in UI rendering loop
 					std::string to_copy = part->name;
-					if (part->mfgcode.size()) {
+					if (!part->mfgcode.empty()) {
 						to_copy += " " + part->mfgcode;
 					}
 					for (const auto &pin : part->pins) {
-						to_copy += "\n" + pin->name + " " + pin->net->name;
+						to_copy += "\n" + pin->show_name + " " + pin->net->name;
 					}
 					ImGui::SetClipboardText(to_copy.c_str());
 				}
@@ -1441,7 +1438,7 @@ void BoardView::ShowInfoPane(void) {
 				ImGui::Checkbox("Case sensitive", &caseSensitive);
 			}
 
-			if (part->mfgcode.size()) ImGui::TextWrapped("%s", part->mfgcode.c_str());
+			if (!part->mfgcode.empty()) ImGui::TextWrapped("%s", part->mfgcode.c_str());
 
 			/*
 			 * Generate the pin# and net table
@@ -1455,7 +1452,7 @@ void BoardView::ShowInfoPane(void) {
 			if (ImGui::BeginListBox(str.c_str(), listSize)) { //, ImVec2(m_board_surface.x/3 -5, m_board_surface.y/2));
 				for (auto pin : part->pins) {
 					char ss[1024];
-					snprintf(ss, sizeof(ss), "%4s  %s", pin->name.c_str(), pin->net->name.c_str());
+					snprintf(ss, sizeof(ss), "%4s  %s", pin->show_name.c_str(), pin->net->name.c_str());
 					if (ImGui::Selectable(ss, (pin == m_pinSelected))) {
 						ClearAllHighlights();
 
@@ -1496,7 +1493,7 @@ void BoardView::ContextMenu(void) {
 	bool dummy                       = true;
 	static char contextbuf[10240]    = "";
 	static char contextbufnew[10240] = "";
-	static std::string pin, partn, net;
+	static std::string pin, pin_name, partn, net;
 	double tx, ty;
 
 	ImVec2 pos = ScreenToCoord(m_showContextMenuPos.x, m_showContextMenuPos.y);
@@ -1562,6 +1559,7 @@ void BoardView::ContextMenu(void) {
 			Component* selection_component = nullptr;
 			if (selection != nullptr) {
 				pin   = selection->name;
+				pin_name = selection->show_name;
 				partn = selection->component->name;
 				net   = selection->net->name;
 			} 
@@ -1622,9 +1620,9 @@ void BoardView::ContextMenu(void) {
 						            ty,
 						            ann.net.c_str(),
 						            ann.part.c_str(),
-						            ann.part.size() && ann.pin.size() ? '[' : ' ',
+						            !ann.part.empty() && !ann.pin.empty() ? '[' : ' ',
 						            ann.pin.c_str(),
-						            ann.part.size() && ann.pin.size() ? ']' : ' ');
+						            !ann.part.empty() && !ann.pin.empty() ? ']' : ' ');
 						ImGui::InputTextMultiline("##annotationedit",
 						                          contextbuf,
 						                          sizeof(contextbuf),
@@ -1663,9 +1661,9 @@ void BoardView::ContextMenu(void) {
 					            ty,
 					            net.c_str(),
 					            partn.c_str(),
-					            partn.empty() || pin.empty() ? ' ' : '[',
-					            pin.c_str(),
-					            partn.empty() || pin.empty() ? ' ' : ']');
+					            partn.empty() || pin_name.empty() ? ' ' : '[',
+					            pin_name.c_str(),
+					            partn.empty() || pin_name.empty() ? ' ' : ']');
 				}
 				if ((m_annotation_clicked_id < 0) || ImGui::Button("Add New##1") || m_annotationnew_retain) {
 					static char diodeNew[128];
@@ -1696,7 +1694,7 @@ void BoardView::ContextMenu(void) {
 						memset(partTypeNew, 0, sizeof (partTypeNew));
 						voltageFlagNew = PinVoltageFlag::unknown;
 						inferValueMode = false;
-						partAngleNew = PartAngle::unknown;
+						partAngleNew   = PartAngle::_0;
 						if (selection_component) {
 							memcpy(partTypeNew, selection_component->part_type.c_str(), std::min<size_t>(sizeof(partTypeNew), selection_component->part_type.size()));
 							partAngleNew = selection_component->angle;
@@ -1731,9 +1729,13 @@ void BoardView::ContextMenu(void) {
 
 						ImGui::Text("Part Angle: ");
 						ImGui::SameLine();
-						ImGui::RadioButton("Unknown", (int*)&partAngleNew, (int)PartAngle::unknown);
+						ImGui::RadioButton("0", (int *)&partAngleNew, (int)PartAngle::_0);
 						ImGui::SameLine();
 						ImGui::RadioButton("270", (int*)&partAngleNew, (int)PartAngle::_270);
+						ImGui::SameLine();
+						ImGui::RadioButton("180", (int *)&partAngleNew, (int)PartAngle::_180);
+						ImGui::SameLine();
+						ImGui::RadioButton("90", (int *)&partAngleNew, (int)PartAngle::_90);
 					}
 					if (pinMode) {
 						ImGui::InputText("Diode##diodeNew",
@@ -1782,6 +1784,7 @@ void BoardView::ContextMenu(void) {
 							selection_component->set_part_type(partTypeNew);
 							if (partAngleNew != selection_component->angle) {
 								partInfo.angle = selection_component->angle = partAngleNew;
+								RotatePart(partAngleNew, selection_component);
 							}
 						}
 						m_annotations.SavePinInfos();
@@ -1879,7 +1882,7 @@ void BoardView::SearchColumnGenerate(const std::string &title,
 		if (m_searchComponents) {
 			if (results.first.empty() && (!m_searchNets || results.second.empty())) { // show suggestions only if there is no result at all
 				auto s = scparts.suggest(search);
-				if (s.size() > 0) {
+				if (!s.empty()) {
 					ImGui::Text("Did you mean...");
 					ShowSearchResults(s, search, limit, &BoardView::FindComponent);
 				}
@@ -1890,7 +1893,7 @@ void BoardView::SearchColumnGenerate(const std::string &title,
 		if (m_searchNets) {
 			if (results.second.empty() && (!m_searchComponents || results.first.empty())) {
 				auto s = scnets.suggest(search);
-				if (s.size() > 0) {
+				if (!s.empty()) {
 					ImGui::Text("Did you mean...");
 					ShowSearchResults(s, search, limit, &BoardView::FindNet);
 				}
@@ -2471,7 +2474,7 @@ void BoardView::Update() {
 		auto pin = m_pinSelected;
 		ImGui::Text("Part: %s   Pin: %s   Net: %s   Probe: %d   (%s.) Voltage: %s  Ohm: %s OhmBlack: %s",
 		            pin->component->name.c_str(),
-		            pin->name.c_str(),
+		            pin->show_name.c_str(),
 		            pin->net->name.c_str(),
 		            pin->net->number,
 		            pin->component->mount_type_str().c_str(),
@@ -3373,7 +3376,7 @@ void BoardView::DrawOutlineSegments(ImDrawList *draw) {
 		 * If we have a pin selected, we mask off the colour to shade out
 		 * things and make it easier to see associated pins/points
 		 */
-		if ((pinSelectMasks) && (m_pinSelected || m_pinHighlighted.size())) {
+		if ((pinSelectMasks) && (m_pinSelected || !m_pinHighlighted.empty())) {
 			draw->AddLine(spa, spb, (m_colors.boardOutlineColor & m_colors.selectedMaskOutline) | m_colors.orMaskOutline);
 		} else {
 			draw->AddLine(spa, spb, m_colors.boardOutlineColor);
@@ -3386,7 +3389,7 @@ void BoardView::DrawOutlinePoints(ImDrawList *draw) {
 	Point fp;
 
 	auto &outline = m_board->OutlinePoints();
-	if (outline.size() < 1) { // Nothing to draw
+	if (outline.empty()) { // Nothing to draw
 		return;
 	}
 
@@ -3423,7 +3426,7 @@ void BoardView::DrawOutlinePoints(ImDrawList *draw) {
 		 * If we have a pin selected, we mask off the colour to shade out
 		 * things and make it easier to see associated pins/points
 		 */
-		if ((pinSelectMasks) && (m_pinSelected || m_pinHighlighted.size())) {
+		if ((pinSelectMasks) && (m_pinSelected || !m_pinHighlighted.empty())) {
 			draw->AddLine(spa, spb, (m_colors.boardOutlineColor & m_colors.selectedMaskOutline) | m_colors.orMaskOutline);
 		} else {
 			draw->AddLine(spa, spb, m_colors.boardOutlineColor);
@@ -3491,7 +3494,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 	 * pins so they're fainter.
 	 */
 	if (pinSelectMasks) {
-		if (m_pinSelected || m_pinHighlighted.size()) {
+		if (m_pinSelected || !m_pinHighlighted.empty()) {
 			cmask = m_colors.selectedMaskPins;
 			omask = m_colors.orMaskPins;
 		}
@@ -3615,7 +3618,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 			}
 			// Check for BGA pin '1'
 			//
-			if (pin->name == "A1") {
+			if (pin->show_name == "A1") {
 				color = fill_color = m_colors.pinA1PadColor;
 				fill_pin           = m_colors.pinA1PadColor;
 				draw_ring          = false;
@@ -3707,7 +3710,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 
 			// Show all pin names when showPinName is enabled and pin diameter is above threshold or show pin name only for selected part
 			if ((showPinName && psz > 3) || show_text) {
-				std::string text = pin->name + "\n" + pin->net->name;
+				std::string text            = pin->show_name + "\n" + pin->net->name;
 				ImFont *font = ImGui::GetIO().Fonts->Fonts[0]; // Default font
 				ImVec2 text_size_normalized = font->CalcTextSizeA(1.0f, FLT_MAX, 0.0f, text.c_str());
 
@@ -3716,7 +3719,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				float maxfontsize = min(maxfontwidth, maxfontheight);
 
 				// Font size for pin name only depends on height of text (rather than width of full text incl. net name) to scale to pin bounding box
-				ImVec2 size_pin_name = font->CalcTextSizeA(maxfontheight, FLT_MAX, 0.0f, pin->name.c_str());
+				ImVec2 size_pin_name = font->CalcTextSizeA(maxfontheight, FLT_MAX, 0.0f, pin->show_name.c_str());
 				// Font size for net name also depends on width of full text to avoid overflowing too much and colliding with text from other pin
 				ImVec2 size_net_name = font->CalcTextSizeA(maxfontsize, FLT_MAX, 0.0f, pin->net->name.c_str());
 
@@ -3782,7 +3785,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 											m_scale * 0.5f/*rounding*/);
 
 				draw->ChannelsSetCurrent(kChannelText);
-				draw->AddText(font_pin_name, maxfontheight, pos_pin_name, text_color, pin->name.c_str());
+				draw->AddText(font_pin_name, maxfontheight, pos_pin_name, text_color, pin->show_name.c_str());
 				if (show_net_name)
 					draw->AddText(font_net_name, maxfontsize, pos_net_name, text_color, pin->net->name.c_str());
 				if (!show_value.empty()) {
@@ -3808,7 +3811,7 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 	 * If a pin has been selected, we mask out the colour to
 	 * enhance (relatively) the appearance of the pin(s)
 	 */
-	if (pinSelectMasks && ((m_pinSelected) || m_pinHighlighted.size())) {
+	if (pinSelectMasks && ((m_pinSelected) || !m_pinHighlighted.empty())) {
 		color = (m_colors.partOutlineColor & m_colors.selectedMaskParts) | m_colors.orMaskParts;
 	}
 
@@ -3830,7 +3833,7 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 		 *
 		 */
 		if (!part->outline_done) { // should only need to do this once for most parts
-			if (part->pins.size() == 0) {
+			if (part->pins.empty()) {
 				if (debug) fprintf(stderr, "WARNING: Drawing empty part %s\n", part->name.c_str());
 				draw->AddRect(CoordToScreen(part->p1.x + DPIF(10), part->p1.y + DPIF(10)),
 				              CoordToScreen(part->p2.x - DPIF(10), part->p2.y - DPIF(10)),
@@ -4077,7 +4080,7 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 					std::vector<ImVec2> hull = VHConvexHull(pva);
 
 					// If we had a valid hull, then find the MBB for it
-					if (hull.size() > 0) {
+					if (!hull.empty()) {
 						part->hull = hull;
 
 						std::array<ImVec2, 4> bbox = VHMBBCalculate(hull, pin_radius);
@@ -4218,7 +4221,7 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 					ImVec2 pos = ImVec2((a.x + c.x) * 0.5f, top_y);
 
 					pos.y -= text_size.y * 2;
-					if (mcode.size()) pos.y -= text_size.y;
+					if (!mcode.empty()) pos.y -= text_size.y;
 
 					pos.x -= text_size.x * 0.5f;
 					draw->ChannelsSetCurrent(kChannelText);
@@ -4229,7 +4232,7 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 										m_colors.partHighlightedTextBackgroundColor,
 										0.0f);
 					draw->AddText(pos, m_colors.partHighlightedTextColor, text.c_str());
-					if ((!showInfoPanel) && (mcode.size())) {
+					if ((!showInfoPanel) && (!mcode.empty())) {
 						//	pos.y += text_size.y;
 						pos.y += text_size.y + DPIF(2.0f);
 						draw->AddRectFilled(ImVec2(pos.x - DPIF(2.0f), pos.y - DPIF(2.0f)),
@@ -4251,7 +4254,7 @@ inline void BoardView::DrawTracks(ImDrawList *draw) {
 	auto io         = ImGui::GetIO();
 
 	if (pinSelectMasks) {
-		if (m_pinSelected || m_pinHighlighted.size()) {
+		if (m_pinSelected || !m_pinHighlighted.empty()) {
 			cmask = m_colors.selectedMaskPins;
 			omask = m_colors.orMaskPins;
 		}
@@ -4296,7 +4299,7 @@ inline void BoardView::DrawArcs(ImDrawList *draw) {
 	auto io         = ImGui::GetIO();
 
 	if (pinSelectMasks) {
-		if (m_pinSelected || m_pinHighlighted.size()) {
+		if (m_pinSelected || !m_pinHighlighted.empty()) {
 			cmask = m_colors.selectedMaskPins;
 			omask = m_colors.orMaskPins;
 		}
@@ -4345,7 +4348,7 @@ inline void BoardView::DrawVies(ImDrawList *draw) {
 	auto io         = ImGui::GetIO();
 
 	if (pinSelectMasks) {
-		if (m_pinSelected || m_pinHighlighted.size()) {
+		if (m_pinSelected || !m_pinHighlighted.empty()) {
 			cmask = m_colors.selectedMaskPins;
 			omask = m_colors.orMaskPins;
 		}
@@ -4419,7 +4422,7 @@ void BoardView::DrawPartTooltips(ImDrawList *draw) {
 				ImGui::PushStyleColor(ImGuiCol_Text, m_colors.annotationPopupTextColor);
 				ImGui::PushStyleColor(ImGuiCol_PopupBg, m_colors.annotationPopupBackgroundColor);
 				ImGui::BeginTooltip();
-				ImGui::Text("TP[%s]%s", pin->name.c_str(), pin->net->name.c_str());
+				ImGui::Text("TP[%s]%s", pin->show_name.c_str(), pin->net->name.c_str());
 				ImGui::EndTooltip();
 				ImGui::PopStyleColor(2);
 				break;
@@ -4503,7 +4506,7 @@ void BoardView::DrawPartTooltips(ImDrawList *draw) {
 			if (currentlyHoveredPin) {
 				ImGui::Text("%s\n[%s]%s",
 				            currentlyHoveredPart->name.c_str(),
-				            (currentlyHoveredPin ? currentlyHoveredPin->name.c_str() : " "),
+				            (currentlyHoveredPin ? currentlyHoveredPin->show_name.c_str() : " "),
 				            (currentlyHoveredPin ? currentlyHoveredPin->net->name.c_str() : " "));
 			} else {
 				ImGui::Text("%s", currentlyHoveredPart->name.c_str());
@@ -4525,7 +4528,7 @@ inline void BoardView::DrawPinTooltips(ImDrawList *draw) {
 		ImGui::BeginTooltip();
 		ImGui::Text("%s[%s]\n%s",
 		            m_pinHighlightedHovered->component->name.c_str(),
-		            m_pinHighlightedHovered->name.c_str(),
+		            m_pinHighlightedHovered->show_name.c_str(),
 		            m_pinHighlightedHovered->net->name.c_str());
 		ImGui::EndTooltip();
 		ImGui::PopStyleColor(2);
@@ -4563,9 +4566,9 @@ inline void BoardView::DrawAnnotations(ImDrawList *draw) {
 				            ann.y,
 				            ann.net.c_str(),
 				            ann.part.c_str(),
-				            ann.part.size() && ann.pin.size() ? '[' : ' ',
+				            !ann.part.empty() && !ann.pin.empty() ? '[' : ' ',
 				            ann.pin.c_str(),
-				            ann.part.size() && ann.pin.size() ? ']' : ' ',
+				            !ann.part.empty() && !ann.pin.empty() ? ']' : ' ',
 				            buf,
 				            ann.note.size() > 50 ? "..." : "");
 

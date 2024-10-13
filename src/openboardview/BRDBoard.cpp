@@ -167,7 +167,7 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 			} else {
 				pin->name = pin->number;
 			}
-
+			pin->show_name = pin->name;
 			// copy position
 			pin->position = Point(brd_pin.pos.x / scale, brd_pin.pos.y / scale);
 

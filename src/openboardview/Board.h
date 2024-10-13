@@ -210,6 +210,7 @@ struct Pin : BoardElement {
 	// Pin number / Nail count.
 	string number;
 
+	string show_name;
 	string name; // for BGA pads will be AZ82 etc
 
 	EShapeType shape = EShapeType::kShapeTypeCircle;
@@ -294,7 +295,7 @@ struct Component : BoardElement {
 	ImVec2 centerpoint;
 	double expanse = 0.0f; // quick measure of distance between pins.
 
-	PartAngle angle = PartAngle::unknown;
+	PartAngle angle = PartAngle::_0;
 
 	// enum ComponentVisualModes { CVMNormal = 0, CVMSelected, CVMShowPins, CVMModeCount };
 	enum ComponentVisualModes { CVMNormal = 0, CVMSelected, CVMModeCount };
