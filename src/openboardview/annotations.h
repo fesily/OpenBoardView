@@ -28,6 +28,11 @@ struct PinInfo {
 	string ohm;
 	string ohm_black;
 	PinVoltageFlag voltage_flag = PinVoltageFlag::unknown;
+
+	explicit operator bool() const {
+		return !(diode.empty() && voltage.empty() && ohm.empty() && ohm_black.empty() &&
+		        voltage_flag == PinVoltageFlag::unknown);
+	}
 };
 
 enum class PartAngle {
@@ -42,6 +47,9 @@ struct PartInfo {
 	string part_type;
 	PartAngle angle = PartAngle::_0;
 	map<string, PinInfo> pins;
+	explicit operator bool() const {
+		return !(part_type.empty() && angle == PartAngle::_0 && pins.empty());
+	}
 };
 
 struct Annotations {

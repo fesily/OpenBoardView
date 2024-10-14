@@ -280,6 +280,10 @@ PinInfo& Annotations::NewPinInfo(const char* partName, const char* pinName) {
 }
 
 void Annotations::SavePinInfos() {
+	for (auto &[part_name, part_info] : partInfos) {
+		std::erase_if(part_info.pins, [](auto &p) { return !p.second; });
+	}
+	std::erase_if(partInfos, [](auto &p) { return !p.second; });
 	serialize(partInfos, filename + ".yaml");
 }
 
