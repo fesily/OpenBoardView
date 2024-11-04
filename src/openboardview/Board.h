@@ -120,6 +120,7 @@ struct Point {
 struct Net : BoardElement {
 	int number;
 	string name;
+	string show_name;
 	bool is_ground;
 
 	SharedVector<Pin> pins;
@@ -321,7 +322,11 @@ struct Component : BoardElement {
 	}
 
 	void set_part_type(const string& part_type) {
-		if (part_type.empty()) return;
+		if (part_type.empty()) {
+			this->part_type.clear();
+			component_type = kComponentTypeUnknown;
+			return;
+		}
 		const auto t = part_type[0];
 		switch (t) {
 			case 'R':

@@ -52,12 +52,21 @@ struct PartInfo {
 	}
 };
 
+struct NetInfo {
+	string name;
+	string showname;
+	explicit operator bool() const {
+		return !showname.empty();
+	}
+};
+
 struct Annotations {
 	std::string filename;
 	sqlite3 *sqldb;
 	bool debug = true;
 	vector<Annotation> annotations;
 	map<string, PartInfo> partInfos;
+	map<string, NetInfo> netInfos;
 
 	int Init(void);
 
@@ -71,6 +80,7 @@ struct Annotations {
 
 	PartInfo& NewPartInfo(const char* partName);
 	PinInfo& NewPinInfo(const char* partName, const char* pinName);
+	NetInfo& NewNetInfo(const char* netName);
 	void SavePinInfos();
 	void RefreshPinInfos();
 };

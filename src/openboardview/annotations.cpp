@@ -93,18 +93,32 @@ namespace c4::yml {
 		if (node.has_child("angle")) node["angle"] >> pi->angle;
 		return true;
 	}
+
+	void write(c4::yml::NodeRef *node, const NetInfo &net) {
+		(*node) |= c4::yml::MAP;
+		if (!net.showname.empty()) node->append_child() << key("showname") << net.showname;
+	}
+
+	bool read(const c4::yml::ConstNodeRef& node, NetInfo* net) {
+		if (node.has_child("showname")) node["showname"] >> net->showname;
+		return true;
+	}
 }
 
-static void serialize(const std::map<std::string, PartInfo>& partInfos, const std::string& filename) {
+static void serialize(const Annotations& ann, const std::string& filename) {
     ryml::Tree tree;
     auto root = tree.rootref();
-    
-	root << partInfos;
+	root |= c4::yml::MAP;
+	root.append_child() << c4::yml::key("Version") << "0.0.2";
+	if (!ann.partInfos.empty())
+		root.append_child() << c4::yml::key("PartInfos") << ann.partInfos;
+	if (!ann.netInfos.empty())
+		root.append_child() << c4::yml::key("NetInfos") << ann.netInfos;
     std::ofstream fout(filename, std::ios_base::trunc|std::ios_base::out);
     fout << tree;
 }
 
-static void deserialize(std::map<std::string, PartInfo>& partInfos, const std::string& filename) {
+static void deserialize(Annotations& ann, const std::string& filename) {
     std::ifstream fin(filename);
     std::stringstream buffer;
     buffer << fin.rdbuf();
@@ -112,17 +126,32 @@ static void deserialize(std::map<std::string, PartInfo>& partInfos, const std::s
     auto tree = ryml::parse_in_place(ryml::substr{(char*)buf.data(), buf.size()});
     auto root = tree.rootref();
 
-    for (auto child1 : root.children()) {
-        std::string partName = {child1.key().str, child1.key().size()};
-		PartInfo partInfo;
-		child1 >> partInfo;
-		partInfo.partName = partName;
-		for (auto& pin: partInfo.pins) {
-			pin.second.partName = partName;
-			pin.second.pinName = pin.first;
+	auto version = root["Version"];
+	auto partInfos = root["PartInfos"];
+	auto netInfos = root["NetInfos"];
+	if (!partInfos.empty()) {
+		for (auto child1 : partInfos.children()) {
+			std::string partName = {child1.key().str, child1.key().size()};
+			PartInfo partInfo;
+			child1 >> partInfo;
+			partInfo.partName = partName;
+			for (auto& pin: partInfo.pins) {
+				pin.second.partName = partName;
+				pin.second.pinName = pin.first;
+			}
+			ann.partInfos[partName] = partInfo;
 		}
-		partInfos[partName] = partInfo;
-    }
+	}
+
+	if (!netInfos.empty()) {
+		for (auto child1 : netInfos.children()) {
+			std::string netName = {child1.key().str, child1.key().size()};
+			NetInfo netInfo;
+			child1 >> netInfo;
+			netInfo.name = netName;
+			ann.netInfos[netName] = netInfo;
+		}
+	}
 }
 
 int Annotations::Load(void) {
@@ -279,15 +308,22 @@ PinInfo& Annotations::NewPinInfo(const char* partName, const char* pinName) {
 	return pinInfo;
 }
 
+NetInfo& Annotations::NewNetInfo(const char* netname) {
+	auto& n = netInfos[netname];
+	n.name = netname;
+	return n;
+}
+
 void Annotations::SavePinInfos() {
 	for (auto &[part_name, part_info] : partInfos) {
 		std::erase_if(part_info.pins, [](auto &p) { return !p.second; });
 	}
 	std::erase_if(partInfos, [](auto &p) { return !p.second; });
-	serialize(partInfos, filename + ".yaml");
+	serialize(*this, filename + ".yaml");
 }
 
 void Annotations::RefreshPinInfos() {
 	partInfos.clear();
-	deserialize(partInfos, filename + ".yaml");
+	netInfos.clear();
+	deserialize(*this, filename + ".yaml");
 }

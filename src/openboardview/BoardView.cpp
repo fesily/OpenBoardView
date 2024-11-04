@@ -524,6 +524,12 @@ void ReloadPinInfos(Annotations &m_annotations, Board *m_board) {
 		if (part->angle != PartAngle::_0)
 			RotatePart(partInfo.angle, part.get());
 	}
+	for (auto &net : m_board->Nets()) {
+		if (m_annotations.netInfos.contains(net->name)) {
+			auto& netinfo = m_annotations.netInfos[net->name];
+			net->show_name = netinfo.showname;
+		}
+	}
 }
 
 int BoardView::LoadFile(const filesystem::path &filepath) {
@@ -1419,7 +1425,7 @@ void BoardView::ShowInfoPane(void) {
 						to_copy += " " + part->mfgcode;
 					}
 					for (const auto &pin : part->pins) {
-						to_copy += "\n" + pin->show_name + " " + pin->net->name;
+						to_copy += "\n" + pin->show_name + " " + pin->net->show_name;
 					}
 					ImGui::SetClipboardText(to_copy.c_str());
 				}
@@ -1452,7 +1458,7 @@ void BoardView::ShowInfoPane(void) {
 			if (ImGui::BeginListBox(str.c_str(), listSize)) { //, ImVec2(m_board_surface.x/3 -5, m_board_surface.y/2));
 				for (auto pin : part->pins) {
 					char ss[1024];
-					snprintf(ss, sizeof(ss), "%4s  %s", pin->show_name.c_str(), pin->net->name.c_str());
+					snprintf(ss, sizeof(ss), "%4s  %s(%s)", pin->show_name.c_str(), pin->net->show_name.c_str(), pin->net->name.c_str());
 					if (ImGui::Selectable(ss, (pin == m_pinSelected))) {
 						ClearAllHighlights();
 
@@ -1493,7 +1499,7 @@ void BoardView::ContextMenu(void) {
 	bool dummy                       = true;
 	static char contextbuf[10240]    = "";
 	static char contextbufnew[10240] = "";
-	static std::string pin, pin_name, partn, net;
+	static std::string pin, pin_name, partn, net, net_name;
 	double tx, ty;
 
 	ImVec2 pos = ScreenToCoord(m_showContextMenuPos.x, m_showContextMenuPos.y);
@@ -1562,6 +1568,7 @@ void BoardView::ContextMenu(void) {
 				pin_name = selection->show_name;
 				partn = selection->component->name;
 				net   = selection->net->name;
+				net_name = selection->net->show_name;
 			} 
 
 			/*
@@ -1671,6 +1678,7 @@ void BoardView::ContextMenu(void) {
 					static char ohmNew[128];
 					static char ohmBlackNew[128];
 					static char partTypeNew[128];
+					static char netNameNew[128];
 					static PinVoltageFlag voltageFlagNew;
 					static bool pinMode;
 					static bool inferValueMode;
@@ -1681,6 +1689,7 @@ void BoardView::ContextMenu(void) {
 						memcpy(ohmNew, selection->ohm_value.c_str(), std::min<size_t>(sizeof(ohmNew), selection->ohm_value.size()));
 						memcpy(ohmBlackNew, selection->ohm_black_value.c_str(), std::min<size_t>(sizeof(ohmBlackNew), selection->ohm_black_value.size()));
 						voltageFlagNew = selection->voltage_flag;
+						memcpy(netNameNew, selection->net->show_name.c_str(), std::min<size_t>(sizeof(netNameNew), selection->net->show_name.size()));
 					};
 					if (m_annotationnew_retain == false) {
 						contextbufnew[0]        = 0;
@@ -1692,6 +1701,7 @@ void BoardView::ContextMenu(void) {
 						memset(ohmNew, 0, sizeof (ohmNew));
 						memset(ohmBlackNew, 0, sizeof (ohmBlackNew));
 						memset(partTypeNew, 0, sizeof (partTypeNew));
+						memset(netNameNew, 0, sizeof (netNameNew));
 						voltageFlagNew = PinVoltageFlag::unknown;
 						inferValueMode = false;
 						partAngleNew   = PartAngle::_0;
@@ -1760,7 +1770,12 @@ void BoardView::ContextMenu(void) {
 						ImGui::RadioButton("Input", (int*)&voltageFlagNew, (int)PinVoltageFlag::input);
 						ImGui::SameLine();
 						ImGui::RadioButton("Output", (int*)&voltageFlagNew, (int)PinVoltageFlag::output);
-						
+
+						if (!selection->net->is_ground && selection->type != Pin::kPinTypeNotConnected) {
+							ImGui::InputText("netName##netNameNew",
+											netNameNew,
+											sizeof(netNameNew));
+						}
 					}
 
 
@@ -1775,8 +1790,14 @@ void BoardView::ContextMenu(void) {
 							pinInfo.diode = selection->diode_value = diodeNew;
 							pinInfo.voltage = selection->voltage_value = voltageNew;
 							pinInfo.ohm = selection->ohm_value = ohmNew;
-							pinInfo.ohm_black = selection->ohm_black_value = ohmBlackNew;					
-							pinInfo.voltage_flag = selection->voltage_flag = voltageFlagNew;					
+							pinInfo.ohm_black = selection->ohm_black_value = ohmBlackNew;				
+							pinInfo.voltage_flag = selection->voltage_flag = voltageFlagNew;
+
+							if (std::string_view{netNameNew} != net_name) {
+								m_annotations.NewNetInfo(net.c_str()).showname = selection->net->show_name = netNameNew;
+								if (selection->net->show_name.empty())
+									selection->net->show_name = net;
+							}
 						}
 						if (selection_component) {
 							auto& partInfo = m_annotations.NewPartInfo(selection_component->name.c_str());;
@@ -2472,9 +2493,10 @@ void BoardView::Update() {
 	ImGui::Begin("status", nullptr, flags | ImGuiWindowFlags_NoFocusOnAppearing);
 	if (m_file && m_board && m_pinSelected) {
 		auto pin = m_pinSelected;
-		ImGui::Text("Part: %s   Pin: %s   Net: %s   Probe: %d   (%s.) Voltage: %s  Ohm: %s OhmBlack: %s",
+		ImGui::Text("Part: %s   Pin: %s   Net: %s(%s)   Probe: %d   (%s.) Voltage: %s  Ohm: %s OhmBlack: %s",
 		            pin->component->name.c_str(),
 		            pin->show_name.c_str(),
+		            pin->net->show_name.c_str(),
 		            pin->net->name.c_str(),
 		            pin->net->number,
 		            pin->component->mount_type_str().c_str(),
@@ -2977,13 +2999,9 @@ void BoardView::CenterZoomNet(string netname) {
 			if (!infoPanelSelectPartsOnNet || pin->type == Pin::kPinTypeTestPad) continue;
 			auto& cpt = pin->component;
 			if (contains(cpt, m_partHighlighted)) continue;
-			if (infoPanelSelectPartsOnNetOnlyNotGround) {
-				auto has_ground = std::any_of(cpt->pins.cbegin(), cpt->pins.cend(), [](auto& pin) {
-					return pin->net->is_ground;
-				});
-				if (has_ground && cpt->pins.size() == 2 && cpt->component_type == Component::kComponentTypeCapacitor) {
-					continue;
-				}
+			if (infoPanelSelectPartsOnNetOnlyNotGround && cpt->pins.size() == 2) {
+				auto& pins = cpt->pins;
+				if (pins[0]->net->is_ground || pins[1]->net->is_ground) continue;
 			}
 			cpt->visualmode = cpt->CVMSelected;
 			m_partHighlighted.push_back(cpt);
@@ -3458,7 +3476,10 @@ void BoardView::DrawNetWeb(ImDrawList *draw) {
 				col = m_colors.pinNetWebOSColor;
 				draw->AddCircle(CoordToScreen(p->position.x, p->position.y), p->diameter * m_scale, col, 16);
 			}
-
+			if (infoPanelSelectPartsOnNetOnlyNotGround && p->component->pins.size() == 2) {
+				auto& pins = p->component->pins;
+				if (pins[0]->net->is_ground || pins[1]->net->is_ground) continue;
+			}
 			draw->AddLine(CoordToScreen(m_pinSelected->position.x, m_pinSelected->position.y),
 			              CoordToScreen(p->position.x, p->position.y),
 			              ImColor(col),
@@ -3632,8 +3653,9 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				}
 			}
 
-			if (pin->voltage_flag != PinVoltageFlag::unknown) {
-				
+			if (m_pinSelected && pin->net == m_pinSelected->net && pin->voltage_flag != PinVoltageFlag::unknown) {
+				color &= m_colors.pinA1PadColor;
+				fill_color &= m_colors.pinA1PadColor;
 			}
 
 			// don't show text if it doesn't make sense
@@ -3710,7 +3732,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 
 			// Show all pin names when showPinName is enabled and pin diameter is above threshold or show pin name only for selected part
 			if ((showPinName && psz > 3) || show_text) {
-				std::string text            = pin->show_name + "\n" + pin->net->name;
+				std::string text            = pin->show_name + "\n" + pin->net->show_name;
 				ImFont *font = ImGui::GetIO().Fonts->Fonts[0]; // Default font
 				ImVec2 text_size_normalized = font->CalcTextSizeA(1.0f, FLT_MAX, 0.0f, text.c_str());
 
@@ -3721,7 +3743,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				// Font size for pin name only depends on height of text (rather than width of full text incl. net name) to scale to pin bounding box
 				ImVec2 size_pin_name = font->CalcTextSizeA(maxfontheight, FLT_MAX, 0.0f, pin->show_name.c_str());
 				// Font size for net name also depends on width of full text to avoid overflowing too much and colliding with text from other pin
-				ImVec2 size_net_name = font->CalcTextSizeA(maxfontsize, FLT_MAX, 0.0f, pin->net->name.c_str());
+				ImVec2 size_net_name = font->CalcTextSizeA(maxfontsize, FLT_MAX, 0.0f, pin->net->show_name.c_str());
 
 				string show_value;
 				if (showMode != ShowMode_None) {
@@ -3787,7 +3809,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				draw->ChannelsSetCurrent(kChannelText);
 				draw->AddText(font_pin_name, maxfontheight, pos_pin_name, text_color, pin->show_name.c_str());
 				if (show_net_name)
-					draw->AddText(font_net_name, maxfontsize, pos_net_name, text_color, pin->net->name.c_str());
+					draw->AddText(font_net_name, maxfontsize, pos_net_name, text_color, pin->net->show_name.c_str());
 				if (!show_value.empty()) {
 					draw->AddText(font_show_value, maxfontheight, pos_show_value, m_colors.annotationBoxColor, show_value.c_str());
 				}
@@ -4422,7 +4444,7 @@ void BoardView::DrawPartTooltips(ImDrawList *draw) {
 				ImGui::PushStyleColor(ImGuiCol_Text, m_colors.annotationPopupTextColor);
 				ImGui::PushStyleColor(ImGuiCol_PopupBg, m_colors.annotationPopupBackgroundColor);
 				ImGui::BeginTooltip();
-				ImGui::Text("TP[%s]%s", pin->show_name.c_str(), pin->net->name.c_str());
+				ImGui::Text("TP[%s]%s", pin->show_name.c_str(), pin->net->show_name.c_str());
 				ImGui::EndTooltip();
 				ImGui::PopStyleColor(2);
 				break;
@@ -4507,7 +4529,7 @@ void BoardView::DrawPartTooltips(ImDrawList *draw) {
 				ImGui::Text("%s\n[%s]%s",
 				            currentlyHoveredPart->name.c_str(),
 				            (currentlyHoveredPin ? currentlyHoveredPin->show_name.c_str() : " "),
-				            (currentlyHoveredPin ? currentlyHoveredPin->net->name.c_str() : " "));
+				            (currentlyHoveredPin ? currentlyHoveredPin->net->show_name.c_str() : " "));
 			} else {
 				ImGui::Text("%s", currentlyHoveredPart->name.c_str());
 			}
@@ -4529,7 +4551,7 @@ inline void BoardView::DrawPinTooltips(ImDrawList *draw) {
 		ImGui::Text("%s[%s]\n%s",
 		            m_pinHighlightedHovered->component->name.c_str(),
 		            m_pinHighlightedHovered->show_name.c_str(),
-		            m_pinHighlightedHovered->net->name.c_str());
+		            m_pinHighlightedHovered->net->show_name.c_str());
 		ImGui::EndTooltip();
 		ImGui::PopStyleColor(2);
 	}

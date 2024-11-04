@@ -325,6 +325,10 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 		nets_.push_back(net.second);
 	}
 
+	for (auto &net : net_map) {
+		net.second->show_name = net.second->name;
+	}
+
 	for (auto& comp : components_) {
 		if (comp->pins.size() == 1 && comp->pins.front()->net->is_ground) {
 			comp->component_type = Component::kComponentTypeBoard;
