@@ -28,17 +28,36 @@ struct PinInfo {
 	string ohm;
 	string ohm_black;
 	PinVoltageFlag voltage_flag = PinVoltageFlag::unknown;
+
+	explicit operator bool() const {
+		return !(diode.empty() && voltage.empty() && ohm.empty() && ohm_black.empty() &&
+		        voltage_flag == PinVoltageFlag::unknown);
+	}
 };
 
 enum class PartAngle {
-	unknown,
+	_0,
 	_270,
+	_180,
+	_90,
+	sorted,
 };
 struct PartInfo {
 	string partName;
 	string part_type;
-	PartAngle angle = PartAngle::unknown;
+	PartAngle angle = PartAngle::_0;
 	map<string, PinInfo> pins;
+	explicit operator bool() const {
+		return !(part_type.empty() && angle == PartAngle::_0 && pins.empty());
+	}
+};
+
+struct NetInfo {
+	string name;
+	string showname;
+	explicit operator bool() const {
+		return !showname.empty();
+	}
 };
 
 struct Annotations {
@@ -47,6 +66,7 @@ struct Annotations {
 	bool debug = true;
 	vector<Annotation> annotations;
 	map<string, PartInfo> partInfos;
+	map<string, NetInfo> netInfos;
 
 	int Init(void);
 
@@ -60,6 +80,7 @@ struct Annotations {
 
 	PartInfo& NewPartInfo(const char* partName);
 	PinInfo& NewPinInfo(const char* partName, const char* pinName);
+	NetInfo& NewNetInfo(const char* netName);
 	void SavePinInfos();
 	void RefreshPinInfos();
 };

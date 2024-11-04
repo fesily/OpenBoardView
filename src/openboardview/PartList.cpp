@@ -1,6 +1,7 @@
 #include "PartList.h"
 
 #include "imgui/imgui.h"
+#include <string_view>
 
 PartList::PartList(TcharStringCallback cbNetSelected) {
 	cbNetSelected_ = cbNetSelected;
@@ -27,17 +28,27 @@ void PartList::Draw(const char *title, bool *p_open, Board *board) {
 		auto parts = board->Components();
 
 		static int selected = -1;
-		string part_name    = "";
+		std::string_view part_name    = "";
 		ImGuiListClipper clipper;
 		clipper.Begin(parts.size());
 		while (clipper.Step()) {
 			for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
 				part_name = parts[i]->name;
 
-				if (ImGui::Selectable(part_name.c_str(), selected == i, ImGuiSelectableFlags_AllowDoubleClick)) {
+				if (ImGui::Selectable(part_name.data(), selected == i, ImGuiSelectableFlags_AllowDoubleClick)) {
 					selected = i;
 					if (ImGui::IsMouseDoubleClicked(0)) {
-						cbNetSelected_(part_name.c_str());
+						cbNetSelected_(part_name.data());
+					}
+				}
+				ImGui::NextColumn();
+				part_name = parts[i]->part_type;
+				if (part_name.empty()) continue;
+
+				if (ImGui::Selectable(part_name.data(), selected == i, ImGuiSelectableFlags_AllowDoubleClick)) {
+					selected = i;
+					if (ImGui::IsMouseDoubleClicked(0)) {
+						cbNetSelected_(parts[i]->name.c_str());
 					}
 				}
 				ImGui::NextColumn();

@@ -120,6 +120,7 @@ struct Point {
 struct Net : BoardElement {
 	int number;
 	string name;
+	string show_name;
 	bool is_ground;
 
 	SharedVector<Pin> pins;
@@ -210,6 +211,7 @@ struct Pin : BoardElement {
 	// Pin number / Nail count.
 	string number;
 
+	string show_name;
 	string name; // for BGA pads will be AZ82 etc
 
 	EShapeType shape = EShapeType::kShapeTypeCircle;
@@ -294,7 +296,7 @@ struct Component : BoardElement {
 	ImVec2 centerpoint;
 	double expanse = 0.0f; // quick measure of distance between pins.
 
-	PartAngle angle = PartAngle::unknown;
+	PartAngle angle = PartAngle::_0;
 
 	// enum ComponentVisualModes { CVMNormal = 0, CVMSelected, CVMShowPins, CVMModeCount };
 	enum ComponentVisualModes { CVMNormal = 0, CVMSelected, CVMModeCount };
@@ -320,7 +322,11 @@ struct Component : BoardElement {
 	}
 
 	void set_part_type(const string& part_type) {
-		if (part_type.empty()) return;
+		if (part_type.empty()) {
+			this->part_type.clear();
+			component_type = kComponentTypeUnknown;
+			return;
+		}
 		const auto t = part_type[0];
 		switch (t) {
 			case 'R':

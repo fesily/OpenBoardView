@@ -167,7 +167,7 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 			} else {
 				pin->name = pin->number;
 			}
-
+			pin->show_name = pin->name;
 			// copy position
 			pin->position = Point(brd_pin.pos.x / scale, brd_pin.pos.y / scale);
 
@@ -323,6 +323,10 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 		// check whether the pin represents ground
 		net.second->is_ground = (net.second->name == "GND" || net.second->name == "GROUND");
 		nets_.push_back(net.second);
+	}
+
+	for (auto &net : net_map) {
+		net.second->show_name = net.second->name;
 	}
 
 	for (auto& comp : components_) {
