@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <string>
 #include <vector>
+#include <map>
 
 #define READ_INT() strtol(p, &p, 10);
 // Warning: read as int then cast to uint if positive
@@ -44,7 +45,7 @@ enum class BRDPartMountingSide { Both, Top, S1 = Top, S2, S3, S4, S5, S6, S7, S8
 enum class BRDPartType { SMD, ThroughHole };
 
 struct BRDPart {
-	const char *name = nullptr;
+	std::string name;
 	std::string mfgcode;
 	BRDPartMountingSide mounting_side{};
 	BRDPartType part_type{}; // SMD or TH
@@ -59,18 +60,24 @@ enum class BPDPinShape { Fold, Circle, Rect };
 
 struct BRDPin {
 	BRDPoint pos;
-	BRDPoint size = {0, 0};
 	float angle = 0.0;
+	BRDPoint top_size     = {0, 0};
+	BPDPinShape top_shape = BPDPinShape::Circle;
+	BRDPoint size     = {0, 0};
 	BPDPinShape shape = BPDPinShape::Circle;
+	BRDPoint bottom_size     = {0, 0};
+	BPDPinShape bottom_shape = BPDPinShape::Circle;
+	bool complex_draw       = false;
 	int probe = 0;
 	unsigned int part = 0;
 	BRDPinSide side{};
-	const char *net = "UNCONNECTED";
+	std::string net  = "UNCONNECTED";
+	int netId = -1;
 	double radius    = 0.5f;
-	const char *snum = nullptr;
-	const char *name = nullptr;
-	const char *diode_vale = nullptr;
-	const char *voltage_value = nullptr;
+	std::string snum;
+	std::string name;
+	std::string diode_vale;
+	std::string voltage_value;
 
 	bool operator<(const BRDPin &p) const // For sorting the vector
 	{
@@ -82,7 +89,8 @@ struct BRDNail {
 	unsigned int probe = 0;
 	BRDPoint pos;
 	BRDPartMountingSide side{};
-	const char *net = "UNCONNECTED";
+	std::string net = "UNCONNECTED";
+	int netId = -1;
 };
 
 struct BRDVia {
@@ -90,22 +98,41 @@ struct BRDVia {
 	float size;
 	BRDPartMountingSide side{};
 	BRDPartMountingSide target_side{};
-	const char *net = "UNCONNECTED";
+	std::string net = "UNCONNECTED";
+	int netId = -1;
 };
 
 struct BRDTrack {
 	std::pair<BRDPoint, BRDPoint> points;
 	BRDPartMountingSide side{};
 	float width = 1.0f;
-	const char *net = "UNCONNECTED";
+	std::string net = "UNCONNECTED";
+	int netId = -1;
+};
+
+struct BRDText {
+	std::string net = "UNCONNECTED";
+	int netId = -1;
+	BRDPartMountingSide side{};
+	std::string text;
+	BRDPoint pos;
 };
 
 struct BRDArc {
 	BRDPoint pos;
 	BRDPartMountingSide side{};
 	float radius;
+	float width = 1.0;
 	float startAngle, endAngle;
-	const char *net = "UNCONNECTED";
+	std::string net = "UNCONNECTED";
+	int netId = -1;
+};
+
+struct BRDNet {
+	int id = -1;
+	std::string name;
+	std::string info;
+	std::string diode_value;
 };
 
 class BRDFileBase {
@@ -124,6 +151,8 @@ class BRDFileBase {
 	std::vector<BRDTrack> tracks;
 	std::vector<BRDVia> vias;
 	std::vector<BRDArc> arcs;
+	std::vector<BRDText> texts;
+	std::map<int, BRDNet> nets;
 
 	bool valid = false;
 	std::string error_msg = "";
@@ -140,7 +169,7 @@ class BRDFileBase {
 	// are already passed a memory buffer most usages are "historic unneeded extra copies".
 	char *file_buf = nullptr;
 
-	std::vector<std::pair<BRDPoint, BRDPoint>> arc_to_segments(double startAngle, double endAngle, double r, BRDPoint p1, BRDPoint p2, BRDPoint pc);
+	std::vector<std::pair<BRDPoint, BRDPoint>> arc_to_segments(double startAngle, double endAngle, double r, BRDPoint pc);
 
 	static double arc_slice_angle_rad;
 

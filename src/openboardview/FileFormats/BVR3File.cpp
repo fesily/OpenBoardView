@@ -279,7 +279,7 @@ BVR3File::BVR3File(std::vector<char> &buf) {
 			}
 		} else if (!strncmp(line, "OUTLINE_ARC ", 12)) {
 			p += 12;
-			BRDPoint pc, p1, p2;
+			BRDPoint pc;
 			double startAngle, endAngle, radius;
 			pc.x = READ_DOUBLE();
 			pc.y = READ_DOUBLE();
@@ -287,13 +287,7 @@ BVR3File::BVR3File(std::vector<char> &buf) {
 			startAngle = READ_DOUBLE() * (M_PI / 180.0);
 			endAngle = READ_DOUBLE() * (M_PI / 180.0);
 
-			p1.x = pc.x + radius * cos(startAngle);
-			p1.y = pc.y + radius * sin(startAngle);
-
-			p2.x = pc.x + radius * cos(endAngle);
-			p2.y = pc.y + radius * sin(endAngle);
-
-			std::vector<std::pair<BRDPoint, BRDPoint>> segments = arc_to_segments(startAngle, endAngle, radius, p1, p2, pc);
+			std::vector<std::pair<BRDPoint, BRDPoint>> segments = arc_to_segments(startAngle, endAngle, radius, pc);
 			std::move(segments.begin(), segments.end(), std::back_inserter(this->outline_segments));
 
 		} else if (!strncmp(line, "BVRAW_SCALE ", 12)) {

@@ -59,6 +59,17 @@ else()
 	set(Python_EXECUTABLE "${PYTHON_EXECUTABLE}")
 endif()
 
+include(FetchContent)
+
+FetchContent_Declare(
+    yalantinglibs
+    GIT_REPOSITORY https://github.com/alibaba/yalantinglibs.git
+    GIT_TAG main # optional ( default master / main )
+    GIT_SHALLOW 1 # optional ( --depth=1 )
+)
+
+FetchContent_MakeAvailable(yalantinglibs)
+
 set(SOURCES
 	annotations.cpp
 	confparse.cpp
@@ -70,6 +81,7 @@ set(SOURCES
 	BRDBoard.cpp
 	FileFormats/BRDFileBase.cpp
 	FileFormats/BVR3File.cpp
+	FileFormats/XJsonFile.cpp
 	NetList.cpp
 	PartList.cpp
 	Renderers/Renderers.cpp
@@ -157,6 +169,9 @@ if(MINGW) # Dirty fix to force linking all libs (esp. libstdc++) statically for 
 elseif(APPLE)
 	set_target_properties(${PROJECT_NAME_LOWER} PROPERTIES MACOSX_BUNDLE_ICON_FILE ${PROJECT_NAME_LOWER})
 endif()
+
+target_link_libraries(${PROJECT_NAME_LOWER} yalantinglibs::yalantinglibs)
+target_compile_features(${PROJECT_NAME_LOWER} PRIVATE cxx_std_20)
 
 target_include_directories(${PROJECT_NAME_LOWER} PRIVATE
 	${CMAKE_CURRENT_SOURCE_DIR}

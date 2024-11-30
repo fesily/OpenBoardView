@@ -9,6 +9,7 @@
 #include <fstream>
 #include <sstream>
 #include <concepts>
+#include <filesystem>
 #define RYML_SINGLE_HDR_DEFINE_NOW 1
 #include "../rapidyaml.hpp"
 using namespace std;
@@ -119,6 +120,7 @@ static void serialize(const Annotations& ann, const std::string& filename) {
 }
 
 static void deserialize(Annotations& ann, const std::string& filename) {
+	if (!filesystem::exists(filename)) return;
     std::ifstream fin(filename);
     std::stringstream buffer;
     buffer << fin.rdbuf();

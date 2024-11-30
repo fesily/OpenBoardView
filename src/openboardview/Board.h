@@ -121,6 +121,7 @@ struct Net : BoardElement {
 	int number;
 	string name;
 	string show_name;
+	string diode;
 	bool is_ground;
 
 	SharedVector<Pin> pins;
@@ -177,6 +178,8 @@ struct PcbArc: BoardElement {
 	Point position;
 
 	float radius = 0.0;
+
+	float width = 0.0;
 	
 	float startAngle = 0.0;
 
@@ -194,6 +197,9 @@ struct PcbArc: BoardElement {
 	Net *net;
 };
 
+struct Text {
+	Point position;
+};
 // Any observeable contact (nails, component pins).
 // Convieniently/Confusingly named Pin not Contact here.
 struct Pin : BoardElement {
@@ -214,14 +220,23 @@ struct Pin : BoardElement {
 	string show_name;
 	string name; // for BGA pads will be AZ82 etc
 
-	EShapeType shape = EShapeType::kShapeTypeCircle;
 	// Position according to board file. (probably in inches)
 	Point position;
 	// Contact diameter, e.g. via or pin size. (probably in inches)
 	float diameter;
 
+	EShapeType top_shape = EShapeType::kShapeTypeCircle;
+	// Rect size
+	Point top_size;
+	
+	EShapeType shape = EShapeType::kShapeTypeCircle;
 	// Rect size
 	Point size;
+
+	EShapeType bottom_shape = EShapeType::kShapeTypeCircle;
+	// Rect size
+	Point bottom_size;
+	bool complex_draw = false;
 	// Rect angle
 	int angle;
 

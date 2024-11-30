@@ -18,6 +18,7 @@
 #include "BRDBoard.h"
 #include "Board.h"
 #include "FileFormats/BVR3File.h"
+#include "FileFormats/XJsonFile.h"
 #include "annotations.h"
 #include "imgui/imgui.h"
 #include "imgui/misc/cpp/imgui_stdlib.h"
@@ -558,7 +559,9 @@ int BoardView::LoadFile(const filesystem::path &filepath) {
 		SetLastFileOpenName(filepath.string());
 		std::vector<char> buffer = file_as_buffer(filepath, m_error_msg);
 		if (!buffer.empty()) {
-			if (BVR3File::verifyFormat(buffer))
+			if (filepath.filename().extension() == ".json")
+				m_file = new XJsonFile(buffer);
+			else if (BVR3File::verifyFormat(buffer))
 				m_file = new BVR3File(buffer);
 			else
 				m_error_msg = "Unrecognized file format.";
@@ -2518,7 +2521,11 @@ void BoardView::Update() {
 		}
 
 		if (showPosition == true) {
+#ifdef NDEBUG
 			ImGui::Text("Position: %0.3f\", %0.3f\" (%0.2f, %0.2fmm)", pos.x / 1000, pos.y / 1000, pos.x * 0.0254, pos.y * 0.0254);
+#else
+			ImGui::Text("Position: %0.10f\", %0.10f\" ", pos.x, pos.y);
+#endif
 			ImGui::SameLine();
 		}
 
@@ -3697,7 +3704,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 
 			switch (pin->type) {
 				case Pin::kPinTypeTestPad:
-					if ((psz > 3) && (!slowCPU)) {
+					if ((psz > 3) && (!slowCPU) && pin->shape != kShapeTypeRect) {
 						draw->AddCircleFilled(ImVec2(pos.x, pos.y), psz, fill_color, segments);
 						draw->AddCircle(ImVec2(pos.x, pos.y), psz, color, segments);
 					} else if (psz > threshold) {
@@ -4335,12 +4342,13 @@ inline void BoardView::DrawArcs(ImDrawList *draw) {
 
 		uint32_t color      = (m_colors.layerColor[arc->board_side][0] & cmask) | omask;
 		auto radius = arc->radius * m_scale;
-		auto startAngle = arc->startAngle - M_PI / 2 * m_rotation;
-		auto endAngle = arc->endAngle - M_PI / 2 * m_rotation;
+		float startAngle = arc->startAngle - M_PI / 2 * m_rotation;
+		float endAngle      = arc->endAngle - M_PI / 2 * m_rotation;
+		float width         = arc->width * m_scale;
 		if ((m_pinSelected && m_pinSelected->net == arc->net ) || (m_viaSelected && m_viaSelected->net == arc->net)) {
-			DrawArc(draw, pos, radius, m_colors.defaultBoardSelectColor, startAngle, endAngle, 50, m_scale*1.5);
+			DrawArc(draw, pos, radius, m_colors.defaultBoardSelectColor, startAngle, endAngle, 50, width * 1.5);
 		}
-		DrawArc(draw, pos, radius, color, startAngle, endAngle, 50, m_scale);
+		DrawArc(draw, pos, radius, color, startAngle, endAngle, 50, width);
 		//draw->AddText(pos, color, std::to_string(arc->startAngle * 180 / 3.1415).c_str());
 		//draw->AddText(ImVec2(pos.x, pos.y - 10), color, std::to_string(arc->endAngle * 180 / 3.1415).c_str());
 	}
@@ -4433,14 +4441,29 @@ void BoardView::DrawPartTooltips(ImDrawList *draw) {
 	 */
 	for (auto &pin : m_board->Pins()) {
 
-		if (pin->type == Pin::kPinTypeTestPad) {
+		if (pin->type == Pin::kPinTypeTestPad && !pin->net->is_ground) {
 			float dx   = pin->position.x - pos.x;
 			float dy   = pin->position.y - pos.y;
 			float dist = dx * dx + dy * dy;
 			if ((dist < (pin->diameter * pin->diameter))) {
 				float pd = pin->diameter * m_scale;
 
-				draw->AddCircle(CoordToScreen(pin->position.x, pin->position.y), pd, m_colors.pinHaloColor, 32, pinHaloThickness);
+				if (pin->shape == kShapeTypeRect) {
+					auto pos = CoordToScreen(pin->position.x, pin->position.y);
+					auto w   = pin->size.x;
+					auto h   = pin->size.y;
+					if (pin->shape == kShapeTypeRect) {
+						w = pin->size.x * m_scale / 2;
+						h = pin->size.y * m_scale / 2;
+						w *= 1.05;
+						h *= 1.05;
+					}
+					draw->AddRect(ImVec2(pos.x - w, pos.y - h), ImVec2(pos.x + w, pos.y + h), m_colors.pinHaloColor);
+				} else {
+					draw->AddCircle(
+					    CoordToScreen(pin->position.x, pin->position.y), pd, m_colors.pinHaloColor, 32, pinHaloThickness);
+				}
+				
 				ImGui::PushStyleColor(ImGuiCol_Text, m_colors.annotationPopupTextColor);
 				ImGui::PushStyleColor(ImGuiCol_PopupBg, m_colors.annotationPopupBackgroundColor);
 				ImGui::BeginTooltip();
