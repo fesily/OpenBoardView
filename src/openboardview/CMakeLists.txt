@@ -62,13 +62,12 @@ endif()
 include(FetchContent)
 
 FetchContent_Declare(
-    yalantinglibs
-    GIT_REPOSITORY https://github.com/alibaba/yalantinglibs.git
-    GIT_TAG main # optional ( default master / main )
-    GIT_SHALLOW 1 # optional ( --depth=1 )
+    iguana
+    GIT_REPOSITORY https://github.com/fesily/iguana.git
+    GIT_TAG 58dacce85385244e7ab8e47a9912f11c8e74249c # optional ( default master / main )
 )
 
-FetchContent_MakeAvailable(yalantinglibs)
+FetchContent_MakeAvailable(iguana)
 
 set(SOURCES
 	annotations.cpp
@@ -170,7 +169,7 @@ elseif(APPLE)
 	set_target_properties(${PROJECT_NAME_LOWER} PROPERTIES MACOSX_BUNDLE_ICON_FILE ${PROJECT_NAME_LOWER})
 endif()
 
-target_link_libraries(${PROJECT_NAME_LOWER} yalantinglibs::yalantinglibs)
+target_include_directories(${PROJECT_NAME_LOWER} PRIVATE ${iguana_SOURCE_DIR})
 target_compile_features(${PROJECT_NAME_LOWER} PRIVATE cxx_std_20)
 
 target_include_directories(${PROJECT_NAME_LOWER} PRIVATE

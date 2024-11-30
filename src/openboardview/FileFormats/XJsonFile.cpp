@@ -7,7 +7,7 @@
 #include <vector>
 #include <iostream>
 
-#include <ylt/struct_json/json_reader.h>
+#include <iguana/json_reader.hpp>
 
 #include "XJsonFile.h"
 #include <set>
@@ -258,7 +258,7 @@ XJsonFile::XJsonFile(std::vector<char> &b)
 	try
 	{
 		file = std::make_unique<YamlFile>();
-		struct_json::from_json(*file, buf.begin(), buf.end());
+		iguana::from_json(*file, buf.begin(), buf.end());
 	}
 	catch(const std::exception& e)
 	{
