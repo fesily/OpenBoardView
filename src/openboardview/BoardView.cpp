@@ -18,6 +18,8 @@
 #include "BRDBoard.h"
 #include "Board.h"
 #include "FileFormats/BVR3File.h"
+#include "FileFormats/BRDFile.h"
+#include "FileFormats/BRD2File.h"
 #include "FileFormats/XJsonFile.h"
 #include "annotations.h"
 #include "imgui/imgui.h"
@@ -561,6 +563,10 @@ int BoardView::LoadFile(const filesystem::path &filepath) {
 		if (!buffer.empty()) {
 			if (filepath.filename().extension() == ".json")
 				m_file = new XJsonFile(buffer);
+			else if (BRDFile::verifyFormat(buffer))
+				m_file = new BRDFile(buffer);
+			else if (BRD2File::verifyFormat(buffer))
+				m_file = new BRD2File(buffer);
 			else if (BVR3File::verifyFormat(buffer))
 				m_file = new BVR3File(buffer);
 			else

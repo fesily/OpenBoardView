@@ -73,7 +73,7 @@ struct BRDPin {
 	BRDPinSide side{};
 	std::string net  = "UNCONNECTED";
 	int netId = -1;
-	double radius    = 0.5f;
+	double radius    = 7.0f;
 	std::string snum;
 	std::string name;
 	std::string diode_vale;

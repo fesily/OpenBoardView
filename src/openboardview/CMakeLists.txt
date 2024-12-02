@@ -79,6 +79,8 @@ set(SOURCES
 	Board.cpp
 	BRDBoard.cpp
 	FileFormats/BRDFileBase.cpp
+	FileFormats/BRDFile.cpp
+	FileFormats/BRD2File.cpp
 	FileFormats/BVR3File.cpp
 	FileFormats/XJsonFile.cpp
 	NetList.cpp
