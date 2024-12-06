@@ -8,7 +8,7 @@
 struct Annotation {
 	int id;
 	int side;
-	string note, net, part, pin;
+	std::string note, net, part, pin;
 	double x, y;
 	bool hovered;
 };
@@ -64,9 +64,9 @@ struct Annotations {
 	std::string filename;
 	sqlite3 *sqldb;
 	bool debug = true;
-	vector<Annotation> annotations;
-	map<string, PartInfo> partInfos;
-	map<string, NetInfo> netInfos;
+	std::vector<Annotation> annotations;
+	std::map<string, PartInfo> partInfos;
+	std::map<string, NetInfo> netInfos;
 
 	int Init(void);
 

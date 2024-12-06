@@ -19,23 +19,20 @@
 #define kBoardArcPrefix "a_"
 #define kBoardElementNameLength 127
 
-using namespace std;
-#include "annotations.h"
-
 struct Point;
 struct BoardElement;
 struct Net;
 struct Pin;
 struct Component;
 
-typedef function<void(const char *)> TcharStringCallback;
-typedef function<void(BoardElement *)> TboardElementCallback;
+typedef std::function<void(const char *)> TcharStringCallback;
+typedef std::function<void(BoardElement *)> TboardElementCallback;
 
 template <class T>
-using SharedVector = vector<shared_ptr<T>>;
+using SharedVector = std::vector<std::shared_ptr<T>>;
 
 template <class T>
-using SharedStringMap = map<string, shared_ptr<T>>;
+using SharedStringMap = std::map<std::string, std::shared_ptr<T>>;
 
 enum EBoardSide {
 	kBoardSideBoth,
@@ -60,7 +57,7 @@ enum EShapeType {
 };
 
 // Checking whether str `prefix` is a prefix of str `base`.
-inline static bool is_prefix(string prefix, string base) {
+inline static bool is_prefix(std::string prefix, std::string base) {
 	if (prefix.size() > base.size()) return false;
 
 	auto res = mismatch(prefix.begin(), prefix.end(), base.begin());
@@ -70,17 +67,17 @@ inline static bool is_prefix(string prefix, string base) {
 }
 
 template <class T>
-inline static bool contains(const T &element, vector<T> &v) {
+inline static bool contains(const T &element, std::vector<T> &v) {
 	return find(begin(v), end(v), element) != end(v);
 }
 
 template <class T>
-inline static bool contains(T &element, vector<T> &v) {
+inline static bool contains(T &element, std::vector<T> &v) {
 	return find(begin(v), end(v), element) != end(v);
 }
 
 template <class T>
-inline void remove(T &element, vector<T> &v) {
+inline void remove(T &element, std::vector<T> &v) {
 
 	auto it = std::find(v.begin(), v.end(), element);
 
@@ -97,7 +94,7 @@ struct BoardElement {
 	EBoardSide board_side = kBoardSideBoth;
 
 	// String uniquely identifying this element on the board.
-	virtual string UniqueId() const = 0;
+	virtual std::string UniqueId() const = 0;
 };
 
 // A point/position on the board relative to top left corner of the board.
@@ -119,14 +116,14 @@ struct Point {
 // Shared potential between multiple Pins/Contacts.
 struct Net : BoardElement {
 	int number;
-	string name;
-	string show_name;
-	string diode;
+	std::string name;
+	std::string show_name;
+	std::string diode;
 	bool is_ground;
 
 	SharedVector<Pin> pins;
 
-	string UniqueId() const {
+	std::string UniqueId() const {
 		return kBoardNetPrefix + name;
 	}
 
@@ -215,10 +212,10 @@ struct Pin : BoardElement {
 	EPinType type;
 
 	// Pin number / Nail count.
-	string number;
+	std::string number;
 
-	string show_name;
-	string name; // for BGA pads will be AZ82 etc
+	std::string show_name;
+	std::string name; // for BGA pads will be AZ82 etc
 
 	// Position according to board file. (probably in inches)
 	Point position;
@@ -256,7 +253,17 @@ struct Pin : BoardElement {
 
 	PinVoltageFlag voltage_flag = PinVoltageFlag::unknown;
 
-	string UniqueId() const {
+	std::string diode_value; // the pin diode
+
+	std::string voltage_value; // the pin voltage
+
+	std::string ohm_value;
+
+	std::string ohm_black_value;
+
+	PinVoltageFlag voltage_flag = PinVoltageFlag::unknown;
+
+	std::string UniqueId() const {
 		return kBoardPinPrefix + number;
 	}
 };
@@ -293,7 +300,7 @@ struct Component : BoardElement {
 	string part_type;
 
 	// Part manufacturing code (aka. part number).
-	string mfgcode;
+	std::string mfgcode;
 
 	// Pins belonging to this component.
 	SharedVector<Pin> pins;
@@ -319,7 +326,7 @@ struct Component : BoardElement {
 	uint8_t visualmode = 0;
 
 	// Mount type as readable string.
-	string mount_type_str() {
+	std::string mount_type_str() {
 		switch (mount_type) {
 			case Component::kMountTypeSMD: return "SMD";
 			case Component::kMountTypeDIP: return "DIP";
@@ -332,7 +339,7 @@ struct Component : BoardElement {
 		return component_type == kComponentTypeDummy;
 	}
 
-	string UniqueId() const {
+	std::string UniqueId() const {
 		return kBoardComponentPrefix + name;
 	}
 

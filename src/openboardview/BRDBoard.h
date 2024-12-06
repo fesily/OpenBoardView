@@ -6,8 +6,6 @@
 #include <cstring>
 #include <vector>
 
-using namespace std;
-
 class BRDBoard : public Board {
   public:
 	BRDBoard(const BRDFileBase *const boardFile);
@@ -29,8 +27,8 @@ class BRDBoard : public Board {
 
 
   private:
-	static const string kNetUnconnectedPrefix;
-	static const string kComponentDummyName;
+	static const std::string kNetUnconnectedPrefix;
+	static const std::string kComponentDummyName;
 
 	SharedVector<Net> nets_;
 	SharedVector<Component> components_;

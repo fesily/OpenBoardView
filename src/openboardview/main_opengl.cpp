@@ -20,7 +20,6 @@
 #include "resource.h"
 #include <SDL.h>
 #include <chrono>
-#include <deque>
 #include <memory>
 #include <cstdio>
 #include <string>
@@ -33,6 +32,8 @@
 
 // Rendering stuff
 #include "Renderers/Renderers.h"
+#include "GUI/DPI.h"
+#include "GUI/Fonts.h"
 
 #include "filesystem_impl.h"
 
@@ -48,7 +49,7 @@ struct globals {
 	int width = 0;
 	int height = 0;
 	int dpi = 0;
-	double font_size = 0.0f;
+	float font_size = 0.0f;
 	bool debug = false;
 	Renderers::Renderer renderer = Renderers::Renderer::DEFAULT;
 #ifdef _WIN32
@@ -264,10 +265,10 @@ int main(int argc, char **argv) {
 #endif
 
 	// Apply the slowCPU flag if required.
-	app.slowCPU = g.slowCPU;
+	app.config.slowCPU = g.slowCPU;
 
-	if (g.width == 0) g.width   = app.obvconfig.ParseInt("windowX", 1100);
-	if (g.height == 0) g.height = app.obvconfig.ParseInt("windowY", 700);
+	if (g.width == 0) g.width   = app.config.windowX;
+	if (g.height == 0) g.height = app.config.windowY;
 
 	if (g.renderer == Renderers::Renderer::DEFAULT) {
 		g.renderer = Renderers::get(app.obvconfig.ParseInt("renderer", static_cast<int>(Renderers::Preferred)));
@@ -298,6 +299,7 @@ int main(int argc, char **argv) {
 	SDL_EnableScreenSaver();
 
 	ImGuiIO &io    = ImGui::GetIO();
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable ImGui's keyboard navigation
 	io.IniFilename = NULL;
 	//	io.Fonts->AddFontDefault();
 
@@ -305,9 +307,7 @@ int main(int argc, char **argv) {
 	bool done             = false;
 	bool preload_required = false;
 
-	// Set the dpi, if we've not set any parameters it'll be 0 which
-	// will make the ConfigParse load and set the right dpi.
-	app.dpi = g.dpi;
+	if (g.dpi > 0) setDPI(g.dpi);
 
 	// Now that the configuration file is loaded in to BoardView, parse its settings.
 	app.ConfigParse();
@@ -315,61 +315,14 @@ int main(int argc, char **argv) {
 	// Preset some workable sizes
 	app.m_board_surface.x = g.width;
 	app.m_board_surface.y = g.height;
-	if (app.showInfoPanel) app.m_board_surface.x -= app.m_info_surface.x;
+	if (app.config.showInfoPanel) app.m_board_surface.x -= app.m_info_surface.x;
 
-	if (g.font_size == 0.0f) g.font_size = app.obvconfig.ParseDouble("fontSize", 20.0f);
-	g.font_size                          = (g.font_size * app.dpi) / 100;
+	if (g.font_size > 0.0) app.config.fontSize = g.font_size;
 
-	{
-		ImGuiStyle &style = ImGui::GetStyle();
-		style.ScrollbarSize *= app.dpi / 100.0f;
-	}
-
-	// Font selection
-	std::deque<std::string> fontList(
-	    {"Liberation Sans", "DejaVu Sans", "Arial", "Helvetica", ""}); // Empty string = use system default font
-	std::string customFont(app.obvconfig.ParseStr("fontName", ""));
-
-	if (!customFont.empty()) fontList.push_front(customFont);
-
-	// Try to keep atlas size below 1024x1024 pixels (max texture size on e.g. Windows GDI)
-	io.Fonts->TexDesiredWidth = 1024;
-	// Max size is 76px for a single font with current glyph range (192 glyphs) and default oversampling (h*3, v*1), could break in future ImGui updates
-	// Different fonts can also overflow, e.g. Arial and Helvetica work but Algerian does not
-	// Expected max g.font_size is around 50, limit set in BoardView.cpp for Preferences panel, user can manually set higher value in config file but could break
-	// Rough estimate with some margin (72 instead of 76), assuming small font is 2 times smaller, max size for larger font is
-	double maxLargeFontSizeSquared = 72.0 * 72.0 - g.font_size * g.font_size - (g.font_size / 2.0) * (g.font_size / 2.0);
-	if (maxLargeFontSizeSquared < 1.0) {
-		maxLargeFontSizeSquared = 1.0;
-	}
-	double largeFontScaleFactor = std::min(8.0, std::sqrt(maxLargeFontSizeSquared) / g.font_size); // Find max scale factor for large font, use at most 8 times larger font
-
-	for (const auto &name : fontList) {
-		app.obvconfig.WriteStr("fontName", name.c_str());
-#ifdef _WIN32
-		ImFontConfig font_cfg{};
-		font_cfg.FontDataOwnedByAtlas = false;
-		const std::vector<char> ttf   = load_font(name);
-		if (!ttf.empty()) {
-			io.Fonts->AddFontFromMemoryTTF(
-			    const_cast<void *>(reinterpret_cast<const void *>(ttf.data())), ttf.size(), g.font_size, &font_cfg);
-			io.Fonts->AddFontFromMemoryTTF(
-			    const_cast<void *>(reinterpret_cast<const void *>(ttf.data())), ttf.size(), g.font_size * largeFontScaleFactor, &font_cfg); // Larger font for resizeable (zoomed) text
-			io.Fonts->AddFontFromMemoryTTF(
-			    const_cast<void *>(reinterpret_cast<const void *>(ttf.data())), ttf.size(), g.font_size / 2, &font_cfg); // Smaller font for resizeable (zoomed) text
-			break;
-		}
-
-#else
-		const std::string fontpath = get_font_path(name);
-		if (fontpath.empty()) continue;        // Font not found
-		if (check_fileext(fontpath, ".ttf")) { // ImGui handles only TrueType fonts so exclude anything which has a different ext
-			io.Fonts->AddFontFromFileTTF(fontpath.c_str(), g.font_size);
-			io.Fonts->AddFontFromFileTTF(fontpath.c_str(), g.font_size * largeFontScaleFactor); // Larger font for resizeable (zoomed) text
-			io.Fonts->AddFontFromFileTTF(fontpath.c_str(), g.font_size / 2); // Smaller font for resizeable (zoomed) text
-			break;
-		}
-#endif
+	Fonts fonts;
+	std::string loadedFontName = fonts.load(app.config.fontName, app.config.fontSize);
+	if (!loadedFontName.empty()) { // Overwrite saved font name by the one that has just been loaded
+		app.obvconfig.WriteStr("fontName", loadedFontName.c_str());
 	}
 
 	// ImVec4 clear_color = ImColor(20, 20, 30);
@@ -428,7 +381,7 @@ int main(int argc, char **argv) {
 				else if (fabs(event.mgesture.dDist) > 0.002) {
 					int w, h;
 					SDL_GetWindowSize(window, &w, &h);
-					app.Zoom(event.mgesture.x * w, event.mgesture.y * h, event.mgesture.dDist * app.zoomFactor * 10);
+					app.Zoom(event.mgesture.x * w, event.mgesture.y * h, event.mgesture.dDist * app.config.zoomFactor * 10);
 				}
 			}
 
@@ -445,6 +398,12 @@ int main(int argc, char **argv) {
 			app.obvconfig.Load(configDir + "obv.conf");
 			app.ConfigParse();
 			clear_color = ImColor(app.m_colors.backgroundColor);
+		}
+
+		if (app.reloadFonts) {
+			// Needs to happen after frame has been rendered (or before starting a new frame)
+			fonts.reload(app.config.fontName, app.config.fontSize);
+			app.reloadFonts = false;
 		}
 
 		if (!(sleepout--)) {

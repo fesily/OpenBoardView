@@ -16,11 +16,12 @@ void Keyboard::menuItem() {
 }
 
 void Keyboard::render() {
-	bool close_button_not_clicked = true;
+	bool p_open = true;
 	auto &io = ImGui::GetIO();
 	ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), 0, ImVec2(0.5f, 0.5f));
-	if (ImGui::BeginPopupModal("Keyboard Preferences", &close_button_not_clicked, ImGuiWindowFlags_AlwaysAutoResize)) {
+	if (ImGui::BeginPopupModal("Keyboard Preferences", &p_open, ImGuiWindowFlags_AlwaysAutoResize)) {
 		shown = false;
+		was_open = true;
 
 		// Find how many columns we need to show all the keybindings
 		auto maxbindings = std::max_element(keybindings.keybindings.begin(), keybindings.keybindings.end(),
@@ -66,10 +67,43 @@ void Keyboard::render() {
 					colindex++;
 				}
 
+				ImGui::TableSetColumnIndex(colindex);
+				if (addingName == kbs.first) {
+					// Adding a new key binding
+					auto keys = addingBinding.to_string();
+					if (ImGui::SmallButton(("X##adding" + kbs.first).c_str())) {
+						// Stop adding new keybinding
+						addingKey = ImGuiKey_None;
+						addingName = std::string{};
+						addingBinding = KeyBinding{};
+					}
+					bool x_button_clicked = ImGui::IsItemActive();
+
+					ImGui::SameLine();
+					if (!keys.empty()) {
+						// Show current pressed keys
+						ImGui::Text("%s", keys.c_str());
+					} else {
+						// Or a message indicating to press a key
+						ImGui::Text("%s", "<Press a key>");
+					}
+
+					// Dot not attempt to add a key if the X button is being clicked
+					// Prevent showing "MouseLeft" while clicking the button before releasing
+					if (x_button_clicked) {
+						continue;
+					}
+				} else {
+					// Show add button
+					if (ImGui::SmallButton(("Add##" + kbs.first).c_str())) {
+						addingName = kbs.first;
+					}
+				}
+
 				// Add new binding after pressing add button, keep that after showing all bindings
 				if (addingName == kbs.first) {
 					// Check if a key is pressed
-					for (ImGuiKey key = ImGuiKey_NamedKey_BEGIN; key < ImGuiKey_NamedKey_END; key=(ImGuiKey)(key+1)) {
+					for (ImGuiKey key = ImGuiKey_NamedKey_BEGIN; key < ImGuiKey_NamedKey_END; key = (ImGuiKey)(key + 1)) {
 						if (ImGui::IsKeyDown(key)) {
 							// Ignore modifier keys, cannot be a final key
 							if (!keybindings.keyModifiers.isModifier(key)) {
@@ -91,30 +125,6 @@ void Keyboard::render() {
 					}
 				}
 
-				ImGui::TableSetColumnIndex(colindex);
-				if (addingName == kbs.first) {
-					// Adding a new key binding
-					auto keys = addingBinding.to_string();
-					if (ImGui::SmallButton(("X##adding" + kbs.first).c_str())) {
-						// Stop adding new keybinding
-						addingKey = ImGuiKey_None;
-						addingName = std::string{};
-						addingBinding = KeyBinding{};
-					}
-					ImGui::SameLine();
-					if (!keys.empty()) {
-						// Show current pressed keys
-						ImGui::Text("%s", keys.c_str());
-					} else {
-						// Or a message indicating to press a key
-						ImGui::Text("%s", "<Press a key>");
-					}
-				} else {
-					// Show add button
-					if (ImGui::SmallButton(("Add##" + kbs.first).c_str())) {
-						addingName = kbs.first;
-					}
-				}
 			}
 
 			ImGui::EndTable();
@@ -123,11 +133,13 @@ void Keyboard::render() {
 		if (ImGui::Button("Save")) {
 			keybindings.writeToConfig(obvconfig);
 			ImGui::CloseCurrentPopup();
+			was_open = false;
 		}
 		ImGui::SameLine();
-		if (ImGui::Button("Cancel") || keybindings.isPressed("CloseDialog") || !close_button_not_clicked) {
+		if (ImGui::Button("Cancel") || keybindings.isPressed("CloseDialog")) {
 			keybindings.readFromConfig(obvconfig);
 			ImGui::CloseCurrentPopup();
+			was_open = false;
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Default")) {
@@ -137,8 +149,13 @@ void Keyboard::render() {
 		ImGui::EndPopup();
 	}
 
-	if (!close_button_not_clicked) { // modal title bar close button clicked
-		keybindings.readFromConfig(obvconfig);
+	if (!p_open) { // ImGui tells us the popup is closed
+		if (was_open) {
+			// We need to run this only once when the popup is closed with the popup title bar close button
+			// If it was closed with our Save or Cancel button, we already did what we had to do and was_open is already false
+			keybindings.readFromConfig(obvconfig);
+			was_open = false;
+		}
 	}
 
 	if (shown) {

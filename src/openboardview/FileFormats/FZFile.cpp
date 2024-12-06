@@ -212,16 +212,15 @@ FZFile::FZFile(std::vector<char> &buf, uint32_t fzkey[44]) {
 	float multiplier = 1.0f;
 	saved_locale     = setlocale(LC_NUMERIC, "C"); // Use '.' as delimiter for strtod
 
-	if (!check_fz_key(fzkey)) {
+	if (check_fz_key(fzkey)) {
+		memcpy(key, fzkey, sizeof(key));
+	} else if (!check_fz_key(key)) { // Try to fallback to built-in key
 		valid = false;
 		error_msg = "Invalid FZ key\n";
 		error_msg += "FZ Key:\n";
 		error_msg += fz_key_to_string(fzkey);
 		return;
 	}
-
-	memcpy(key, fzkey, sizeof(key));
-
 
 	ENSURE_OR_FAIL(buffer_size > 4, error_msg, return);
 	size_t file_buf_size = 3 * (1 + buffer_size);
@@ -358,12 +357,29 @@ FZFile::FZFile(std::vector<char> &buf, uint32_t fzkey[44]) {
 				parts_id[part.name] = parts.size();
 			} break;
 			case 2: { // Pins
+				/* There are more then single FZ file variant even if all those files ahre same header looking like
+				A!NET_NAME!REFDES!PIN_NUMBER!PIN_NAME!PIN_X!PIN_Y!TEST_POINT!RADIUS!
+
+				There are at least 2 variants, placing BGA pin label in different places:
+				S!SATA_GP1!SU1!AJ43!GPP_E1/SATAXPCIE1/SATAGP1!3315.86!1830.70!!6!
+				S!SNN_FBA_WCKB45*!G1!0!AJ31!3140.51!1436.167!!7.48106!
+
+				For first variant the PIN_NAME column is ignored until thre would be a filed for handling/displaying such info
+				But for second varinat the PIN_NUMBER column is always the "0" literal, so PIN_NAME is used as name.
+				*/
 				BRDPin pin;
 				pin.net    = READ_STR();
 				char *part = READ_STR();
 				pin.part   = parts_id.at(part);
 				pin.snum   = READ_STR();
-				/*char *name =*/READ_STR();
+				char *name = READ_STR();
+
+				// use name field as pin name if snum is empty string or "0" (decimal zero as string)
+				bool name_is_pin_position_id = strlen(pin.snum) <= 1 && (pin.snum[0] == '\0' or pin.snum[0] == '0');
+				if (name_is_pin_position_id)
+				{
+					pin.name = name;
+				}
 				double posx   = READ_DOUBLE();
 				pin.pos.x     = posx * multiplier;
 				double posy   = READ_DOUBLE();

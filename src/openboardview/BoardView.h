@@ -8,7 +8,13 @@
 #include "history.h"
 #include "imgui/imgui.h"
 #include "UI/Keyboard/KeyBindings.h"
+#include "GUI/Config.h"
+#include "GUI/ColorScheme.h"
+#include "GUI/Help/About.h"
+#include "GUI/Help/Controls.h"
+#include "GUI/Preferences/Color.h"
 #include "GUI/Preferences/Keyboard.h"
+#include "GUI/Preferences/Program.h"
 #include "GUI/BackgroundImage.h"
 #include "GUI/Preferences/BoardSettings/BoardSettings.h"
 #include "PDFBridge/PDFBridge.h"
@@ -19,8 +25,6 @@
 #include <vector>
 #include <array>
 
-#define DPIF(x) (((x)*dpi) / 100.f)
-#define DPI(x) (((x)*dpi) / 100)
 
 struct BRDPart;
 class BRDFile;
@@ -54,77 +58,6 @@ struct BitVec {
 	}
 };
 
-struct ColorScheme {
-	/*
-	 * Take note, because these are directly set
-	 * the packing format is ABGR,  not RGBA
-	 */
-	uint32_t backgroundColor          = 0xffffffff;
-	uint32_t boardFillColor           = 0xffdddddd;
-	uint32_t partOutlineColor         = 0xff444444;
-	uint32_t partHullColor            = 0x80808080;
-	uint32_t partFillColor            = 0xffffffff;
-	uint32_t partTextColor            = 0x80808080;
-	uint32_t partHighlightedColor     = 0xff0000ee;
-	uint32_t partHighlightedFillColor = 0xf4f0f0ff;
-	uint32_t partHighlightedTextColor            = 0xff808000;
-	uint32_t partHighlightedTextBackgroundColor  = 0xff00eeee;
-	uint32_t boardOutlineColor        = 0xff00ffff;
-
-	//	uint32_t boxColor = 0xffcccccc;
-
-	uint32_t pinDefaultColor      = 0xff0000ff;
-	uint32_t pinDefaultTextColor  = 0xffcc0000;
-	uint32_t pinTextBackgroundColor  = 0xffffff80;
-	uint32_t pinGroundColor       = 0xff0000bb;
-	uint32_t pinNotConnectedColor = 0xffff0000;
-	uint32_t pinTestPadColor      = 0xff888888;
-	uint32_t pinTestPadFillColor  = 0xff8dc6d6;
-	uint32_t pinA1PadColor        = 0xffdd0000;
-
-	uint32_t pinSelectedColor     = 0x00000000;
-	uint32_t pinSelectedFillColor = 0xffff8888;
-	uint32_t pinSelectedTextColor = 0xffffffff;
-
-	uint32_t pinSameNetColor     = 0xffaa4040;
-	uint32_t pinSameNetFillColor = 0xffff9999;
-	uint32_t pinSameNetTextColor = 0xff111111;
-
-	uint32_t pinHaloColor     = 0x8822FF22;
-	uint32_t pinNetWebColor   = 0xff0000ff;
-	uint32_t pinNetWebOSColor = 0x0000ff22;
-
-	uint32_t annotationPartAliasColor       = 0xcc00ffff;
-	uint32_t annotationBoxColor             = 0xaa0000ff;
-	uint32_t annotationStalkColor           = 0xff000000;
-	uint32_t annotationPopupBackgroundColor = 0xffeeeeee;
-	uint32_t annotationPopupTextColor       = 0xff000000;
-
-	uint32_t selectedMaskPins    = 0xFFFFFFFF;
-	uint32_t selectedMaskParts   = 0xFFFFFFFF;
-	uint32_t selectedMaskOutline = 0xFFFFFFFF;
-
-	uint32_t orMaskPins    = 0x00000000;
-	uint32_t orMaskParts   = 0x00000000;
-	uint32_t orMaskOutline = 0x00000000;
-
-	uint32_t viaColor = 0xFFC7C7C7;
-	std::array<uint32_t, 2> layerColor[11] = {
-	    {0xFFFFFFFF, 0xFFFFFFFF},
-	    {0xFFFF0000, 0xFFFF8080},
-	    {0xFF00FF00, 0xFF80FF80},
-	    {0xFF0000FF, 0xFF8080FF},
-	    {0xFFFFFF00, 0xFFFFFF80},
-	    {0xFF00FFFF, 0xFF80FFFF},
-	    {0xFFFF00FF, 0xFFFF80FF},
-	    {0xFF800000, 0xFFC08080},
-	    {0xFF008000, 0xFF80C080},
-	    {0xFF000080, 0xFF8080C0},
-	    {0xFF808000, 0xFFC0C080},
-	};
-	uint32_t defaultBoardSelectColor = 0xFF00FFFF;
-};
-
 // enum DrawChannel { kChannelImages = 0, kChannelFill, kChannelPolylines = 1, kChannelPins = 2, kChannelText = 3,
 // kChannelAnnotations = 4, NUM_DRAW_CHANNELS = 5 };
 enum DrawChannel {
@@ -150,7 +83,14 @@ struct BoardView {
 	SpellCorrector scnets;
 	SpellCorrector scparts;
 	KeyBindings keybindings;
+	Config config;
+	Preferences::Program programPreferences{keybindings, obvconfig, config, *this};
+	Preferences::Color colorPreferences{keybindings, obvconfig, m_colors};
 	Preferences::Keyboard keyboardPreferences{keybindings, obvconfig};
+	Preferences::BoardSettings boardSettings{keybindings, backgroundImage, pdfFile};
+
+	Help::About helpAbout{keybindings};
+	Help::Controls helpControls{keybindings};
 
 #ifdef ENABLE_PDFBRIDGE_EVINCE
 	PDFBridgeEvince pdfBridge;
@@ -165,44 +105,10 @@ struct BoardView {
 
 	bool debug                   = false;
 	int history_file_has_changed = 0;
-	int dpi                      = 0;
-	double dpiscale              = 1.0f;
-	double fontSize              = 20.0f;
-	float zoomFactor             = 0.5f;
-	float partZoomScaleOutFactor = 3.0f;
-	int zoomModifier             = 5;
-	int panFactor                = 30;
-	int panModifier              = 5;
-	int flipMode                 = 0;
-
-	int annotationBoxOffset = 10;
-	int annotationBoxSize   = 10;
-
-	int pinA1threshold = 3; // pincount of package to show 1/A1 pin
-	int netWebThickness = 2;
-
-	float pinSizeThresholdLow = 0.0f;
-	bool pinShapeSquare       = false;
-	bool pinShapeCircle       = true;
-	bool pinSelectMasks       = true;
-	bool slowCPU              = false;
-	bool showFPS              = false;
-	bool showNetWeb           = true;
-	bool showInfoPanel        = true;
-	bool showPins             = true;
-	bool showAnnotations      = true;
-	bool pinHalo              = false;
-	float pinHaloDiameter     = 1.1;
-	float pinHaloThickness    = 4.00;
-	bool fillParts            = true;
-	bool boardFill            = true;
-	bool showPartName         = true;
-	bool showPinName          = true;
-	int boardFillSpacing      = 3;
 	bool boardMinMaxDone      = false;
 
-	bool showPosition  = true;
 	bool reloadConfig  = false;
+	bool reloadFonts  = false;
 	int pinBlank       = 0;
 	uint32_t FZKey[44] = {0};
 	enum ShowMode : int {
@@ -214,7 +120,6 @@ struct BoardView {
 
 
 	int ConfigParse(void);
-	uint32_t byte4swap(uint32_t x);
 	void CenterView(void);
 	void Pan(int direction, int amount);
 	void Zoom(float osd_x, float osd_y, float zoom);
@@ -223,8 +128,6 @@ struct BoardView {
 	void DrawHex(ImDrawList *draw, ImVec2 c, double r, uint32_t color);
 	void DrawBox(ImDrawList *draw, ImVec2 c, double r, uint32_t color);
 	void SetFZKey(const char *keytext);
-	void HelpAbout(void);
-	void HelpControls(void);
 	template <class T>
 	void ShowSearchResults(std::vector<T> results, char *search, int &limit, void (BoardView::*onSelect)(const char *));
 	void SearchColumnGenerate(const std::string &title,
@@ -232,19 +135,12 @@ struct BoardView {
 	                          char *search,
 	                          int limit);
 	void Preferences(void);
-	void SaveAllColors(void);
-	void ColorPreferencesItem(
-	    const char *label, int label_width, const char *butlabel, const char *conflabel, int var_width, uint32_t *c);
-	void ColorPreferences(void);
 	bool AnyItemVisible(void);
 	void ThemeSetStyle(const char *name);
 
-	bool infoPanelCenterZoomNets   = true;
-	bool infoPanelSelectPartsOnNet = false;
 	bool infoPanelSelectPartsOnNetOnlyNotGround = false;
-	void CenterZoomNet(string netname);
+	void CenterZoomNet(std::string netname);
 
-	bool m_centerZoomSearchResults = true;
 	void CenterZoomSearchResults(void);
 	int EPCCheck(void);
 	void OutlineGenFillDraw(ImDrawList *draw, int ydelta, double thickness);
@@ -256,8 +152,6 @@ struct BoardView {
 	bool AnnotationWasHovered     = false;
 	bool m_annotationnew_retain   = false;
 	bool m_annotationedit_retain  = false;
-	bool m_tooltips_enabled       = true;
-	bool m_parent_occluded        = false;
 	int m_annotation_last_hovered = 0;
 	int m_annotation_clicked_id   = 0;
 	int m_hoverframes             = 0;
@@ -328,8 +222,6 @@ struct BoardView {
 	bool m_searchNets       = true;
 	bool m_showNetList;
 	bool m_showPartList;
-	bool m_showHelpAbout;
-	bool m_showHelpControls;
 	bool m_showPreferences;
 	bool m_showColorPreferences;
 	bool m_firstFrame = true;

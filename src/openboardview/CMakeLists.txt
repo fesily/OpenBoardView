@@ -93,11 +93,21 @@ set(SOURCES
 	UI/Keyboard/KeyBindings.cpp
 	UI/Keyboard/KeyModifiers.cpp
 	GUI/BackgroundImage.cpp
+	GUI/DPI.cpp
+	GUI/ColorScheme.cpp
+	GUI/Config.cpp
+	GUI/Fonts.cpp
 	GUI/Image.cpp
+	GUI/Help/About.cpp
+	GUI/Help/Controls.cpp
 	GUI/Preferences/BoardSettings/BackgroundImage.cpp
 	GUI/Preferences/BoardSettings/BoardSettings.cpp
 	GUI/Preferences/BoardSettings/PDFFile.cpp
+	GUI/Preferences/Color.cpp
 	GUI/Preferences/Keyboard.cpp
+	GUI/Preferences/Program.cpp
+	GUI/Preferences/BoardAppearance.cpp
+	GUI/widgets.cpp
 	PDFBridge/PDFBridge.cpp
 	PDFBridge/PDFFile.cpp
 	main_opengl.cpp

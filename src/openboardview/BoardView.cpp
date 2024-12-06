@@ -3,7 +3,6 @@
 #include "history.h"
 #include "utf8/utf8.h"
 #include "utils.h"
-#include "version.h"
 
 #include <cmath>
 #include <iostream>
@@ -21,8 +20,11 @@
 #include "FileFormats/BRDFile.h"
 #include "FileFormats/BRD2File.h"
 #include "FileFormats/XJsonFile.h"
+#include "GUI/DPI.h"
+#include "GUI/widgets.h"
 #include "annotations.h"
 #include "imgui/imgui.h"
+#include "imgui/imgui_internal.h" // For ImGui::FocusWindow()
 #include "imgui/misc/cpp/imgui_stdlib.h"
 
 #include "NetList.h"
@@ -30,9 +32,6 @@
 #include "vectorhulls.h"
 
 #include "../linalg.hpp"
-
-using namespace std;
-using namespace std::placeholders;
 
 #if _MSC_VER
 #define stricmp _stricmp
@@ -55,13 +54,8 @@ BoardView::~BoardView() {
 		m_validBoard = false;
 	}
 }
-uint32_t BoardView::byte4swap(uint32_t x) {
-	/*
-	 * used to convert RGBA -> ABGR etc
-	 */
-	return (((x & 0x000000ff) << 24) | ((x & 0x0000ff00) << 8) | ((x & 0x00ff0000) >> 8) | ((x & 0xff000000) >> 24));
-}
-void BoardView::ThemeSetStyle(const char *name) {
+
+int BoardView::ConfigParse(void) {
 	ImGuiStyle &style = ImGui::GetStyle();
 
 	// non color-related settings
@@ -125,8 +119,8 @@ void BoardView::ThemeSetStyle(const char *name) {
 		m_colors.pinDefaultColor          = byte4swap(0x4040ffff);
 		m_colors.pinDefaultTextColor      = byte4swap(0xccccccff);
 		m_colors.pinTextBackgroundColor   = byte4swap(0xffffff80);
-		m_colors.pinGroundColor           = byte4swap(0x5f5f5fff);
-		m_colors.pinNotConnectedColor     = byte4swap(0x483D8Bff);
+		m_colors.pinGroundColor           = byte4swap(0x0300C3ff);
+		m_colors.pinNotConnectedColor     = byte4swap(0xaaaaaaff);
 		m_colors.pinTestPadColor          = byte4swap(0x888888ff);
 		m_colors.pinTestPadFillColor      = byte4swap(0x6c5b1fff);
 		m_colors.pinA1PadColor            = byte4swap(0xdd0000ff);
@@ -251,157 +245,18 @@ void BoardView::ThemeSetStyle(const char *name) {
 
 int BoardView::ConfigParse(void) {
 	ImGuiStyle &style = ImGui::GetStyle();
-	const char *v     = obvconfig.ParseStr("colorTheme", "light");
-	ThemeSetStyle(v);
 
-	fontSize            = obvconfig.ParseDouble("fontSize", 20);
-	pinSizeThresholdLow = obvconfig.ParseDouble("pinSizeThresholdLow", 0);
-	pinShapeSquare      = obvconfig.ParseBool("pinShapeSquare", false);
-	pinShapeCircle      = obvconfig.ParseBool("pinShapeCircle", true);
+	config.readFromConfig(obvconfig);
 
-	if ((!pinShapeCircle) && (!pinShapeSquare)) {
-		pinShapeSquare = true;
-	}
+	setDPI(config.dpi);
 
-	// Special test here, in case we've already set the dpi from external
-	// such as command line.
-	if (!dpi) dpi = obvconfig.ParseInt("dpi", 100);
-	if (dpi < 50) dpi = 50;
-	if (dpi > 400) dpi = 400;
-	dpiscale = dpi / 100.0f;
+	style.AntiAliasedLines = !config.slowCPU;
+	style.AntiAliasedFill  = !config.slowCPU;
 
-	pinHalo          = obvconfig.ParseBool("pinHalo", true);
-	pinHaloDiameter  = obvconfig.ParseDouble("pinHaloDiameter", 1.25);
-	pinHaloThickness = obvconfig.ParseDouble("pinHaloThickness", 2.0);
-	pinSelectMasks   = obvconfig.ParseBool("pinSelectMasks", true);
+	m_info_surface.x = config.infoPanelWidth;
+	backgroundImage.enabled = config.showBackgroundImage;
 
-	pinA1threshold	  = obvconfig.ParseInt("pinA1threshold", 3);
-
-	showFPS                   = obvconfig.ParseBool("showFPS", false);
-	showInfoPanel             = obvconfig.ParseBool("showInfoPanel", true);
-	infoPanelSelectPartsOnNet = obvconfig.ParseBool("infoPanelSelectPartsOnNet", true);
-	infoPanelCenterZoomNets   = obvconfig.ParseBool("infoPanelCenterZoomNets", true);
-	partZoomScaleOutFactor    = obvconfig.ParseDouble("partZoomScaleOutFactor", 3.0f);
-
-	m_info_surface.x          = obvconfig.ParseInt("infoPanelWidth", 350);
-	showPins                  = obvconfig.ParseBool("showPins", true);
-	showPosition              = obvconfig.ParseBool("showPosition", true);
-	showNetWeb                = obvconfig.ParseBool("showNetWeb", true);
-	showAnnotations           = obvconfig.ParseBool("showAnnotations", true);
-	backgroundImage.enabled   = obvconfig.ParseBool("showBackgroundImage", true);
-	fillParts                 = obvconfig.ParseBool("fillParts", true);
-	showPartName              = obvconfig.ParseBool("showPartName", true);
-	showPinName               = obvconfig.ParseBool("showPinName", true);
-	showPartType              = obvconfig.ParseBool("showPartType", true);
-	showMode                  = (ShowMode)obvconfig.ParseInt("showMode", ShowMode_Diode);
-	m_centerZoomSearchResults = obvconfig.ParseBool("centerZoomSearchResults", true);
-	flipMode                  = obvconfig.ParseInt("flipMode", 0);
-
-	boardFill        = obvconfig.ParseBool("boardFill", true);
-	boardFillSpacing = obvconfig.ParseInt("boardFillSpacing", 3);
-
-	zoomFactor   = obvconfig.ParseInt("zoomFactor", 10) / 10.0f;
-	zoomModifier = obvconfig.ParseInt("zoomModifier", 5);
-
-	panFactor = obvconfig.ParseInt("panFactor", 30);
-	panFactor = DPI(panFactor);
-
-	panModifier = obvconfig.ParseInt("panModifier", 5);
-
-	annotationBoxSize = obvconfig.ParseInt("annotationBoxSize", 15);
-	annotationBoxSize = DPI(annotationBoxSize);
-
-	annotationBoxOffset = obvconfig.ParseInt("annotationBoxOffset", 8);
-	annotationBoxOffset = DPI(annotationBoxOffset);
-
-	netWebThickness = obvconfig.ParseInt("netWebThickness", 2);
-
-	/*
-	 * Some machines (Atom etc) don't have enough CPU/GPU
-	 * grunt to cope with the large number of AA'd circles
-	 * generated on a large dense board like a Macbook Pro
-	 * so we have the lowCPU option which will let people
-	 * trade good-looks for better FPS
-	 *
-	 * If we want slowCPU to take impact from a command line
-	 * parameter, we need it to be set to false before we
-	 * call this.
-	 */
-	slowCPU |= obvconfig.ParseBool("slowCPU", false);
-	style.AntiAliasedLines = !slowCPU;
-	style.AntiAliasedFill  = !slowCPU;
-
-	/*
-	 * Colours in ImGui can be represented as a 4-byte packed uint32_t as ABGR
-	 * but most humans are more accustomed to RBGA, so for the sake of readability
-	 * we use the human-readable version but swap the ordering around when
-	 * it comes to assigning the actual colour to ImGui.
-	 */
-
-	/*
-	 * XRayBlue theme
-	 */
-
-	m_colors.backgroundColor = byte4swap(obvconfig.ParseHex("backgroundColor", byte4swap(m_colors.backgroundColor)));
-	m_colors.boardFillColor  = byte4swap(obvconfig.ParseHex("boardFillColor", byte4swap(m_colors.boardFillColor)));
-
-	m_colors.partHullColor        = byte4swap(obvconfig.ParseHex("partHullColor", byte4swap(m_colors.partHullColor)));
-	m_colors.partOutlineColor     = byte4swap(obvconfig.ParseHex("partOutlineColor", byte4swap(m_colors.partOutlineColor)));
-	m_colors.partFillColor        = byte4swap(obvconfig.ParseHex("partFillColor", byte4swap(m_colors.partFillColor)));
-	m_colors.partTextColor = byte4swap(obvconfig.ParseHex("partTextColor", byte4swap(m_colors.partTextColor)));
-	m_colors.partHighlightedColor = byte4swap(obvconfig.ParseHex("partHighlightedColor", byte4swap(m_colors.partHighlightedColor)));
-	m_colors.partHighlightedFillColor =
-	    byte4swap(obvconfig.ParseHex("partHighlightedFillColor", byte4swap(m_colors.partHighlightedFillColor)));
-	m_colors.partHighlightedTextColor = byte4swap(obvconfig.ParseHex("partHighlightedTextColor", byte4swap(m_colors.partHighlightedTextColor)));
-	m_colors.partHighlightedTextBackgroundColor =
-	    byte4swap(obvconfig.ParseHex("partHighlightedTextBackgroundColor", byte4swap(m_colors.partHighlightedTextBackgroundColor)));
-	m_colors.boardOutlineColor    = byte4swap(obvconfig.ParseHex("boardOutlineColor", byte4swap(m_colors.boardOutlineColor)));
-	m_colors.pinDefaultColor      = byte4swap(obvconfig.ParseHex("pinDefaultColor", byte4swap(m_colors.pinDefaultColor)));
-	m_colors.pinDefaultTextColor  = byte4swap(obvconfig.ParseHex("pinDefaultTextColor", byte4swap(m_colors.pinDefaultTextColor)));
-	m_colors.pinTextBackgroundColor  = byte4swap(obvconfig.ParseHex("pinTextBackgroundColor", byte4swap(m_colors.pinTextBackgroundColor)));
-	m_colors.pinGroundColor       = byte4swap(obvconfig.ParseHex("pinGroundColor", byte4swap(m_colors.pinGroundColor)));
-	m_colors.pinNotConnectedColor = byte4swap(obvconfig.ParseHex("pinNotConnectedColor", byte4swap(m_colors.pinNotConnectedColor)));
-	m_colors.pinTestPadColor      = byte4swap(obvconfig.ParseHex("pinTestPadColor", byte4swap(m_colors.pinTestPadColor)));
-	m_colors.pinTestPadFillColor  = byte4swap(obvconfig.ParseHex("pinTestPadFillColor", byte4swap(m_colors.pinTestPadFillColor)));
-	m_colors.pinA1PadColor        = byte4swap(obvconfig.ParseHex("pinA1PadColor", byte4swap(m_colors.pinA1PadColor)));
-
-	m_colors.pinSelectedTextColor = byte4swap(obvconfig.ParseHex("pinSelectedTextColor", byte4swap(m_colors.pinSelectedTextColor)));
-	m_colors.pinSelectedFillColor = byte4swap(obvconfig.ParseHex("pinSelectedFillColor", byte4swap(m_colors.pinSelectedFillColor)));
-	m_colors.pinSelectedColor     = byte4swap(obvconfig.ParseHex("pinSelectedColor", byte4swap(m_colors.pinSelectedColor)));
-
-	m_colors.pinSameNetTextColor = byte4swap(obvconfig.ParseHex("pinSameNetTextColor", byte4swap(m_colors.pinSameNetTextColor)));
-	m_colors.pinSameNetFillColor = byte4swap(obvconfig.ParseHex("pinSameNetFillColor", byte4swap(m_colors.pinSameNetFillColor)));
-	m_colors.pinSameNetColor     = byte4swap(obvconfig.ParseHex("pinSameNetColor", byte4swap(m_colors.pinSameNetColor)));
-
-	m_colors.pinHaloColor   = byte4swap(obvconfig.ParseHex("pinHaloColor", byte4swap(m_colors.pinHaloColor)));
-	m_colors.pinNetWebColor = byte4swap(obvconfig.ParseHex("pinNetWebColor", byte4swap(m_colors.pinNetWebColor)));
-
-	m_colors.annotationPartAliasColor =
-	    byte4swap(obvconfig.ParseHex("annotationPartAliasColor", byte4swap(m_colors.annotationPartAliasColor)));
-	m_colors.annotationBoxColor   = byte4swap(obvconfig.ParseHex("annotationBoxColor", byte4swap(m_colors.annotationBoxColor)));
-	m_colors.annotationStalkColor = byte4swap(obvconfig.ParseHex("annotationStalkColor", byte4swap(m_colors.annotationStalkColor)));
-	m_colors.annotationPopupBackgroundColor =
-	    byte4swap(obvconfig.ParseHex("annotationPopupBackgroundColor", byte4swap(m_colors.annotationPopupBackgroundColor)));
-	m_colors.annotationPopupTextColor =
-	    byte4swap(obvconfig.ParseHex("annotationPopupTextColor", byte4swap(m_colors.annotationPopupTextColor)));
-
-	m_colors.selectedMaskPins    = byte4swap(obvconfig.ParseHex("selectedMaskPins", byte4swap(m_colors.selectedMaskPins)));
-	m_colors.selectedMaskParts   = byte4swap(obvconfig.ParseHex("selectedMaskParts", byte4swap(m_colors.selectedMaskParts)));
-	m_colors.selectedMaskOutline = byte4swap(obvconfig.ParseHex("selectedMaskOutline", byte4swap(m_colors.selectedMaskOutline)));
-
-	m_colors.orMaskPins    = byte4swap(obvconfig.ParseHex("orMaskPins", byte4swap(m_colors.orMaskPins)));
-	m_colors.orMaskParts   = byte4swap(obvconfig.ParseHex("orMaskParts", byte4swap(m_colors.orMaskParts)));
-	m_colors.orMaskOutline = byte4swap(obvconfig.ParseHex("orMaskOutline", byte4swap(m_colors.orMaskOutline)));
-
-	/*
-	 * The asus .fz file formats require a specific key to be decoded.
-	 *
-	 * This key is supplied in the obv.conf file as a long single line
-	 * of comma/space separated 32-bit hex values 0x1234abcd etc.
-	 *
-	 */
-	SetFZKey(obvconfig.ParseStr("FZKey", ""));
-
+	m_colors.readFromConfig(obvconfig);
 	keybindings.readFromConfig(obvconfig);
 
 	return 0;
@@ -616,670 +471,12 @@ int BoardView::LoadFile(const filesystem::path &filepath) {
 	return 0;
 }
 
-void BoardView::SetFZKey(const char *keytext) {
-
-	if (keytext) {
-		int ki;
-		const char *p, *limit;
-		char *ep;
-		ki    = 0;
-		p     = keytext;
-		limit = keytext + strlen(keytext);
-
-		if ((limit - p) > 440) {
-			/*
-			 * we *assume* that the key is correctly formatted in the configuration file
-			 * as such it should be like FZKey = 0x12345678, 0xabcd1234, ...
-			 *
-			 * If your key is incorrectly formatted, or incorrect, it'll cause OBV to
-			 * likely crash / segfault (for now).
-			 */
-			while (p && (p < limit) && ki < 44) {
-
-				// locate the start of the u32 hex value
-				while ((p < limit) && (*p != '0')) p++;
-
-				// decode the next number, ep will be set to the end of the converted string
-				FZKey[ki] = strtoll(p, &ep, 16);
-
-				ki++;
-				p = ep;
-			}
-		}
-	}
-}
-
-void RA(const char *t, int w) {
-	ImVec2 s = ImGui::CalcTextSize(t);
-	s.x      = w - s.x;
-	ImGui::Dummy(s);
-	ImGui::SameLine();
-	ImGui::Text("%s", t);
-}
-
-void u32tof4(uint32_t c, float *f) {
-	f[0] = (c & 0xff) / 0xff;
-	c >>= 8;
-	f[1] = (c & 0xff) / 0xff;
-	c >>= 8;
-	f[2] = (c & 0xff) / 0xff;
-	c >>= 8;
-	f[3] = (c & 0xff) / 0xff;
-}
-void BoardView::ColorPreferencesItem(
-    const char *label, int label_width, const char *butlabel, const char *conflabel, int var_width, uint32_t *c) {
-	std::string desc_id = "##ColorButton" + std::string(label);
-	char buf[20];
-	snprintf(buf, sizeof(buf), "%08X", byte4swap(*c));
-	RA(label, label_width);
-	ImGui::SameLine();
-	ImGui::ColorButton(desc_id.c_str(), ImColor(*c));
-	ImGui::SameLine();
-	ImGui::PushItemWidth(var_width);
-	if (ImGui::InputText(
-	        butlabel, buf, sizeof(buf), ImGuiInputTextFlags_CharsNoBlank | ImGuiInputTextFlags_CharsHexadecimal, nullptr, buf)) {
-		*c = byte4swap(strtoll(buf, NULL, 16));
-		snprintf(buf, sizeof(buf), "0x%08x", byte4swap(*c));
-		obvconfig.WriteStr(conflabel, buf);
-	}
-	ImGui::PopItemWidth();
-}
-
-void BoardView::SaveAllColors(void) {
-
-	obvconfig.WriteHex("backgroundColor", byte4swap(m_colors.backgroundColor));
-	obvconfig.WriteHex("boardFillColor", byte4swap(m_colors.boardFillColor));
-	obvconfig.WriteHex("boardOutlineColor", byte4swap(m_colors.boardOutlineColor));
-	obvconfig.WriteHex("partOutlineColor", byte4swap(m_colors.partOutlineColor));
-	obvconfig.WriteHex("partHullColor", byte4swap(m_colors.partHullColor));
-	obvconfig.WriteHex("partFillColor", byte4swap(m_colors.partFillColor));
-	obvconfig.WriteHex("partTextColor", byte4swap(m_colors.partTextColor));
-	obvconfig.WriteHex("partHighlightedColor", byte4swap(m_colors.partHighlightedColor));
-	obvconfig.WriteHex("partHighlightedFillColor", byte4swap(m_colors.partHighlightedFillColor));
-	obvconfig.WriteHex("partHighlightedTextColor", byte4swap(m_colors.partHighlightedTextColor));
-	obvconfig.WriteHex("partHighlightedTextBackgroundColor", byte4swap(m_colors.partHighlightedTextBackgroundColor));
-	obvconfig.WriteHex("pinDefaultColor", byte4swap(m_colors.pinDefaultColor));
-	obvconfig.WriteHex("pinDefaultTextColor", byte4swap(m_colors.pinDefaultTextColor));
-	obvconfig.WriteHex("pinTextBackgroundColor", byte4swap(m_colors.pinTextBackgroundColor));
-	obvconfig.WriteHex("pinGroundColor", byte4swap(m_colors.pinGroundColor));
-	obvconfig.WriteHex("pinNotConnectedColor", byte4swap(m_colors.pinNotConnectedColor));
-	obvconfig.WriteHex("pinTestPadColor", byte4swap(m_colors.pinTestPadColor));
-	obvconfig.WriteHex("pinTestPadFillColor", byte4swap(m_colors.pinTestPadFillColor));
-	obvconfig.WriteHex("pinA1PadColor", byte4swap(m_colors.pinA1PadColor));
-	obvconfig.WriteHex("pinSelectedColor", byte4swap(m_colors.pinSelectedColor));
-	obvconfig.WriteHex("pinSelectedTextColor", byte4swap(m_colors.pinSelectedTextColor));
-	obvconfig.WriteHex("pinSelectedFillColor", byte4swap(m_colors.pinSelectedFillColor));
-	obvconfig.WriteHex("pinSameNetColor", byte4swap(m_colors.pinSameNetColor));
-	obvconfig.WriteHex("pinSameNetTextColor", byte4swap(m_colors.pinSameNetTextColor));
-	obvconfig.WriteHex("pinSameNetFillColor", byte4swap(m_colors.pinSameNetFillColor));
-	obvconfig.WriteHex("pinHaloColor", byte4swap(m_colors.pinHaloColor));
-	obvconfig.WriteHex("pinNetWebColor", byte4swap(m_colors.pinNetWebColor));
-	obvconfig.WriteHex("pinNetWebOSColor", byte4swap(m_colors.pinNetWebOSColor));
-	obvconfig.WriteHex("annotationPopupTextColor", byte4swap(m_colors.annotationPopupTextColor));
-	obvconfig.WriteHex("annotationPopupBackgroundColor", byte4swap(m_colors.annotationPopupBackgroundColor));
-	obvconfig.WriteHex("annotationBoxColor", byte4swap(m_colors.annotationBoxColor));
-	obvconfig.WriteHex("annotationStalkColor", byte4swap(m_colors.annotationStalkColor));
-	obvconfig.WriteHex("selectedMaskOutline", byte4swap(m_colors.selectedMaskOutline));
-	obvconfig.WriteHex("selectedMaskParts", byte4swap(m_colors.selectedMaskParts));
-	obvconfig.WriteHex("selectedMaskPins", byte4swap(m_colors.selectedMaskPins));
-	obvconfig.WriteHex("orMaskPins", byte4swap(m_colors.orMaskPins));
-	obvconfig.WriteHex("orMaskParts", byte4swap(m_colors.orMaskParts));
-	obvconfig.WriteHex("orMaskOutline", byte4swap(m_colors.orMaskOutline));
-}
-
-void BoardView::ColorPreferences(void) {
-	bool dummy = true;
-	//	ImGui::PushStyleColor(ImGuiCol_PopupBg, 0xffe0e0e0);
-	ImGuiIO& io = ImGui::GetIO();
-	ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), 0, ImVec2(0.5f, 0.5f));;
-	if (ImGui::BeginPopupModal("Colour Preferences", &dummy, ImGuiWindowFlags_AlwaysAutoResize)) {
-
-		if (m_showColorPreferences) {
-			m_showColorPreferences = false;
-			m_tooltips_enabled     = false;
-		}
-
-		ImGui::Dummy(ImVec2(1, DPI(5)));
-		RA("Base theme", DPI(200));
-		ImGui::SameLine();
-		{
-			int tc        = 0;
-			const char *v = obvconfig.ParseStr("colorTheme", "default");
-			if (strcmp(v, "dark") == 0) {
-				tc = 1;
-			}
-			if (ImGui::RadioButton("Light", &tc, 0)) {
-				obvconfig.WriteStr("colorTheme", "light");
-				ThemeSetStyle("light");
-				SaveAllColors();
-				m_needsRedraw = true;
-			}
-			ImGui::SameLine();
-			if (ImGui::RadioButton("Dark", &tc, 1)) {
-				obvconfig.WriteStr("colorTheme", "dark");
-				ThemeSetStyle("dark");
-				SaveAllColors();
-				m_needsRedraw = true;
-			}
-		}
-		ImGui::Dummy(ImVec2(1, DPI(5)));
-
-		ColorPreferencesItem("Background", DPI(200), "##Background", "backgroundColor", DPI(150), &m_colors.backgroundColor);
-		ColorPreferencesItem("Board fill", DPI(200), "##Boardfill", "boardFillColor", DPI(150), &m_colors.boardFillColor);
-		ColorPreferencesItem(
-		    "Board outline", DPI(200), "##BoardOutline", "boardOutlineColor", DPI(150), &m_colors.boardOutlineColor);
-
-		ImGui::Dummy(ImVec2(1, DPI(10)));
-		ImGui::Text("Parts");
-		ImGui::Separator();
-		ColorPreferencesItem("Outline", DPI(200), "##PartOutline", "partOutlineColor", DPI(150), &m_colors.partOutlineColor);
-		ColorPreferencesItem("Hull", DPI(200), "##PartHull", "partHullColor", DPI(150), &m_colors.partHullColor);
-		ColorPreferencesItem("Fill", DPI(200), "##PartFill", "partFillColor", DPI(150), &m_colors.partFillColor);
-		ColorPreferencesItem("Text", DPI(200), "##PartText", "partTextColor", DPI(150), &m_colors.partTextColor);
-		ColorPreferencesItem(
-		    "Selected", DPI(200), "##PartSelected", "partHighlightedColor", DPI(150), &m_colors.partHighlightedColor);
-		ColorPreferencesItem("Fill (selected)",
-		                     DPI(200),
-		                     "##PartFillSelected",
-		                     "partHighlightedFillColor",
-		                     DPI(150),
-		                     &m_colors.partHighlightedFillColor);
-		ColorPreferencesItem("Text (selected)", DPI(200), "##PartHighlightedText", "partHighlightedTextColor", DPI(150), &m_colors.partHighlightedTextColor);
-		ColorPreferencesItem("Text background (selected)",
-		                     DPI(200),
-		                     "##PartHighlightedTextBackground",
-		                     "partHighlightedTextBackgroundColor",
-		                     DPI(150),
-		                     &m_colors.partHighlightedTextBackgroundColor);
-
-		ImGui::Dummy(ImVec2(1, DPI(10)));
-		ImGui::Text("Pins");
-		ImGui::Separator();
-		ColorPreferencesItem("Default", DPI(200), "##PinDefault", "pinDefaultColor", DPI(150), &m_colors.pinDefaultColor);
-		ColorPreferencesItem(
-		    "Default text", DPI(200), "##PinDefaultText", "pinDefaultTextColor", DPI(150), &m_colors.pinDefaultTextColor);
-		ColorPreferencesItem(
-		    "Text background", DPI(200), "##PinTextBackground", "pinTextBackgroundColor", DPI(150), &m_colors.pinTextBackgroundColor);
-		ColorPreferencesItem("Ground", DPI(200), "##PinGround", "pinGroundColor", DPI(150), &m_colors.pinGroundColor);
-		ColorPreferencesItem("NC", DPI(200), "##PinNC", "pinNotConnectedColor", DPI(150), &m_colors.pinNotConnectedColor);
-		ColorPreferencesItem("Test pad", DPI(200), "##PinTP", "pinTestPadColor", DPI(150), &m_colors.pinTestPadColor);
-		ColorPreferencesItem("Test pad fill", DPI(200), "##PinTPF", "pinTestPadFillColor", DPI(150), &m_colors.pinTestPadFillColor);
-		ColorPreferencesItem("A1/1 Pad", DPI(200), "##PinA1", "pinA1PadColor", DPI(150), &m_colors.pinA1PadColor);
-
-		ColorPreferencesItem("Selected", DPI(200), "##PinSelectedColor", "pinSelectedColor", DPI(150), &m_colors.pinSelectedColor);
-		ColorPreferencesItem(
-		    "Selected fill", DPI(200), "##PinSelectedFillColor", "pinSelectedFillColor", DPI(150), &m_colors.pinSelectedFillColor);
-		ColorPreferencesItem(
-		    "Selected text", DPI(200), "##PinSelectedTextColor", "pinSelectedTextColor", DPI(150), &m_colors.pinSelectedTextColor);
-
-		ColorPreferencesItem("Same Net", DPI(200), "##PinSameNetColor", "pinSameNetColor", DPI(150), &m_colors.pinSameNetColor);
-		ColorPreferencesItem(
-		    "SameNet fill", DPI(200), "##PinSameNetFillColor", "pinSameNetFillColor", DPI(150), &m_colors.pinSameNetFillColor);
-		ColorPreferencesItem(
-		    "SameNet text", DPI(200), "##PinSameNetTextColor", "pinSameNetTextColor", DPI(150), &m_colors.pinSameNetTextColor);
-
-		ColorPreferencesItem("Halo", DPI(200), "##PinHalo", "pinHaloColor", DPI(150), &m_colors.pinHaloColor);
-		ColorPreferencesItem("Net web strands", DPI(200), "##NetWebStrands", "pinNetWebColor", DPI(150), &m_colors.pinNetWebColor);
-		ColorPreferencesItem(
-		    "Net web (otherside)", DPI(200), "##NetWebOSStrands", "pinNetWebOSColor", DPI(150), &m_colors.pinNetWebOSColor);
-
-		ImGui::Dummy(ImVec2(1, DPI(10)));
-		ImGui::Text("Annotations");
-		ImGui::Separator();
-		ColorPreferencesItem("Box", DPI(200), "##AnnBox", "annotationBoxColor", DPI(150), &m_colors.annotationBoxColor);
-		ColorPreferencesItem("Stalk", DPI(200), "##AnnStalk", "annotationStalkColor", DPI(150), &m_colors.annotationStalkColor);
-		ColorPreferencesItem(
-		    "Popup text", DPI(200), "##AnnPopupText", "annotationPopupTextColor", DPI(150), &m_colors.annotationPopupTextColor);
-		ColorPreferencesItem("Popup background",
-		                     DPI(200),
-		                     "##AnnPopupBackground",
-		                     "annotationPopupBackgroundColor",
-		                     DPI(150),
-		                     &m_colors.annotationPopupBackgroundColor);
-
-		ImGui::Dummy(ImVec2(1, DPI(10)));
-		ImGui::Text("Masks");
-		ImGui::Separator();
-		ColorPreferencesItem("Pins", DPI(200), "##MaskPins", "selectedMaskPins", DPI(150), &m_colors.selectedMaskPins);
-		ColorPreferencesItem("Parts", DPI(200), "##MaskParts", "selectedMaskParts", DPI(150), &m_colors.selectedMaskParts);
-		ColorPreferencesItem("Outline", DPI(200), "##MaskOutline", "selectedMaskOutline", DPI(150), &m_colors.selectedMaskOutline);
-		ColorPreferencesItem("Boost (Pins)", DPI(200), "##BoostPins", "orMaskPins", DPI(150), &m_colors.orMaskPins);
-		ColorPreferencesItem("Boost (Parts)", DPI(200), "##BoostParts", "orMaskParts", DPI(150), &m_colors.orMaskParts);
-		ColorPreferencesItem("Boost (Outline)", DPI(200), "##BoostOutline", "orMaskOutline", DPI(150), &m_colors.orMaskOutline);
-
-		ImGui::Separator();
-
-		if (ImGui::Button("Done") || keybindings.isPressed("CloseDialog")) {
-			m_tooltips_enabled = true;
-			ImGui::CloseCurrentPopup();
-		}
-		ImGui::EndPopup();
-	}
-
-	if (!dummy) {
-		m_tooltips_enabled = true;
-	}
-	//	ImGui::PopStyleColor();
-}
-
-void BoardView::Preferences(void) {
-	bool dummy = true;
-	ImGuiStyle &style = ImGui::GetStyle();
-	//	ImGui::PushStyleColor(ImGuiCol_PopupBg, 0xffe0e0e0);
-	ImGuiIO& io = ImGui::GetIO();
-	ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), 0, ImVec2(0.5f, 0.5f));
-	if (ImGui::BeginPopupModal("Preferences", &dummy, ImGuiWindowFlags_AlwaysAutoResize)) {
-		int t;
-		if (m_showPreferences) {
-			m_showPreferences  = false;
-			m_tooltips_enabled = false;
-		}
-
-		t = obvconfig.ParseInt("windowX", 1100);
-		RA("Window Width", DPI(200));
-		ImGui::SameLine();
-		if (ImGui::InputInt("##windowX", &t)) {
-			if (t > 400) obvconfig.WriteInt("windowX", t);
-		}
-
-		t = obvconfig.ParseInt("windowY", 700);
-		RA("Window Height", DPI(200));
-		ImGui::SameLine();
-		if (ImGui::InputInt("##windowY", &t)) {
-			if (t > 320) obvconfig.WriteInt("windowY", t);
-		}
-
-		const char *oldFont = obvconfig.ParseStr("fontName", "");
-		std::vector<char> newFont(oldFont, oldFont + strlen(oldFont) + 1); // Copy string data + '\0' char
-		if (newFont.size() < 256)                                          // reserve space for new font name
-			newFont.resize(256, '\0');                                     // Max font name length is 255 characters
-		RA("Font name", DPI(200));
-		ImGui::SameLine();
-		if (ImGui::InputText("##fontName", newFont.data(), newFont.size())) {
-			obvconfig.WriteStr("fontName", newFont.data());
-		}
-
-		t = obvconfig.ParseInt("fontSize", 20);
-		RA("Font size", DPI(200));
-		ImGui::SameLine();
-		if (ImGui::InputInt("##fontSize", &t)) {
-			if (t < 8) {
-				t = 8;
-			} else if (t > 50) { // 50 is a value that hopefully should not break with too many fonts and 1024x1024 texture limits
-				t = 50;
-			}
-			obvconfig.WriteInt("fontSize", t);
-		}
-
-		t = obvconfig.ParseInt("dpi", 100);
-		RA("Screen DPI", DPI(200));
-		ImGui::SameLine();
-		if (ImGui::InputInt("##dpi", &t)) {
-			if ((t > 25) && (t < 600)) obvconfig.WriteInt("dpi", t);
-		}
-		ImGui::PushStyleColor(ImGuiCol_Text, 0xff4040ff);
-		ImGui::Text("(Program restart is required to properly apply font and DPI changes)");
-		ImGui::PopStyleColor();
-
-		ImGui::Separator();
-
-		RA("Board fill spacing", DPI(200));
-		ImGui::SameLine();
-		if (ImGui::InputInt("##boardFillSpacing", &boardFillSpacing)) {
-			obvconfig.WriteInt("boardFillSpacing", boardFillSpacing);
-		}
-
-		t = zoomFactor * 10;
-		RA("Zoom step", DPI(200));
-		ImGui::SameLine();
-		if (ImGui::InputInt("##zoomStep", &t)) {
-			obvconfig.WriteFloat("zoomFactor", t / 10);
-		}
-
-		RA("Zoom modifier", DPI(200));
-		ImGui::SameLine();
-		if (ImGui::InputInt("##zoomModifier", &zoomModifier)) {
-			obvconfig.WriteInt("zoomModifier", zoomModifier);
-		}
-
-		RA("Panning step", DPI(200));
-		ImGui::SameLine();
-		if (ImGui::InputInt("##panningStep", &panFactor)) {
-			obvconfig.WriteInt("panFactor", panFactor);
-		}
-
-		RA("Pan modifier", DPI(200));
-		ImGui::SameLine();
-		if (ImGui::InputInt("##panModifier", &panModifier)) {
-			obvconfig.WriteInt("panModifier", panModifier);
-		}
-
-		ImGui::Dummy(ImVec2(1, DPI(5)));
-		RA("Flip Mode", DPI(200));
-		ImGui::SameLine();
-		{
-			if (ImGui::RadioButton("Viewport", &flipMode, 0)) {
-				obvconfig.WriteInt("flipMode", flipMode);
-			}
-			ImGui::SameLine();
-			if (ImGui::RadioButton("Mouse", &flipMode, 1)) {
-				obvconfig.WriteInt("flipMode", flipMode);
-			}
-		}
-		ImGui::Dummy(ImVec2(1, DPI(5)));
-
-		RA("Annotation flag size", DPI(200));
-		ImGui::SameLine();
-		if (ImGui::InputInt("##annotationBoxSize", &annotationBoxSize)) {
-			obvconfig.WriteInt("annotationBoxSize", annotationBoxSize);
-		}
-
-		RA("Annotation flag offset", DPI(200));
-		ImGui::SameLine();
-		if (ImGui::InputInt("##annotationBoxOffset", &annotationBoxOffset)) {
-			obvconfig.WriteInt("annotationBoxOffset", annotationBoxOffset);
-		}
-		RA("Net web thickness", DPI(200));
-		ImGui::SameLine();
-		if (ImGui::InputInt("##netWebThickness", &netWebThickness)) {
-			obvconfig.WriteInt("netWebThickness", netWebThickness);
-		}
-		ImGui::Separator();
-
-		RA("Pin-1/A1 count threshold", DPI(200));
-		ImGui::SameLine();
-		if (ImGui::InputInt("##pinA1threshold", &pinA1threshold)) {
-			if (pinA1threshold < 1) pinA1threshold = 1;
-			obvconfig.WriteInt("pinA1threshold", pinA1threshold);
-		}
-
-		if (ImGui::Checkbox("Pin select masks", &pinSelectMasks)) {
-			obvconfig.WriteBool("pinSelectMasks", pinSelectMasks);
-		}
-
-		if (ImGui::Checkbox("Pin Halo", &pinHalo)) {
-			obvconfig.WriteBool("pinHalo", pinHalo);
-		}
-		RA("Halo diameter", DPI(200));
-		ImGui::SameLine();
-		if (ImGui::InputFloat("##haloDiameter", &pinHaloDiameter)) {
-			obvconfig.WriteFloat("pinHaloDiameter", pinHaloDiameter);
-		}
-
-		RA("Halo thickness", DPI(200));
-		ImGui::SameLine();
-		if (ImGui::InputFloat("##haloThickness", &pinHaloThickness)) {
-			obvconfig.WriteFloat("pinHaloThickness", pinHaloThickness);
-		}
-
-		RA("Info Panel Zoom", DPI(200));
-		ImGui::SameLine();
-		if (ImGui::InputFloat("##partZoomScaleOutFactor", &partZoomScaleOutFactor)) {
-			if (partZoomScaleOutFactor < 1.1) partZoomScaleOutFactor = 1.1;
-			obvconfig.WriteFloat("partZoomScaleOutFactor", partZoomScaleOutFactor);
-		}
-
-		if (ImGui::Checkbox("Center/Zoom Search Results", &m_centerZoomSearchResults)) {
-			obvconfig.WriteBool("centerZoomSearchResults", m_centerZoomSearchResults);
-		}
-
-		if (ImGui::Checkbox("Show Info Panel", &showInfoPanel)) {
-			obvconfig.WriteBool("showInfoPanel", showInfoPanel);
-		}
-
-		if (ImGui::Checkbox("Show net web", &showNetWeb)) {
-			obvconfig.WriteBool("showNetWeb", showNetWeb);
-		}
-
-		if (ImGui::Checkbox("slowCPU", &slowCPU)) {
-			obvconfig.WriteBool("slowCPU", slowCPU);
-			style.AntiAliasedLines = !slowCPU;
-			style.AntiAliasedFill  = !slowCPU;
-		}
-
-		ImGui::SameLine();
-		if (ImGui::Checkbox("Show FPS", &showFPS)) {
-			obvconfig.WriteBool("showFPS", showFPS);
-		}
-
-		if (ImGui::Checkbox("Fill Parts", &fillParts)) {
-			obvconfig.WriteBool("fillParts", fillParts);
-		}
-
-		ImGui::SameLine();
-		if (ImGui::Checkbox("Fill Board", &boardFill)) {
-			obvconfig.WriteBool("boardFill", boardFill);
-		}
-
-		if (ImGui::Checkbox("Show part name", &showPartName)) {
-			obvconfig.WriteBool("showPartName", showPartName);
-		}
-
-		ImGui::SameLine();
-		if (ImGui::Checkbox("Show pin name", &showPinName)) {
-			obvconfig.WriteBool("showPinName", showPinName);
-		}
-
-#ifdef _WIN32
-		RA("PDF software executable", DPI(200));
-		ImGui::SameLine();
-		static std::string pdfSoftwarePath = obvconfig.ParseStr("pdfSoftwarePath", "SumatraPDF.exe");;
-		if (ImGui::InputText("##pdfSoftwarePath", &pdfSoftwarePath)) {
-			obvconfig.WriteStr("pdfSoftwarePath", pdfSoftwarePath.c_str());
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Browse##pdfSoftwarePath")) {
-			auto path = show_file_picker();
-			if (!path.empty()) {
-				pdfSoftwarePath = path.string();
-				obvconfig.WriteStr("pdfSoftwarePath", pdfSoftwarePath.c_str());
-			}
-		}
-#endif
-
-		ImGui::Separator();
-		{
-			char keybuf[1024];
-			int i;
-			ImGui::Text("FZ Key");
-			ImGui::SameLine();
-			for (i = 0; i < 44; i++) {
-				snprintf(keybuf + (i * 12), (1023 - (i * 12)),
-				        "0x%08lx%s",
-				        (long unsigned int)FZKey[i],
-				        (i != 43) ? ((i + 1) % 4 ? "  " : "\r\n")
-				                  : ""); // yes, a nested inline-if-else. add \r\n after every 4 values, except if the last
-			}
-			if (ImGui::InputTextMultiline(
-			        "##fzkey", keybuf, sizeof(keybuf), ImVec2(DPI(450), ImGui::GetTextLineHeight() * 12.5), 0, NULL, keybuf)) {
-
-				// Strip the line breaks out.
-				char *c = keybuf;
-				while (*c) {
-					if ((*c == '\r') || (*c == '\n')) *c = ' ';
-					c++;
-				}
-				obvconfig.WriteStr("FZKey", keybuf);
-				SetFZKey(keybuf);
-			}
-		}
-
-		ImGui::Separator();
-
-		if (ImGui::Button("Done") || keybindings.isPressed("CloseDialog")) {
-			ImGui::CloseCurrentPopup();
-			m_tooltips_enabled = true;
-		}
-		ImGui::EndPopup();
-	}
-
-	if (!dummy) {
-		m_tooltips_enabled = true;
-	}
-	//	ImGui::PopStyleColor();
-}
-
-void BoardView::HelpAbout(void) {
-	bool dummy = true;
-	ImGuiIO& io = ImGui::GetIO();
-	ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), 0, ImVec2(0.5f, 0.5f));
-	if (ImGui::BeginPopupModal("About", &dummy, ImGuiWindowFlags_AlwaysAutoResize)) {
-		if (m_showHelpAbout) {
-			m_showHelpAbout    = false;
-			m_tooltips_enabled = false;
-		}
-		ImGui::Text("%s %s", OBV_NAME, OBV_VERSION);
-		ImGui::Text("Build %s %s", OBV_BUILD, __DATE__ " " __TIME__);
-		ImGui::Text(OBV_URL);
-		if (ImGui::Button("Close") || keybindings.isPressed("CloseDialog")) {
-			m_tooltips_enabled = true;
-			ImGui::CloseCurrentPopup();
-		}
-		ImGui::Dummy(ImVec2(1, DPI(10)));
-		ImGui::Text("License info");
-		ImGui::Separator();
-		ImGui::TextWrapped(OBV_LICENSE_TEXT);
-
-		ImGui::EndPopup();
-	}
-
-	if (!dummy) {
-		m_tooltips_enabled = true;
-	}
-}
-
-void BoardView::HelpControls(void) {
-	bool dummy = true;
-	ImGuiIO& io = ImGui::GetIO();
-	ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), 0, ImVec2(0.5f, 0.5f));
-	ImGui::SetNextWindowSize(ImVec2(DPI(540), 0.0f));
-	if (ImGui::BeginPopupModal("Controls", &dummy)) {
-		if (m_showHelpControls) {
-			m_showHelpControls = false;
-			m_tooltips_enabled = false;
-		}
-		ImGui::Text("KEYBOARD CONTROLS");
-		ImGui::SameLine();
-
-		if (ImGui::Button("Close") || keybindings.isPressed("CloseDialog")) {
-			m_tooltips_enabled = true;
-			ImGui::CloseCurrentPopup();
-		}
-		ImGui::Separator();
-
-		ImGui::Columns(2);
-		ImGui::PushItemWidth(-1);
-		ImGui::Text("Load file");
-		ImGui::Text("Quit");
-		ImGui::Spacing();
-		ImGui::Spacing();
-
-		ImGui::Text("Pan up");
-		ImGui::Text("Pan down");
-		ImGui::Text("Pan left");
-		ImGui::Text("Pan right");
-		ImGui::Spacing();
-		ImGui::Spacing();
-
-		ImGui::Text("Toggle information panel");
-		ImGui::Text("Search for component/Net");
-		ImGui::Text("Display component list");
-		ImGui::Text("Display net list");
-		ImGui::Text("Clear all highlighted items");
-		ImGui::Spacing();
-		ImGui::Spacing();
-
-		ImGui::Text("Mirror board");
-		ImGui::Text("Flip board");
-		ImGui::Text(" ");
-
-		ImGui::Text("Zoom in");
-		ImGui::Text("Zoom out");
-		ImGui::Spacing();
-		ImGui::Spacing();
-
-		ImGui::Text("Reset zoom and center");
-		ImGui::Text("Rotate clockwise");
-		ImGui::Text("Rotate anticlockwise");
-		ImGui::Spacing();
-		ImGui::Spacing();
-
-		ImGui::Text("Toggle Pin Blanking");
-
-		/*
-		 * NEXT COLUMN
-		 */
-		ImGui::NextColumn();
-		ImGui::Text("CTRL-o");
-		ImGui::Text("CTRL-q");
-		ImGui::Spacing();
-		ImGui::Spacing();
-
-		ImGui::Text("w, numpad-up, arrow-up");
-		ImGui::Text("s, numpad-down, arrow-down");
-		ImGui::Text("a, numpad-left, arrow-left");
-		ImGui::Text("d, numpad-right, arrow-right");
-		ImGui::Spacing();
-		ImGui::Spacing();
-
-		ImGui::Text("i");
-		ImGui::Text("CTRL-f, /");
-		ImGui::Text("k");
-		ImGui::Text("l");
-		ImGui::Text("ESC");
-		ImGui::Spacing();
-		ImGui::Spacing();
-
-		ImGui::Text("m");
-		ImGui::Text("Space bar");
-		ImGui::Text("(+shift to hold position)");
-		ImGui::Spacing();
-
-		ImGui::Text("+, numpad+");
-		ImGui::Text("-, numpad-");
-		ImGui::Spacing();
-		ImGui::Spacing();
-
-		ImGui::Text("x, numpad-5");
-		ImGui::Text("'.' numpad '.'");
-		ImGui::Text("',' numpad-0");
-		ImGui::Spacing();
-		ImGui::Spacing();
-
-		ImGui::Text("p");
-
-		ImGui::Columns(1);
-		ImGui::Separator();
-
-		ImGui::Text("MOUSE CONTROLS");
-		ImGui::Separator();
-		ImGui::Columns(2);
-		ImGui::Text("Highlight pins on network");
-		ImGui::Text("Move board");
-		ImGui::Text("Zoom (CTRL for finer steps)");
-		ImGui::Text("Flip board");
-		ImGui::Text("Annotations menu");
-
-		ImGui::NextColumn();
-		ImGui::Text("Click (on pin)");
-		ImGui::Text("Click and drag");
-		ImGui::Text("Scroll");
-		ImGui::Text("Middle click");
-		ImGui::Text("Right click");
-		ImGui::Columns(1);
-
-		ImGui::EndPopup();
-	}
-	if (!dummy) {
-		m_tooltips_enabled = true;
-	}
-}
 
 void BoardView::ShowInfoPane(void) {
 	ImGuiIO &io = ImGui::GetIO();
 	ImVec2 ds   = io.DisplaySize;
 
-	if (!showInfoPanel) return;
+	if (!config.showInfoPanel) return;
 
 	if (m_info_surface.x < DPIF(100)) {
 		//	fprintf(stderr,"Too small (%f), set to (%f)\n", width, DPIF(100));
@@ -1334,6 +531,7 @@ void BoardView::ShowInfoPane(void) {
 		}
 	} else {
 		if (m_dragging_token == 2) {
+			config.infoPanelWidth = m_info_surface.x;
 			obvconfig.WriteInt("infoPanelWidth", m_info_surface.x);
 		}
 		m_dragging_token = 0;
@@ -1348,13 +546,13 @@ void BoardView::ShowInfoPane(void) {
 		ImGui::TextWrapped("Size: %0.2f x %0.2f\"", m_boardWidth / 1000.0f, m_boardHeight / 1000.0f);
 		ImGui::Columns(1);
 		ImGui::Separator();
-		if (ImGui::Checkbox("Zoom on selected net", &infoPanelCenterZoomNets)) {
-			obvconfig.WriteBool("infoPanelCenterZoomNets", infoPanelCenterZoomNets);
+		if (ImGui::Checkbox("Zoom on selected net", &config.infoPanelCenterZoomNets)) {
+			obvconfig.WriteBool("infoPanelCenterZoomNets", config.infoPanelCenterZoomNets);
 		}
-		if (ImGui::Checkbox("Select all parts on net", &infoPanelSelectPartsOnNet)) {
-			obvconfig.WriteBool("infoPanelSelectPartsOnNet", infoPanelSelectPartsOnNet);
+		if (ImGui::Checkbox("Select all parts on net", &config.infoPanelSelectPartsOnNet)) {
+			obvconfig.WriteBool("infoPanelSelectPartsOnNet", config.infoPanelSelectPartsOnNet);
 		}
-		if (ImGui::Checkbox("Find all parts not ground", &infoPanelSelectPartsOnNetOnlyNotGround)) {
+		if (ImGui::Checkbox("Find all parts not ground", &config.infoPanelSelectPartsOnNetOnlyNotGround)) {
 
 		}
 	} else {
@@ -1381,9 +579,9 @@ void BoardView::ShowInfoPane(void) {
 					             abs(part->outline[2].y - part->outline[0].y) * m_scale / m_board_surface.y);
 					if ((psz.x > 1) || (psz.y > 1)) {
 						if (psz.x > psz.y) {
-							m_scale /= (partZoomScaleOutFactor * psz.x);
+							m_scale /= (config.partZoomScaleOutFactor * psz.x);
 						} else {
-							m_scale /= (partZoomScaleOutFactor * psz.y);
+							m_scale /= (config.partZoomScaleOutFactor * psz.y);
 						}
 					}
 
@@ -1408,9 +606,9 @@ void BoardView::ShowInfoPane(void) {
 						psz = ImVec2(abs(part->outline[2].x - part->outline[0].x) * m_scale / m_board_surface.x,
 						             abs(part->outline[2].y - part->outline[0].y) * m_scale / m_board_surface.y);
 						if (psz.x > psz.y) {
-							m_scale /= (partZoomScaleOutFactor * psz.x);
+							m_scale /= (config.partZoomScaleOutFactor * psz.x);
 						} else {
-							m_scale /= (partZoomScaleOutFactor * psz.y);
+							m_scale /= (config.partZoomScaleOutFactor * psz.y);
 						}
 
 						SetTarget(part->centerpoint.x, part->centerpoint.y);
@@ -1534,8 +732,6 @@ void BoardView::ContextMenu(void) {
 		if (m_showContextMenu) {
 			contextbuf[0]      = 0;
 			m_showContextMenu  = false;
-			m_tooltips_enabled = false;
-			//			m_parent_occluded = true;
 			for (auto &ann : m_annotations.annotations) ann.hovered = false;
 		}
 
@@ -1652,16 +848,12 @@ void BoardView::ContextMenu(void) {
 							m_annotations.Update(m_annotations.annotations[m_annotation_clicked_id].id, contextbuf);
 							m_annotations.GenerateList();
 							m_needsRedraw      = true;
-							m_tooltips_enabled = true;
-							// m_parent_occluded = false;
 							ImGui::CloseCurrentPopup();
 						}
 						ImGui::SameLine();
 						if (ImGui::Button("Cancel##1")) {
 							ImGui::CloseCurrentPopup();
 							m_annotationnew_retain = false;
-							m_tooltips_enabled     = true;
-							// m_parent_occluded = false;
 						}
 						ImGui::Separator();
 					}
@@ -1789,7 +981,6 @@ void BoardView::ContextMenu(void) {
 
 
 					if (ImGui::Button("Apply##1") || keybindings.isPressed("Validate")) {
-						m_tooltips_enabled     = true;
 						m_annotationnew_retain = false;
 						if (debug) {
 							fprintf(stderr, "DATA:'%s'\n\n", contextbufnew);
@@ -1831,7 +1022,6 @@ void BoardView::ContextMenu(void) {
 					ImGui::SameLine();
 					if (ImGui::Button("Cancel")) {
 					    ImGui::CloseCurrentPopup();
-					    m_tooltips_enabled     = true;
 					    m_annotationnew_retain = false;
 					}
 					*/
@@ -1843,7 +1033,6 @@ void BoardView::ContextMenu(void) {
 					m_annotations.Remove(m_annotations.annotations[m_annotation_clicked_id].id);
 					m_annotations.GenerateList();
 					m_needsRedraw = true;
-					// m_parent_occluded = false;
 					ImGui::CloseCurrentPopup();
 				}
 			}
@@ -1855,12 +1044,9 @@ void BoardView::ContextMenu(void) {
 		if (ImGui::Button("Cancel##2") || keybindings.isPressed("CloseDialog")) {
 			m_annotationnew_retain  = false;
 			m_annotationedit_retain = false;
-			m_tooltips_enabled      = true;
-			// m_parent_occluded = false;
 			ImGui::CloseCurrentPopup();
 		}
 		ImGui::EndPopup();
-		//	m_tooltips_enabled = true;
 	}
 	ImGui::PopStyleVar();
 
@@ -1868,8 +1054,6 @@ void BoardView::ContextMenu(void) {
 	if (!dummy) {
 		m_annotationnew_retain  = false;
 		m_annotationedit_retain = false;
-		m_tooltips_enabled      = true;
-		// m_parent_occluded = false;
 	}
 }
 
@@ -1937,7 +1121,6 @@ void BoardView::SearchColumnGenerate(const std::string &title,
 
 void BoardView::SearchComponent(void) {
 	bool dummy = true;
-
 	ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x/2, DPI(100)), 0, ImVec2(0.5f, 0.0f));
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
 	if (ImGui::BeginPopupModal("Search for Component / Network",
@@ -1949,7 +1132,6 @@ void BoardView::SearchComponent(void) {
 		bool search_params_changed = m_showSearch; //treat initiail popup reopening similar to later search option changes
 		if (m_showSearch) {
 			m_showSearch       = false;
-			m_tooltips_enabled = false;
 			//			fprintf(stderr, "Tooltips disabled\n");
 		}
 
@@ -1958,7 +1140,6 @@ void BoardView::SearchComponent(void) {
 		//
 		if (ImGui::Button("Search")) {
 			// FindComponent(first_button);
-			m_tooltips_enabled = true;
 			SearchCompound(first_button[0]);
 			SearchCompoundNoClear(first_button[1]);
 			SearchCompoundNoClear(first_button[2]);
@@ -1976,7 +1157,6 @@ void BoardView::SearchComponent(void) {
 		if (ImGui::Button("Exit") || keybindings.isPressed("CloseDialog")) {
 			FindComponent("");
 			ResetSearch();
-			m_tooltips_enabled = true;
 			ImGui::CloseCurrentPopup();
 		} // exit button
 
@@ -2083,15 +1263,11 @@ void BoardView::SearchComponent(void) {
 			SearchCompoundNoClear(m_search[2]);
 			CenterZoomSearchResults();
 			ImGui::CloseCurrentPopup();
-			m_tooltips_enabled = true;
 		} // response to keyboard ENTER
 
 		ImGui::EndPopup();
 	}
 	ImGui::PopStyleVar();
-	if (!dummy) {
-		m_tooltips_enabled = true;
-	}
 }
 
 void BoardView::ResetSearch() {
@@ -2105,7 +1281,6 @@ void BoardView::ClearAllHighlights(void) {
 	FindComponent("");
 	ResetSearch();
 	m_needsRedraw      = true;
-	m_tooltips_enabled = true;
 	if (m_board != NULL) {
 		for (auto part : m_board->Components()) part->visualmode = part->CVMNormal;
 	}
@@ -2156,10 +1331,6 @@ void BoardView::Update() {
 		 * flags.
 		 */
 		SearchComponent();
-		HelpControls();
-		HelpAbout();
-		ColorPreferences();
-		Preferences();
 		ContextMenu();
 
 		if (ImGui::BeginMenu("File")) {
@@ -2186,14 +1357,8 @@ void BoardView::Update() {
 
 			ImGui::Separator();
 
-			if (ImGui::MenuItem("Program Preferences")) {
-				m_showPreferences = true;
-			}
-
-			if (ImGui::MenuItem("Colour Preferences")) {
-				m_showColorPreferences = true;
-			}
-
+			programPreferences.menuItem();
+			colorPreferences.menuItem();
 			keyboardPreferences.menuItem();
 			boardSettings.menuItem();
 
@@ -2221,118 +1386,105 @@ void BoardView::Update() {
 				Mirror();
 			}
 
-			if (ImGui::MenuItem("Toggle Pin Display", keybindings.getKeyNames("TogglePins").c_str())) {
-				showPins ^= 1;
-				m_needsRedraw = true;
-			}
-
-			if (ImGui::MenuItem("Show Info Panel", keybindings.getKeyNames("InfoPanel").c_str())) {
-				showInfoPanel ^= 1;
-				obvconfig.WriteBool("showInfoPanel", showInfoPanel ? true : false);
-				m_needsRedraw = true;
-			}
-
 			ImGui::Separator();
-			if (ImGui::Checkbox("Show FPS", &showFPS)) {
-				obvconfig.WriteBool("showFPS", showFPS);
+			if (MenuItemWithCheckbox("Show FPS", {}, config.showFPS)) {
+				obvconfig.WriteBool("showFPS", config.showFPS);
+			}
+
+			if (MenuItemWithCheckbox("Show position", {}, config.showPosition)) {
+				obvconfig.WriteBool("showPosition", config.showPosition);
+			}
+
+			if (MenuItemWithCheckbox("Show pins", keybindings.getKeyNames("TogglePins"), config.showPins)) {
+				obvconfig.WriteBool("showPins", config.showPins);
 				m_needsRedraw = true;
 			}
 
-			if (ImGui::Checkbox("Show Position", &showPosition)) {
-				obvconfig.WriteBool("showPosition", showPosition);
+			if (MenuItemWithCheckbox("Show net web", {}, config.showNetWeb)) {
+				obvconfig.WriteBool("showNetWeb", config.showNetWeb);
 				m_needsRedraw = true;
 			}
 
-			if (ImGui::Checkbox("Net web", &showNetWeb)) {
-				obvconfig.WriteBool("showNetWeb", showNetWeb);
+			if (MenuItemWithCheckbox("Show annotations", {}, config.showAnnotations)) {
+				obvconfig.WriteBool("showAnnotations", config.showAnnotations);
 				m_needsRedraw = true;
 			}
 
-			if (ImGui::Checkbox("Annotations", &showAnnotations)) {
-				obvconfig.WriteBool("showAnnotations", showAnnotations);
+
+			if (MenuItemWithCheckbox("Show parts name", {}, config.showPartName)) {
+				obvconfig.WriteBool("showPartName", config.showPartName);
 				m_needsRedraw = true;
 			}
 
-			if (ImGui::Checkbox("Board fill", &boardFill)) {
-				obvconfig.WriteBool("boardFill", boardFill);
+			if (MenuItemWithCheckbox("Show pins name", {}, config.showPinName)) {
+				obvconfig.WriteBool("showPinName", config.showPinName);
 				m_needsRedraw = true;
 			}
 
-			if (ImGui::Checkbox("Part fill", &fillParts)) {
-				obvconfig.WriteBool("fillParts", fillParts);
+			if (MenuItemWithCheckbox("Show background image", {}, config.showBackgroundImage)) {
+				obvconfig.WriteBool("showBackgroundImage", config.showBackgroundImage);
+				backgroundImage.enabled = config.showBackgroundImage;
+			}
+
+			if (MenuItemWithCheckbox("Fill board", {}, config.boardFill)) {
+				obvconfig.WriteBool("boardFill", config.boardFill);
 				m_needsRedraw = true;
 			}
 
-			if (ImGui::Checkbox("Part name", &showPartName)) {
-				obvconfig.WriteBool("showPartName", showPartName);
+			if (MenuItemWithCheckbox("Fill parts", {}, config.fillParts)) {
+				obvconfig.WriteBool("fillParts", config.fillParts);
 				m_needsRedraw = true;
 			}
 
-			if (ImGui::Checkbox("Pin name", &showPinName)) {
-				obvconfig.WriteBool("showPinName", showPinName);
-				m_needsRedraw = true;
-			}
-
-			if (ImGui::Checkbox("Background image", &backgroundImage.enabled)) {
-				obvconfig.WriteBool("showBackgroundImage", backgroundImage.enabled);
-				m_needsRedraw = true;
-			}
-
-			if (ImGui::Checkbox("Part type", &showPartType)) {
-				obvconfig.WriteBool("showPartType", showPartType);
+			if (ImGui::Checkbox("Part type", &config.showPartType)) {
+				obvconfig.WriteBool("showPartType", config.showPartType);
 				m_needsRedraw = true;
 			}
 
 			ImGui::Separator();
 
-			if (ImGui::MenuItem("Info Panel", keybindings.getKeyNames("InfoPanel").c_str())) {
-				showInfoPanel = !showInfoPanel;
+			if (MenuItemWithCheckbox("Info Panel", keybindings.getKeyNames("InfoPanel"), config.showInfoPanel)) {
+				obvconfig.WriteBool("showInfoPanel", config.showInfoPanel);
 			}
-			if (ImGui::MenuItem("Net List", keybindings.getKeyNames("NetList").c_str())) {
-				m_showNetList = !m_showNetList;
-			}
-			if (ImGui::MenuItem("Part List", keybindings.getKeyNames("PartList").c_str())) {
-				m_showPartList = !m_showPartList;
-			}
+			MenuItemWithCheckbox("Net List", keybindings.getKeyNames("NetList"), m_showNetList);
+			MenuItemWithCheckbox("Part List", keybindings.getKeyNames("PartList"), m_showPartList);
 
 			ImGui::EndMenu();
 		}
 
 		if (ImGui::BeginMenu("Help##1")) {
-			if (ImGui::MenuItem("Controls")) {
-				m_showHelpControls = true;
-			}
-			if (ImGui::MenuItem("About")) {
-				m_showHelpAbout = true;
-			}
+			helpControls.menuItem();
+			helpAbout.menuItem();
+
 			ImGui::EndMenu();
 		}
 
 		ImGui::SameLine();
 		ImGui::Dummy(ImVec2(DPI(10), 1));
 		ImGui::SameLine();
-		if (ImGui::Checkbox("Annotations", &showAnnotations)) {
-			obvconfig.WriteBool("showAnnotations", showAnnotations);
+		if (ImGui::Checkbox("Annotations", &config.showAnnotations)) {
+			obvconfig.WriteBool("showAnnotations", config.showAnnotations);
 			m_needsRedraw = true;
 		}
 
 		ImGui::SameLine();
-		if (ImGui::Checkbox("Netweb", &showNetWeb)) {
-			obvconfig.WriteBool("showNetWeb", showNetWeb);
+		if (ImGui::Checkbox("Netweb", &config.showNetWeb)) {
+			obvconfig.WriteBool("showNetWeb", config.showNetWeb);
 			m_needsRedraw = true;
 		}
 
 		ImGui::SameLine();
 		{
-			if (ImGui::Checkbox("Pins", &showPins)) {
-				obvconfig.WriteBool("showPins", showPins);
+			if (ImGui::Checkbox("Pins", &config.showPins)) {
+				obvconfig.WriteBool("showPins", config.showPins);
 				m_needsRedraw = true;
 			}
 		}
 
 		ImGui::SameLine();
-		if (ImGui::Checkbox("Image", &backgroundImage.enabled)) {
-			obvconfig.WriteBool("showBackgroundImage", backgroundImage.enabled);
+		if (ImGui::Checkbox("Image", &config.showBackgroundImage)) {
+			obvconfig.WriteBool("showBackgroundImage", config.showBackgroundImage);
+			backgroundImage.enabled = config.showBackgroundImage;
 			m_needsRedraw = true;
 		}
 
@@ -2341,21 +1493,21 @@ void BoardView::Update() {
 
 		ImGui::SameLine();
 		if (ImGui::Button(" - ")) {
-			Zoom(m_board_surface.x / 2, m_board_surface.y / 2, -zoomFactor);
+			Zoom(m_board_surface.x / 2, m_board_surface.y / 2, -config.zoomFactor);
 		}
 		ImGui::SameLine();
 		if (ImGui::Button(" + ")) {
-			Zoom(m_board_surface.x / 2, m_board_surface.y / 2, zoomFactor);
+			Zoom(m_board_surface.x / 2, m_board_surface.y / 2, config.zoomFactor);
 		}
 		ImGui::SameLine();
 		ImGui::Dummy(ImVec2(DPI(20), 1));
 		ImGui::SameLine();
 		if (ImGui::Button("-")) {
-			Zoom(m_board_surface.x / 2, m_board_surface.y / 2, -zoomFactor / zoomModifier);
+			Zoom(m_board_surface.x / 2, m_board_surface.y / 2, -config.zoomFactor / config.zoomModifier);
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("+")) {
-			Zoom(m_board_surface.x / 2, m_board_surface.y / 2, zoomFactor / zoomModifier);
+			Zoom(m_board_surface.x / 2, m_board_surface.y / 2, config.zoomFactor / config.zoomModifier);
 		}
 
 		ImGui::SameLine();
@@ -2419,24 +1571,18 @@ void BoardView::Update() {
 		ImGui::PopItemWidth();
 		*/
 
-		if (m_showContextMenu && m_file && showAnnotations) {
+		if (m_showContextMenu && m_file && config.showAnnotations) {
 			ImGui::OpenPopup("Annotations");
 		}
 
-		if (m_showHelpAbout) {
-			ImGui::OpenPopup("About");
-		}
-		if (m_showHelpControls) {
-			ImGui::OpenPopup("Controls");
-		}
+		helpAbout.render();
+		helpControls.render();
 
-		if (m_showColorPreferences) {
-			ImGui::OpenPopup("Colour Preferences");
-		}
+		programPreferences.render();
 
-		if (m_showPreferences) {
-			ImGui::OpenPopup("Preferences");
-		}
+		if (colorPreferences.render()) {
+			m_needsRedraw = true;
+		};
 
 		keyboardPreferences.render();
 		boardSettings.render();
@@ -2488,7 +1634,9 @@ void BoardView::Update() {
 	ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
 	                         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
 
-	ImGuiWindowFlags draw_surface_flags = flags | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollWithMouse;
+	// ImGui's keyboard navigation is disabled for the boardview area as we use our own key bindings
+	ImGuiWindowFlags draw_surface_flags = flags | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus |
+		ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNavInputs;
 
 	/*
 	 * Status footer
@@ -2516,7 +1664,7 @@ void BoardView::Update() {
 	} else {
 		ImVec2 spos = ImGui::GetMousePos();
 		ImVec2 pos  = ScreenToCoord(spos.x, spos.y);
-		if (showFPS == true) {
+		if (config.showFPS == true) {
 			ImGui::Text("FPS: %0.0f ", ImGui::GetIO().Framerate);
 			ImGui::SameLine();
 		}
@@ -2526,7 +1674,7 @@ void BoardView::Update() {
 			ImGui::SameLine();
 		}
 
-		if (showPosition == true) {
+		if (config.showPosition == true) {
 #ifdef NDEBUG
 			ImGui::Text("Position: %0.3f\", %0.3f\" (%0.2f, %0.2fmm)", pos.x / 1000, pos.y / 1000, pos.x * 0.0254, pos.y * 0.0254);
 #else
@@ -2550,7 +1698,7 @@ void BoardView::Update() {
 	ImGui::PopStyleVar();
 	ImGui::PopStyleVar();
 
-	if (!showInfoPanel) {
+	if (!config.showInfoPanel) {
 		m_board_surface = ImVec2(io.DisplaySize.x, io.DisplaySize.y - (m_status_height + m_menu_height));
 	} else {
 		m_board_surface = ImVec2(io.DisplaySize.x - m_info_surface.x, io.DisplaySize.y - (m_status_height + m_menu_height));
@@ -2600,7 +1748,7 @@ void BoardView::Zoom(float osd_x, float osd_y, float zoom) {
 	ImVec2 coord;
 	ImGuiIO &io = ImGui::GetIO();
 
-	if (io.KeyCtrl) zoom /= zoomModifier;
+	if (io.KeyCtrl) zoom /= config.zoomModifier;
 
 	target.x = osd_x;
 	target.y = osd_y;
@@ -2626,7 +1774,7 @@ void BoardView::Pan(int direction, int amount) {
 
 	amount = amount / m_scale;
 
-	if (io.KeyCtrl) amount /= panModifier;
+	if (io.KeyCtrl) amount /= config.panModifier;
 
 	switch (direction) {
 		case DIR_UP: amount = -amount;
@@ -2666,6 +1814,14 @@ void BoardView::HandleInput() {
 	const ImGuiIO &io = ImGui::GetIO();
 
 	if (ImGui::IsWindowHovered()) {
+		if (!ImGui::IsWindowFocused()) {
+			// Set focus on boardview area hover to apply our key bindings instead of the currently active ImGui's keyboard navigation
+			// Using imgui_internal's FocusWindow with UnlessBelowModal instead of SetWindowFocus
+			// Otherwise PopupModal get closed right after opening when boardview area is hovered
+			// https://github.com/ocornut/imgui/issues/3595
+			// Warning: wouldn't work with regular Popup but we use only PopupModal
+			ImGui::FocusWindow(nullptr, ImGuiFocusRequestFlags_UnlessBelowModal);
+		}
 
 		if (ImGui::IsMouseDragging(0)) {
 			if ((m_dragging_token == 0) && (io.MouseClickedPos[0].x < m_board_surface.x)) m_dragging_token = 1; // own it.
@@ -2690,7 +1846,7 @@ void BoardView::HandleInput() {
 			if (m_lastFileOpenWasInvalid == false) {
 				// Conext menu
 				if (!m_lastFileOpenWasInvalid && m_file && m_board && ImGui::IsMouseClicked(1)) {
-					if (showAnnotations) {
+					if (config.showAnnotations) {
 						// Build context menu here, for annotations and inspection
 						//
 						ImVec2 spos = ImGui::GetMousePos();
@@ -2699,7 +1855,6 @@ void BoardView::HandleInput() {
 						m_annotationedit_retain = false;
 						m_showContextMenu       = true;
 						m_showContextMenuPos    = spos;
-						m_tooltips_enabled      = false;
 						m_needsRedraw           = true;
 						if (debug) fprintf(stderr, "context click request at (%f %f)\n", spos.x, spos.y);
 					}
@@ -2869,7 +2024,7 @@ void BoardView::HandleInput() {
 			// Zoom:
 			float mwheel = io.MouseWheel;
 			if (mwheel != 0.0f) {
-				mwheel *= zoomFactor;
+				mwheel *= config.zoomFactor;
 
 				Zoom(io.MousePos.x, io.MousePos.y, mwheel);
 			}
@@ -2892,22 +2047,22 @@ void BoardView::HandleInput() {
 			Rotate(-1);
 
 		} else if (keybindings.isPressed("ZoomIn")) {
-			Zoom(m_board_surface.x / 2, m_board_surface.y / 2, zoomFactor);
+			Zoom(m_board_surface.x / 2, m_board_surface.y / 2, config.zoomFactor);
 
 		} else if (keybindings.isPressed("ZoomOut")) {
-			Zoom(m_board_surface.x / 2, m_board_surface.y / 2, -zoomFactor);
+			Zoom(m_board_surface.x / 2, m_board_surface.y / 2, -config.zoomFactor);
 
 		} else if (keybindings.isPressed("PanDown")) {
-			Pan(DIR_DOWN, panFactor);
+			Pan(DIR_DOWN, DPI(config.panFactor));
 
 		} else if (keybindings.isPressed("PanUp")) {
-			Pan(DIR_UP, panFactor);
+			Pan(DIR_UP, DPI(config.panFactor));
 
 		} else if (keybindings.isPressed("PanLeft")) {
-			Pan(DIR_LEFT, panFactor);
+			Pan(DIR_LEFT, DPI(config.panFactor));
 
 		} else if (keybindings.isPressed("PanRight")) {
-			Pan(DIR_RIGHT, panFactor);
+			Pan(DIR_RIGHT, DPI(config.panFactor));
 
 		} else if (keybindings.isPressed("Center")) {
 			// Center and reset zoom
@@ -2918,8 +2073,8 @@ void BoardView::HandleInput() {
 			m_wantsQuit = true;
 
 		} else if (keybindings.isPressed("InfoPanel")) {
-			showInfoPanel = !showInfoPanel;
-			obvconfig.WriteBool("showInfoPanel", showInfoPanel ? true : false);
+			config.showInfoPanel = !config.showInfoPanel;
+			obvconfig.WriteBool("showInfoPanel", config.showInfoPanel ? true : false);
 
 		} else if (keybindings.isPressed("NetList")) {
 			// Show Net List
@@ -2934,7 +2089,7 @@ void BoardView::HandleInput() {
 			FlipBoard();
 
 		} else if (keybindings.isPressed("TogglePins")) {
-			showPins ^= 1;
+			config.showPins ^= 1;
 			m_needsRedraw = true;
 
 		} else if (keybindings.isPressed("Search")) {
@@ -2961,12 +2116,12 @@ void BoardView::HandleInput() {
  *
  */
 void BoardView::ShowNetList(bool *p_open) {
-	static NetList netList(bind(&BoardView::FindNet, this, _1));
+	static NetList netList(keybindings, std::bind(&BoardView::FindNet, this, std::placeholders::_1));
 	netList.Draw("Net List", p_open, m_board);
 }
 
 void BoardView::ShowPartList(bool *p_open) {
-	static PartList partList(bind(&BoardView::FindComponent, this, _1));
+	static PartList partList(keybindings, std::bind(&BoardView::FindComponent, this, std::placeholders::_1));
 	partList.Draw("Part List", p_open, m_board);
 }
 
@@ -2992,12 +2147,12 @@ void BoardView::RenderOverlay() {
  *
  */
 
-void BoardView::CenterZoomNet(string netname) {
+void BoardView::CenterZoomNet(std::string netname) {
 	ImVec2 view = m_board_surface;
 	ImVec2 min, max;
 	int i = 0;
 
-	if (!infoPanelCenterZoomNets) return;
+	if (!config.infoPanelCenterZoomNets) return;
 
 	min.x = min.y = FLT_MAX;
 	max.x = max.y = FLT_MIN;
@@ -3009,7 +2164,7 @@ void BoardView::CenterZoomNet(string netname) {
 			if (p.y < min.y) min.y = p.y;
 			if (p.x > max.x) max.x = p.x;
 			if (p.y > max.y) max.y = p.y;
-			if (!infoPanelSelectPartsOnNet || pin->type == Pin::kPinTypeTestPad) continue;
+			if (!config.infoPanelSelectPartsOnNet || pin->type == Pin::kPinTypeTestPad) continue;
 			auto& cpt = pin->component;
 			if (contains(cpt, m_partHighlighted)) continue;
 			if (infoPanelSelectPartsOnNetOnlyNotGround && cpt->pins.size() == 2) {
@@ -3033,7 +2188,7 @@ void BoardView::CenterZoomNet(string netname) {
 
 	m_scale = sx < sy ? sx : sy;
 	if (m_scale == FLT_MAX) m_scale = m_scale_floor;
-	m_scale /= partZoomScaleOutFactor;
+	m_scale /= config.partZoomScaleOutFactor;
 	if (m_scale < m_scale_floor) m_scale = m_scale_floor;
 
 	/*
@@ -3044,7 +2199,7 @@ void BoardView::CenterZoomNet(string netname) {
 
 	//  m_rotation = 0;
 	m_scale = sx < sy ? sx : sy;
-	m_scale /= partZoomScaleOutFactor;
+	m_scale /= config.partZoomScaleOutFactor;
 	if (m_scale < m_scale_floor) m_scale = m_scale_floor;
 	*/
 
@@ -3060,9 +2215,9 @@ void BoardView::CenterZoomSearchResults(void) {
 	ImVec2 min, max;
 	int i = 0;
 
-	if (!showPins) showPins = true; // Louis Rossmann UI failure fix.
+	if (!config.showPins) config.showPins = true; // Louis Rossmann UI failure fix.
 
-	if (!m_centerZoomSearchResults) return;
+	if (!config.centerZoomSearchResults) return;
 
 	min.x = min.y = FLT_MAX;
 	max.x = max.y = FLT_MIN;
@@ -3100,7 +2255,7 @@ void BoardView::CenterZoomSearchResults(void) {
 
 	m_scale = sx < sy ? sx : sy;
 	if (m_scale == FLT_MAX) m_scale = m_scale_floor;
-	m_scale /= partZoomScaleOutFactor;
+	m_scale /= config.partZoomScaleOutFactor;
 	if (m_scale < m_scale_floor) m_scale = m_scale_floor;
 
 	m_dx = (max.x - min.x) / 2 + min.x;
@@ -3213,13 +2368,13 @@ int BoardView::EPCCheck(void) {
 void BoardView::OutlineGenFillDraw(ImDrawList *draw, int ydelta, double thickness = 1.0f) {
 
 	auto io = ImGui::GetIO();
-	vector<ImVec2> scanhits;
+	std::vector<ImVec2> scanhits;
 	static ImVec2 min, max; // board min/max points
 	                        //	double steps = 500;
 	double vdelta;
 	double y, ystart, yend;
 
-	if (!boardFill || slowCPU) return;
+	if (!config.boardFill || config.slowCPU) return;
 	if (!m_file) return;
 
 	scanhits.reserve(20);
@@ -3407,7 +2562,7 @@ void BoardView::DrawOutlineSegments(ImDrawList *draw) {
 		 * If we have a pin selected, we mask off the colour to shade out
 		 * things and make it easier to see associated pins/points
 		 */
-		if ((pinSelectMasks) && (m_pinSelected || !m_pinHighlighted.empty())) {
+		if ((config.pinSelectMasks) && (m_pinSelected || !m_pinHighlighted.empty())) {
 			draw->AddLine(spa, spb, (m_colors.boardOutlineColor & m_colors.selectedMaskOutline) | m_colors.orMaskOutline);
 		} else {
 			draw->AddLine(spa, spb, m_colors.boardOutlineColor);
@@ -3457,7 +2612,7 @@ void BoardView::DrawOutlinePoints(ImDrawList *draw) {
 		 * If we have a pin selected, we mask off the colour to shade out
 		 * things and make it easier to see associated pins/points
 		 */
-		if ((pinSelectMasks) && (m_pinSelected || !m_pinHighlighted.empty())) {
+		if ((config.pinSelectMasks) && (m_pinSelected || !m_pinHighlighted.empty())) {
 			draw->AddLine(spa, spb, (m_colors.boardOutlineColor & m_colors.selectedMaskOutline) | m_colors.orMaskOutline);
 		} else {
 			draw->AddLine(spa, spb, m_colors.boardOutlineColor);
@@ -3471,7 +2626,7 @@ void BoardView::DrawOutline(ImDrawList *draw) {
 }
 
 void BoardView::DrawNetWeb(ImDrawList *draw) {
-	if (!showNetWeb) return;
+	if (!config.showNetWeb) return;
 
 	/*
 	 * Some nets we don't bother showing, because they're not relevant or
@@ -3496,7 +2651,7 @@ void BoardView::DrawNetWeb(ImDrawList *draw) {
 			draw->AddLine(CoordToScreen(m_pinSelected->position.x, m_pinSelected->position.y),
 			              CoordToScreen(p->position.x, p->position.y),
 			              ImColor(col),
-			              netWebThickness);
+			              config.netWebThickness);
 		}
 	}
 
@@ -3519,7 +2674,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 	float threshold = 0;
 	auto io         = ImGui::GetIO();
 
-	if (!showPins) return;
+	if (!config.showPins) return;
 
 	/*
 	 * If we have a pin selected, then it makes it
@@ -3527,17 +2682,17 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 	 * by masking out (alpha or channel) the other
 	 * pins so they're fainter.
 	 */
-	if (pinSelectMasks) {
+	if (config.pinSelectMasks) {
 		if (m_pinSelected || !m_pinHighlighted.empty()) {
 			cmask = m_colors.selectedMaskPins;
 			omask = m_colors.orMaskPins;
 		}
 	}
 
-	if (slowCPU) {
+	if (config.slowCPU) {
 		threshold      = 2.0f;
 	}
-	if (pinSizeThresholdLow > threshold) threshold = pinSizeThresholdLow;
+	if (config.pinSizeThresholdLow > threshold) threshold = config.pinSizeThresholdLow;
 
 	draw->ChannelsSetCurrent(kChannelPins);
 
@@ -3570,7 +2725,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 			 * Pins resulting from a net search
 			 */
 			if (contains(pin, m_pinHighlighted)) {
-				if (psz < fontSize / 2) psz = fontSize / 2;
+				if (psz < config.fontSize / 2) psz = config.fontSize / 2;
 				text_color = m_colors.pinSelectedTextColor;
 				fill_color = m_colors.pinSelectedFillColor;
 				color      = m_colors.pinSelectedColor;
@@ -3620,7 +2775,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 
 			// pin is on the same net as selected pin: highlight > rest
 			if (m_pinSelected && pin->net == m_pinSelected->net) {
-				if (psz < fontSize / 2) psz = fontSize / 2;
+				if (psz < config.fontSize / 2) psz = config.fontSize / 2;
 				color      = m_colors.pinSameNetColor;
 				text_color = m_colors.pinSameNetTextColor;
 				fill_color = m_colors.pinSameNetFillColor;
@@ -3633,7 +2788,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 			// pin selected overwrites everything
 			// if (p_pin == m_pinSelected) {
 			if (pin == m_pinSelected) {
-				if (psz < fontSize / 2) psz = fontSize / 2;
+				if (psz < config.fontSize / 2) psz = config.fontSize / 2;
 				color      = m_colors.pinSelectedColor;
 				text_color = m_colors.pinSelectedTextColor;
 				fill_color = m_colors.pinSelectedFillColor;
@@ -3659,7 +2814,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 			}
 
 			if ((pin->number == "1")) {
-				if (pin->component->pins.size() >= static_cast<unsigned int>(pinA1threshold)) { // pinA1threshold is never negative
+				if (pin->component->pins.size() >= static_cast<unsigned int>(config.pinA1threshold)) { // config.pinA1threshold is never negative
 					color = fill_color = m_colors.pinA1PadColor;
 					fill_pin           = m_colors.pinA1PadColor;
 					draw_ring          = false;
@@ -3706,11 +2861,11 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 			 * should make sure that the drawn pin is at least as big as a single
 			 * character so it doesn't look messy
 			 */
-			if ((show_text) && (psz < fontSize / 2)) psz = fontSize / 2;
+			if ((show_text) && (psz < config.fontSize / 2)) psz = config.fontSize / 2;
 
 			switch (pin->type) {
 				case Pin::kPinTypeTestPad:
-					if ((psz > 3) && (!slowCPU) && pin->shape != kShapeTypeRect) {
+					if ((psz > 3) && (!config.slowCPU) && pin->shape != kShapeTypeRect) {
 						draw->AddCircleFilled(ImVec2(pos.x, pos.y), psz, fill_color, segments);
 						draw->AddCircle(ImVec2(pos.x, pos.y), psz, color, segments);
 					} else if (psz > threshold) {
@@ -3719,7 +2874,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 					break;
 				default:
 					if ((psz > 3) && (psz > threshold)) {
-						if (pinShapeSquare || slowCPU || pin->shape == kShapeTypeRect) {
+						if (config.pinShapeSquare || config.slowCPU || pin->shape == kShapeTypeRect) {
 							if (fill_pin)
 								draw->AddRectFilled(ImVec2(pos.x - w, pos.y - h), ImVec2(pos.x + w, pos.y + h),  fill_color);
 							if (draw_ring) draw->AddRect(ImVec2(pos.x - w, pos.y - h), ImVec2(pos.x + w, pos.y + h), color);
@@ -3740,18 +2895,18 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 
 			//		if ((color == m_colors.pinSameNetColor) && (pinHalo == true)) {
 			//			draw->AddCircle(ImVec2(pos.x, pos.y), psz * pinHaloDiameter, m_colors.pinHaloColor, segments,
-			// pinHaloThickness);
+			// config.pinHaloThickness);
 			//		}
 
-			// Show all pin names when showPinName is enabled and pin diameter is above threshold or show pin name only for selected part
-			if ((showPinName && psz > 3) || show_text) {
+			// Show all pin names when config.showPinName is enabled and pin diameter is above threshold or show pin name only for selected part
+			if ((config.showPinName && psz > 3) || show_text) {
 				std::string text            = pin->show_name + "\n" + pin->net->show_name;
 				ImFont *font = ImGui::GetIO().Fonts->Fonts[0]; // Default font
 				ImVec2 text_size_normalized = font->CalcTextSizeA(1.0f, FLT_MAX, 0.0f, text.c_str());
 
 				float maxfontwidth = psz * 2.125/ text_size_normalized.x; // Fit horizontally with 6.75% overflow (should still avoid colliding with neighbours)
 				float maxfontheight = psz * 1.5/ text_size_normalized.y; // Fit vertically with 25% top/bottom padding
-				float maxfontsize = min(maxfontwidth, maxfontheight);
+				float maxfontsize = std::min(maxfontwidth, maxfontheight);
 
 				// Font size for pin name only depends on height of text (rather than width of full text incl. net name) to scale to pin bounding box
 				ImVec2 size_pin_name = font->CalcTextSizeA(maxfontheight, FLT_MAX, 0.0f, pin->show_name.c_str());
@@ -3846,7 +3001,7 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 	 * If a pin has been selected, we mask out the colour to
 	 * enhance (relatively) the appearance of the pin(s)
 	 */
-	if (pinSelectMasks && ((m_pinSelected) || !m_pinHighlighted.empty())) {
+	if (config.pinSelectMasks && ((m_pinSelected) || !m_pinHighlighted.empty())) {
 		color = (m_colors.partOutlineColor & m_colors.selectedMaskParts) | m_colors.orMaskParts;
 	}
 
@@ -4160,11 +3315,11 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 			c = ImVec2(CoordToScreen(part->outline[2].x, part->outline[2].y));
 			d = ImVec2(CoordToScreen(part->outline[3].x, part->outline[3].y));
 
-			// if (fillParts) draw->AddQuadFilled(a, b, c, d, color & 0xffeeeeee);
-			if (fillParts && !slowCPU) draw->AddQuadFilled(a, b, c, d, m_colors.partFillColor);
+			// if (config.fillParts) draw->AddQuadFilled(a, b, c, d, color & 0xffeeeeee);
+			if (config.fillParts && !config.slowCPU) draw->AddQuadFilled(a, b, c, d, m_colors.partFillColor);
 			draw->AddQuad(a, b, c, d, color);
 			if (PartIsHighlighted(part)) {
-				if (fillParts && !slowCPU) draw->AddQuadFilled(a, b, c, d, m_colors.partHighlightedFillColor);
+				if (config.fillParts && !config.slowCPU) draw->AddQuadFilled(a, b, c, d, m_colors.partHighlightedFillColor);
 				draw->AddQuad(a, b, c, d, m_colors.partHighlightedColor);
 			}
 
@@ -4204,7 +3359,7 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 				/*
 				 * Draw part name inside part bounding box
 				 */
-				if (showPartName) {
+				if (config.showPartName) {
 					ImFont *font = ImGui::GetIO().Fonts->Fonts[0]; // Default font
 					ImVec2 text_size_normalized	= font->CalcTextSizeA(1.0f, FLT_MAX, 0.0f, text.c_str());
 
@@ -4219,7 +3374,7 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 					// Find max font size to fit text inside bounding box
 					float maxfontwidth = maxwidth / text_size_normalized.x;
 					float maxfontheight = maxheight / text_size_normalized.y;
-					float maxfontsize = min(maxfontwidth, maxfontheight);
+					float maxfontsize = std::min(maxfontwidth, maxfontheight);
 
 					ImVec2 text_size{text_size_normalized.x * maxfontsize, text_size_normalized.y * maxfontsize};
 
@@ -4248,7 +3403,7 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 					ImVec2 text_size    = ImGui::CalcTextSize(text.c_str());
 					ImVec2 mfgcode_size = ImGui::CalcTextSize(mcode.c_str());
 
-					if ((!showInfoPanel) && (mfgcode_size.x > text_size.x)) text_size.x = mfgcode_size.x;
+					if ((!config.showInfoPanel) && (mfgcode_size.x > text_size.x)) text_size.x = mfgcode_size.x;
 
 					float top_y = a.y;
 
@@ -4267,7 +3422,7 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 										m_colors.partHighlightedTextBackgroundColor,
 										0.0f);
 					draw->AddText(pos, m_colors.partHighlightedTextColor, text.c_str());
-					if ((!showInfoPanel) && (!mcode.empty())) {
+					if ((!config.showInfoPanel) && (!mcode.empty())) {
 						//	pos.y += text_size.y;
 						pos.y += text_size.y + DPIF(2.0f);
 						draw->AddRectFilled(ImVec2(pos.x - DPIF(2.0f), pos.y - DPIF(2.0f)),
@@ -4438,9 +3593,8 @@ void BoardView::DrawPartTooltips(ImDrawList *draw) {
 	ImVec2 spos = ImGui::GetMousePos();
 	ImVec2 pos  = ScreenToCoord(spos.x, spos.y);
 
-	//	if (m_parent_occluded) return;
-	if (!m_tooltips_enabled) return;
-	if (spos.x > m_board_surface.x) return;
+	if (!ImGui::IsWindowHovered()) return;
+
 	/*
 	 * I am loathing that I have to add this, but basically check every pin on the board so we can
 	 * determine if we're hovering over a testpad
@@ -4454,22 +3608,7 @@ void BoardView::DrawPartTooltips(ImDrawList *draw) {
 			if ((dist < (pin->diameter * pin->diameter))) {
 				float pd = pin->diameter * m_scale;
 
-				if (pin->shape == kShapeTypeRect) {
-					auto pos = CoordToScreen(pin->position.x, pin->position.y);
-					auto w   = pin->size.x;
-					auto h   = pin->size.y;
-					if (pin->shape == kShapeTypeRect) {
-						w = pin->size.x * m_scale / 2;
-						h = pin->size.y * m_scale / 2;
-						w *= 1.05;
-						h *= 1.05;
-					}
-					draw->AddRect(ImVec2(pos.x - w, pos.y - h), ImVec2(pos.x + w, pos.y + h), m_colors.pinHaloColor);
-				} else {
-					draw->AddCircle(
-					    CoordToScreen(pin->position.x, pin->position.y), pd, m_colors.pinHaloColor, 32, pinHaloThickness);
-				}
-				
+				draw->AddCircle(CoordToScreen(pin->position.x, pin->position.y), pd, m_colors.pinHaloColor, 32, pinHaloThickness);
 				ImGui::PushStyleColor(ImGuiCol_Text, m_colors.annotationPopupTextColor);
 				ImGui::PushStyleColor(ImGuiCol_PopupBg, m_colors.annotationPopupBackgroundColor);
 				ImGui::BeginTooltip();
@@ -4550,7 +3689,7 @@ void BoardView::DrawPartTooltips(ImDrawList *draw) {
 				                currentlyHoveredPin->diameter * m_scale,
 				                m_colors.pinHaloColor,
 				                32,
-				                pinHaloThickness);
+				                config.pinHaloThickness);
 			ImGui::PushStyleColor(ImGuiCol_Text, m_colors.annotationPopupTextColor);
 			ImGui::PushStyleColor(ImGuiCol_PopupBg, m_colors.annotationPopupBackgroundColor);
 			ImGui::BeginTooltip();
@@ -4570,7 +3709,6 @@ void BoardView::DrawPartTooltips(ImDrawList *draw) {
 }
 
 inline void BoardView::DrawPinTooltips(ImDrawList *draw) {
-	if (!m_tooltips_enabled) return;
 	draw->ChannelsSetCurrent(kChannelAnnotations);
 
 	if (HighlightedPinIsHovered()) {
@@ -4588,8 +3726,7 @@ inline void BoardView::DrawPinTooltips(ImDrawList *draw) {
 
 inline void BoardView::DrawAnnotations(ImDrawList *draw) {
 
-	if (!showAnnotations) return;
-	if (!m_tooltips_enabled) return;
+	if (!config.showAnnotations) return;
 
 	draw->ChannelsSetCurrent(kChannelAnnotations);
 
@@ -4598,11 +3735,11 @@ inline void BoardView::DrawAnnotations(ImDrawList *draw) {
 			ImVec2 a, b, s;
 			if (debug) fprintf(stderr, "%d:%d:%f %f: %s\n", ann.id, ann.side, ann.x, ann.y, ann.note.c_str());
 			a = s = CoordToScreen(ann.x, ann.y);
-			a.x += annotationBoxOffset;
-			a.y -= annotationBoxOffset;
-			b = ImVec2(a.x + annotationBoxSize, a.y - annotationBoxSize);
+			a.x += DPI(config.annotationBoxOffset);
+			a.y -= DPI(config.annotationBoxOffset);
+			b = ImVec2(a.x + DPI(config.annotationBoxSize), a.y - DPI(config.annotationBoxSize));
 
-			if ((ann.hovered == true) && (m_tooltips_enabled)) {
+			if ((ann.hovered == true) && (ImGui::IsWindowHovered())) {
 				char buf[60];
 
 				snprintf(buf, sizeof(buf), "%s", ann.note.c_str());
@@ -4690,13 +3827,13 @@ int BoardView::AnnotationIsHovered(void) {
 	bool is_hovered = false;
 	int i           = 0;
 
-	if (!m_tooltips_enabled) return false;
+	if (!ImGui::IsWindowHovered()) return false;
 	m_annotation_last_hovered = 0;
 
 	for (auto &ann : m_annotations.annotations) {
 		ImVec2 a = CoordToScreen(ann.x, ann.y);
-		if ((mp.x > a.x + annotationBoxOffset) && (mp.x < a.x + (annotationBoxOffset + annotationBoxSize)) &&
-		    (mp.y < a.y - annotationBoxOffset) && (mp.y > a.y - (annotationBoxOffset + annotationBoxSize))) {
+		if ((mp.x > a.x + DPI(config.annotationBoxOffset)) && (mp.x < a.x + (DPI(config.annotationBoxOffset) + DPI(config.annotationBoxSize))) &&
+		    (mp.y < a.y - DPI(config.annotationBoxOffset)) && (mp.y > a.y - (DPI(config.annotationBoxOffset) + DPI(config.annotationBoxSize)))) {
 			ann.hovered               = true;
 			is_hovered                = true;
 			m_annotation_last_hovered = i;
@@ -4744,14 +3881,14 @@ void BoardView::DrawBoard() {
 	// size for the parts based on the part/pad geometry and spacing. -Inflex
 	// OutlineGenerateFill();
 	//	DrawFill(draw);
+	OutlineGenFillDraw(draw, config.boardFillSpacing, 1);
+	DrawOutline(draw);
 	DrawTracks(draw);
 	DrawArcs(draw);
 	DrawParts(draw);
 	//	DrawSelectedPins(draw);
 	DrawPins(draw);
 	DrawVies(draw);
-	OutlineGenFillDraw(draw, boardFillSpacing, 1);
-	DrawOutline(draw);
 	// DrawPinTooltips(draw);
 	DrawPartTooltips(draw);
 	DrawAnnotations(draw);
@@ -5160,7 +4297,7 @@ void BoardView::FlipBoard(int mode) {
 	if (mode == 1)
 		mode = 0;
 	else
-		mode = flipMode;
+		mode = config.flipMode;
 
  	if (m_track_mode) {
 		const auto &all_side = m_board->AllSide();
