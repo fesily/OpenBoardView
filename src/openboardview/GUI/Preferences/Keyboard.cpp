@@ -24,9 +24,10 @@ void Keyboard::render() {
 		was_open = true;
 
 		// Find how many columns we need to show all the keybindings
-		auto maxbindings = std::max_element(keybindings.keybindings.begin(), keybindings.keybindings.end(),
-							[](const std::pair<std::string, std::vector<KeyBinding>> &a, const std::pair<std::string, std::vector<KeyBinding>> &b){ // C++14 has auto lambda argument deduction, would make it cleaner…
-								return a.second.size() < b.second.size();});
+		auto maxbindings = std::max_element(keybindings.keybindings.begin(), keybindings.keybindings.end(), [](auto &l, auto &r) {
+			return l.second.size() < r.second.size();
+		});
+
 		// total number of columns: name + keybindings + add button
 		auto colcount = 1 + (maxbindings != keybindings.keybindings.end() ? maxbindings->second.size() : 0) + 1;
 

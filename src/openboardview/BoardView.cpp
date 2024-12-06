@@ -58,194 +58,6 @@ BoardView::~BoardView() {
 int BoardView::ConfigParse(void) {
 	ImGuiStyle &style = ImGui::GetStyle();
 
-	// non color-related settings
-	style.WindowBorderSize = 0.0f;
-
-	if (strcmp(name, "dark") == 0) {
-		style.Colors[ImGuiCol_Text]          = ImVec4(0.90f, 0.90f, 0.90f, 1.00f);
-		style.Colors[ImGuiCol_TextDisabled]  = ImVec4(0.60f, 0.60f, 0.60f, 1.00f);
-		style.Colors[ImGuiCol_WindowBg]      = ImVec4(0.00f, 0.00f, 0.00f, 0.70f);
-		style.Colors[ImGuiCol_ChildBg]       = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-		style.Colors[ImGuiCol_PopupBg]       = ImVec4(0.05f, 0.05f, 0.10f, 0.90f);
-		style.Colors[ImGuiCol_Border]        = ImVec4(0.70f, 0.70f, 0.70f, 0.65f);
-		style.Colors[ImGuiCol_BorderShadow]  = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-		style.Colors[ImGuiCol_FrameBg] =
-		    ImVec4(0.30f, 0.30f, 0.30f, 1.0f); // Background of checkbox, radio button, plot, slider, text input
-		style.Colors[ImGuiCol_FrameBgHovered]       = ImVec4(0.90f, 0.80f, 0.80f, 0.40f);
-		style.Colors[ImGuiCol_FrameBgActive]        = ImVec4(0.90f, 0.65f, 0.65f, 0.45f);
-		style.Colors[ImGuiCol_TitleBg]              = ImVec4(0.27f, 0.27f, 0.54f, 0.83f);
-		style.Colors[ImGuiCol_TitleBgCollapsed]     = ImVec4(0.40f, 0.40f, 0.80f, 0.20f);
-		style.Colors[ImGuiCol_TitleBgActive]        = ImVec4(0.32f, 0.32f, 0.63f, 0.87f);
-		style.Colors[ImGuiCol_MenuBarBg]            = ImVec4(0.40f, 0.40f, 0.55f, 0.80f);
-		style.Colors[ImGuiCol_ScrollbarBg]          = ImVec4(0.20f, 0.25f, 0.30f, 0.60f);
-		style.Colors[ImGuiCol_ScrollbarGrab]        = ImVec4(0.40f, 0.40f, 0.80f, 0.30f);
-		style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.40f, 0.40f, 0.80f, 0.40f);
-		style.Colors[ImGuiCol_ScrollbarGrabActive]  = ImVec4(0.80f, 0.50f, 0.50f, 0.40f);
-		style.Colors[ImGuiCol_CheckMark]            = ImVec4(0.90f, 0.90f, 0.90f, 0.50f);
-		style.Colors[ImGuiCol_SliderGrab]           = ImVec4(1.00f, 1.00f, 1.00f, 0.30f);
-		style.Colors[ImGuiCol_SliderGrabActive]     = ImVec4(0.80f, 0.50f, 0.50f, 1.00f);
-		style.Colors[ImGuiCol_Button]               = ImVec4(0.67f, 0.40f, 0.40f, 0.60f);
-		style.Colors[ImGuiCol_ButtonHovered]        = ImVec4(0.67f, 0.40f, 0.40f, 1.00f);
-		style.Colors[ImGuiCol_ButtonActive]         = ImVec4(0.80f, 0.50f, 0.50f, 1.00f);
-		style.Colors[ImGuiCol_Header]               = ImVec4(0.40f, 0.40f, 0.90f, 0.45f);
-		style.Colors[ImGuiCol_HeaderHovered]        = ImVec4(0.45f, 0.45f, 0.90f, 0.80f);
-		style.Colors[ImGuiCol_HeaderActive]         = ImVec4(0.53f, 0.53f, 0.87f, 0.80f);
-		style.Colors[ImGuiCol_Separator]            = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
-		style.Colors[ImGuiCol_SeparatorHovered]     = ImVec4(0.70f, 0.60f, 0.60f, 1.00f);
-		style.Colors[ImGuiCol_SeparatorActive]      = ImVec4(0.90f, 0.70f, 0.70f, 1.00f);
-		style.Colors[ImGuiCol_ResizeGrip]           = ImVec4(1.00f, 1.00f, 1.00f, 0.30f);
-		style.Colors[ImGuiCol_ResizeGripHovered]    = ImVec4(1.00f, 1.00f, 1.00f, 0.60f);
-		style.Colors[ImGuiCol_ResizeGripActive]     = ImVec4(1.00f, 1.00f, 1.00f, 0.90f);
-		style.Colors[ImGuiCol_PlotLines]            = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
-		style.Colors[ImGuiCol_PlotLinesHovered]     = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
-		style.Colors[ImGuiCol_PlotHistogram]        = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
-		style.Colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.00f, 0.60f, 0.00f, 1.00f);
-		style.Colors[ImGuiCol_TextSelectedBg]       = ImVec4(0.00f, 0.00f, 1.00f, 0.35f);
-		style.Colors[ImGuiCol_ModalWindowDimBg]     = ImVec4(0.20f, 0.20f, 0.20f, 0.35f);
-		style.Colors[ImGuiCol_TableRowBg]           = ImVec4(0.05f, 0.05f, 0.10f, 0.90f);
-		style.Colors[ImGuiCol_TableRowBgAlt]        = ImVec4(0.10f, 0.10f, 0.20f, 0.90f);
-
-		m_colors.backgroundColor          = byte4swap(0x000000ff);
-		m_colors.boardFillColor           = byte4swap(0x2a2a2aff);
-		m_colors.boardOutlineColor        = byte4swap(0xcc2222ff);
-		m_colors.partHullColor            = byte4swap(0x80808080);
-		m_colors.partOutlineColor         = byte4swap(0x999999ff);
-		m_colors.partFillColor            = byte4swap(0x111111ff);
-		m_colors.partTextColor            = byte4swap(0x80808080);
-		m_colors.partHighlightedColor     = byte4swap(0xffffffff);
-		m_colors.partHighlightedFillColor = byte4swap(0x333333ff);
-		m_colors.partHighlightedTextColor            = byte4swap(0x000000ff);
-		m_colors.partHighlightedTextBackgroundColor  = byte4swap(0xcccc22ff);
-		m_colors.pinDefaultColor          = byte4swap(0x4040ffff);
-		m_colors.pinDefaultTextColor      = byte4swap(0xccccccff);
-		m_colors.pinTextBackgroundColor   = byte4swap(0xffffff80);
-		m_colors.pinGroundColor           = byte4swap(0x0300C3ff);
-		m_colors.pinNotConnectedColor     = byte4swap(0xaaaaaaff);
-		m_colors.pinTestPadColor          = byte4swap(0x888888ff);
-		m_colors.pinTestPadFillColor      = byte4swap(0x6c5b1fff);
-		m_colors.pinA1PadColor            = byte4swap(0xdd0000ff);
-
-		m_colors.pinSelectedColor     = byte4swap(0x00ff00ff);
-		m_colors.pinSelectedFillColor = byte4swap(0x8888ffff);
-		m_colors.pinSelectedTextColor = byte4swap(0xffffffff);
-
-		m_colors.pinSameNetColor     = byte4swap(0x0000ffff);
-		m_colors.pinSameNetFillColor = byte4swap(0x9999ffff);
-		m_colors.pinSameNetTextColor = byte4swap(0x111111ff);
-
-		m_colors.pinHaloColor     = byte4swap(0xffffff88);
-		m_colors.pinNetWebColor   = byte4swap(0xff888888);
-		m_colors.pinNetWebOSColor = byte4swap(0x8888ff88);
-
-		m_colors.annotationPartAliasColor       = byte4swap(0xffff00ff);
-		m_colors.annotationBoxColor             = byte4swap(0xcccc88ff);
-		m_colors.annotationStalkColor           = byte4swap(0xaaaaaaff);
-		m_colors.annotationPopupBackgroundColor = byte4swap(0x888888ff);
-		m_colors.annotationPopupTextColor       = byte4swap(0xffffffff);
-
-		m_colors.selectedMaskPins    = byte4swap(0xffffffff);
-		m_colors.selectedMaskParts   = byte4swap(0xffffffff);
-		m_colors.selectedMaskOutline = byte4swap(0xffffffff);
-
-		m_colors.orMaskPins    = byte4swap(0x0);
-		m_colors.orMaskParts   = byte4swap(0x0);
-		m_colors.orMaskOutline = byte4swap(0x0);
-
-	} else {
-		// light theme default
-		style.Colors[ImGuiCol_Text]                 = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
-		style.Colors[ImGuiCol_TextDisabled]         = ImVec4(0.60f, 0.60f, 0.60f, 1.00f);
-		style.Colors[ImGuiCol_PopupBg]              = ImVec4(0.94f, 0.94f, 0.94f, 1.00f);
-		style.Colors[ImGuiCol_WindowBg]             = ImVec4(0.94f, 0.94f, 0.94f, 1.00f);
-		style.Colors[ImGuiCol_ChildBg]              = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-		style.Colors[ImGuiCol_Border]               = ImVec4(0.00f, 0.00f, 0.00f, 0.39f);
-		style.Colors[ImGuiCol_BorderShadow]         = ImVec4(1.00f, 1.00f, 1.00f, 0.10f);
-		style.Colors[ImGuiCol_FrameBg]              = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
-		style.Colors[ImGuiCol_FrameBgHovered]       = ImVec4(0.26f, 0.59f, 0.98f, 0.40f);
-		style.Colors[ImGuiCol_FrameBgActive]        = ImVec4(0.26f, 0.59f, 0.98f, 0.67f);
-		style.Colors[ImGuiCol_TitleBg]              = ImVec4(0.96f, 0.96f, 0.96f, 1.00f);
-		style.Colors[ImGuiCol_TitleBgCollapsed]     = ImVec4(1.00f, 1.00f, 1.00f, 0.51f);
-		style.Colors[ImGuiCol_TitleBgActive]        = ImVec4(0.82f, 0.82f, 0.82f, 1.00f);
-		style.Colors[ImGuiCol_MenuBarBg]            = ImVec4(0.82f, 0.82f, 0.82f, 1.00f);
-		style.Colors[ImGuiCol_ScrollbarBg]          = ImVec4(0.98f, 0.98f, 0.98f, 0.53f);
-		style.Colors[ImGuiCol_ScrollbarGrab]        = ImVec4(0.69f, 0.69f, 0.69f, 0.80f);
-		style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.49f, 0.49f, 0.49f, 0.80f);
-		style.Colors[ImGuiCol_ScrollbarGrabActive]  = ImVec4(0.49f, 0.49f, 0.49f, 1.00f);
-		style.Colors[ImGuiCol_CheckMark]            = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-		style.Colors[ImGuiCol_SliderGrab]           = ImVec4(0.26f, 0.59f, 0.98f, 0.78f);
-		style.Colors[ImGuiCol_SliderGrabActive]     = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-		style.Colors[ImGuiCol_Button]               = ImVec4(0.26f, 0.59f, 0.98f, 0.40f);
-		style.Colors[ImGuiCol_ButtonHovered]        = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-		style.Colors[ImGuiCol_ButtonActive]         = ImVec4(0.06f, 0.53f, 0.98f, 1.00f);
-		style.Colors[ImGuiCol_Header]               = ImVec4(0.26f, 0.59f, 0.98f, 0.31f);
-		style.Colors[ImGuiCol_HeaderHovered]        = ImVec4(0.26f, 0.59f, 0.98f, 0.80f);
-		style.Colors[ImGuiCol_HeaderActive]         = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-		style.Colors[ImGuiCol_Separator]            = ImVec4(0.39f, 0.39f, 0.39f, 1.00f);
-		style.Colors[ImGuiCol_SeparatorHovered]     = ImVec4(0.26f, 0.59f, 0.98f, 0.78f);
-		style.Colors[ImGuiCol_SeparatorActive]      = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-		style.Colors[ImGuiCol_ResizeGrip]           = ImVec4(1.00f, 1.00f, 1.00f, 0.00f);
-		style.Colors[ImGuiCol_ResizeGripHovered]    = ImVec4(0.26f, 0.59f, 0.98f, 0.67f);
-		style.Colors[ImGuiCol_ResizeGripActive]     = ImVec4(0.26f, 0.59f, 0.98f, 0.95f);
-		style.Colors[ImGuiCol_PlotLines]            = ImVec4(0.39f, 0.39f, 0.39f, 1.00f);
-		style.Colors[ImGuiCol_PlotLinesHovered]     = ImVec4(1.00f, 0.43f, 0.35f, 1.00f);
-		style.Colors[ImGuiCol_PlotHistogram]        = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
-		style.Colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.00f, 0.60f, 0.00f, 1.00f);
-		style.Colors[ImGuiCol_TextSelectedBg]       = ImVec4(0.26f, 0.59f, 0.98f, 0.35f);
-		style.Colors[ImGuiCol_ModalWindowDimBg]     = ImVec4(0.20f, 0.20f, 0.20f, 0.35f);
-		style.Colors[ImGuiCol_TableRowBg]           = ImVec4(0.94f, 0.94f, 0.94f, 1.00f);
-		style.Colors[ImGuiCol_TableRowBgAlt]        = ImVec4(0.82f, 0.82f, 0.82f, 1.00f);
-
-		m_colors.backgroundColor          = byte4swap(0xffffffff);
-		m_colors.boardFillColor           = byte4swap(0xddddddff);
-		m_colors.partHullColor            = byte4swap(0x80808080);
-		m_colors.partOutlineColor         = byte4swap(0x444444ff);
-		m_colors.partFillColor            = byte4swap(0xffffff77);
-		m_colors.partTextColor            = byte4swap(0x80808080);
-		m_colors.partHighlightedColor     = byte4swap(0xff0000ff);
-		m_colors.partHighlightedFillColor = byte4swap(0xf0f0f0ff);
-		m_colors.partHighlightedTextColor            = byte4swap(0xff3030ff);
-		m_colors.partHighlightedTextBackgroundColor  = byte4swap(0xffff00ff);
-		m_colors.boardOutlineColor        = byte4swap(0x444444ff);
-		m_colors.pinDefaultColor          = byte4swap(0x22aa33ff);
-		m_colors.pinDefaultTextColor      = byte4swap(0x666688ff);
-		m_colors.pinTextBackgroundColor   = byte4swap(0xffffff80);
-		m_colors.pinGroundColor           = byte4swap(0x2222aaff);
-		m_colors.pinNotConnectedColor     = byte4swap(0xaaaaaaff);
-		m_colors.pinTestPadColor          = byte4swap(0x888888ff);
-		m_colors.pinTestPadFillColor      = byte4swap(0xd6c68dff);
-		m_colors.pinA1PadColor            = byte4swap(0xdd0000ff);
-
-		m_colors.pinSelectedColor     = byte4swap(0x00000000);
-		m_colors.pinSelectedFillColor = byte4swap(0x8888ffff);
-		m_colors.pinSelectedTextColor = byte4swap(0xffffffff);
-
-		m_colors.pinSameNetColor     = byte4swap(0x888888ff);
-		m_colors.pinSameNetFillColor = byte4swap(0x9999ffff);
-		m_colors.pinSameNetTextColor = byte4swap(0x111111ff);
-
-		m_colors.pinHaloColor     = byte4swap(0x22FF2288);
-		m_colors.pinNetWebColor   = byte4swap(0xff0000aa);
-		m_colors.pinNetWebOSColor = byte4swap(0x0000ff33);
-
-		m_colors.annotationPartAliasColor       = byte4swap(0xffff00ff);
-		m_colors.annotationBoxColor             = byte4swap(0xff0000aa);
-		m_colors.annotationStalkColor           = byte4swap(0x000000ff);
-		m_colors.annotationPopupBackgroundColor = byte4swap(0xeeeeeeff);
-		m_colors.annotationPopupTextColor       = byte4swap(0x000000ff);
-
-		m_colors.selectedMaskPins    = byte4swap(0xffffffff);
-		m_colors.selectedMaskParts   = byte4swap(0xffffffff);
-		m_colors.selectedMaskOutline = byte4swap(0xffffffff);
-
-		m_colors.orMaskPins    = byte4swap(0x0);
-		m_colors.orMaskParts   = byte4swap(0x0);
-		m_colors.orMaskOutline = byte4swap(0x0);
-	}
-}
-
-int BoardView::ConfigParse(void) {
-	ImGuiStyle &style = ImGui::GetStyle();
-
 	config.readFromConfig(obvconfig);
 
 	setDPI(config.dpi);
@@ -261,10 +73,10 @@ int BoardView::ConfigParse(void) {
 
 	return 0;
 }
-static vector<vector<Pin*>> rotateMatrix90Counterclockwise(const vector<vector<Pin*>>& matrix) {
+static std::vector<std::vector<Pin*>> rotateMatrix90Counterclockwise(const std::vector<std::vector<Pin*>>& matrix) {
     int m = matrix.size();
     int n = matrix[0].size();
-    vector<vector<Pin*>> result(n, vector<Pin*>(m));
+    std::vector<std::vector<Pin*>> result(n, std::vector<Pin*>(m));
     
     for (int i = 0; i < m; ++i) {
         for (int j = 0; j < n; ++j) {
@@ -1539,22 +1351,22 @@ void BoardView::Update() {
 
 		ImGui::Text(" Show mode:");
 		ImGui::SameLine();
-		if (ImGui::RadioButton("None", (int*)&showMode, ShowMode_None)) {
-			obvconfig.WriteInt("showMode", showMode);
+		if (ImGui::RadioButton("None", (int*)&config.showMode, Config::ShowMode_None)) {
+			obvconfig.WriteInt("showMode", config.showMode);
 			m_needsRedraw = true;
 		}
-		if (ImGui::RadioButton("diode", (int*)&showMode, ShowMode_Diode)) {
-			obvconfig.WriteInt("showMode", showMode);
-			m_needsRedraw = true;
-		}
-		ImGui::SameLine();
-		if (ImGui::RadioButton("voltage", (int*)&showMode, ShowMode_Voltage)) {
-			obvconfig.WriteInt("showMode", showMode);
+		if (ImGui::RadioButton("diode", (int*)&config.showMode, Config::ShowMode_Diode)) {
+			obvconfig.WriteInt("showMode", config.showMode);
 			m_needsRedraw = true;
 		}
 		ImGui::SameLine();
-		if (ImGui::RadioButton("ohm", (int*)&showMode, ShowMode_Ohm)) {
-			obvconfig.WriteInt("showMode", showMode);
+		if (ImGui::RadioButton("voltage", (int*)&config.showMode, Config::ShowMode_Voltage)) {
+			obvconfig.WriteInt("showMode", config.showMode);
+			m_needsRedraw = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::RadioButton("ohm", (int*)&config.showMode, Config::ShowMode_Ohm)) {
+			obvconfig.WriteInt("showMode", config.showMode);
 			m_needsRedraw = true;
 		}
 		
@@ -2167,7 +1979,7 @@ void BoardView::CenterZoomNet(std::string netname) {
 			if (!config.infoPanelSelectPartsOnNet || pin->type == Pin::kPinTypeTestPad) continue;
 			auto& cpt = pin->component;
 			if (contains(cpt, m_partHighlighted)) continue;
-			if (infoPanelSelectPartsOnNetOnlyNotGround && cpt->pins.size() == 2) {
+			if (config.infoPanelSelectPartsOnNetOnlyNotGround && cpt->pins.size() == 2) {
 				auto& pins = cpt->pins;
 				if (pins[0]->net->is_ground || pins[1]->net->is_ground) continue;
 			}
@@ -2644,7 +2456,7 @@ void BoardView::DrawNetWeb(ImDrawList *draw) {
 				col = m_colors.pinNetWebOSColor;
 				draw->AddCircle(CoordToScreen(p->position.x, p->position.y), p->diameter * m_scale, col, 16);
 			}
-			if (infoPanelSelectPartsOnNetOnlyNotGround && p->component->pins.size() == 2) {
+			if (config.infoPanelSelectPartsOnNetOnlyNotGround && p->component->pins.size() == 2) {
 				auto& pins = p->component->pins;
 				if (pins[0]->net->is_ground || pins[1]->net->is_ground) continue;
 			}
@@ -2658,7 +2470,7 @@ void BoardView::DrawNetWeb(ImDrawList *draw) {
 	return;
 }
 
-static Pin* InferPin(Pin* pin, string Pin::* show_value_ptr) {
+static Pin* InferPin(Pin* pin, std::string Pin::* show_value_ptr) {
 	auto iter = std::find_if(pin->net->pins.cbegin(), pin->net->pins.cend(), [show_value_ptr](auto& opin) {
 						return !((*opin).*show_value_ptr).empty();
 					});
@@ -2913,15 +2725,15 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				// Font size for net name also depends on width of full text to avoid overflowing too much and colliding with text from other pin
 				ImVec2 size_net_name = font->CalcTextSizeA(maxfontsize, FLT_MAX, 0.0f, pin->net->show_name.c_str());
 
-				string show_value;
-				if (showMode != ShowMode_None) {
+				std::string show_value;
+				if (config.showMode != Config::ShowMode_None) {
 					auto show_value_ptr = [this]{
-						switch (showMode) {
-							case ShowMode_Ohm:
+						switch (config.showMode) {
+							case Config::ShowMode_Ohm:
 								return &Pin::ohm_value;
-							case ShowMode_Voltage:
+							case Config::ShowMode_Voltage:
 								return &Pin::voltage_value;
-							case ShowMode_Diode:
+							case Config::ShowMode_Diode:
 								return &Pin::diode_value;
 							default:
 								return &Pin::diode_value;
@@ -3354,7 +3166,7 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 			}
 
 			if (!part->is_dummy() && !part->name.empty()) {
-				const auto& text  = showPartType && !part->part_type.empty() ? part->part_type : part->name;
+				const auto& text  = config.showPartType && !part->part_type.empty() ? part->part_type : part->name;
 
 				/*
 				 * Draw part name inside part bounding box
@@ -3443,7 +3255,7 @@ inline void BoardView::DrawTracks(ImDrawList *draw) {
 	uint32_t omask  = 0x00000000;
 	auto io         = ImGui::GetIO();
 
-	if (pinSelectMasks) {
+	if (config.pinSelectMasks) {
 		if (m_pinSelected || !m_pinHighlighted.empty()) {
 			cmask = m_colors.selectedMaskPins;
 			omask = m_colors.orMaskPins;
@@ -3488,7 +3300,7 @@ inline void BoardView::DrawArcs(ImDrawList *draw) {
 	uint32_t omask  = 0x00000000;
 	auto io         = ImGui::GetIO();
 
-	if (pinSelectMasks) {
+	if (config.pinSelectMasks) {
 		if (m_pinSelected || !m_pinHighlighted.empty()) {
 			cmask = m_colors.selectedMaskPins;
 			omask = m_colors.orMaskPins;
@@ -3538,7 +3350,7 @@ inline void BoardView::DrawVies(ImDrawList *draw) {
 	uint32_t omask  = 0x00000000;
 	auto io         = ImGui::GetIO();
 
-	if (pinSelectMasks) {
+	if (config.pinSelectMasks) {
 		if (m_pinSelected || !m_pinHighlighted.empty()) {
 			cmask = m_colors.selectedMaskPins;
 			omask = m_colors.orMaskPins;
@@ -3569,7 +3381,7 @@ inline void BoardView::DrawVies(ImDrawList *draw) {
 
 			float maxfontwidth = radius * 1/ text_size_normalized.x; // Fit horizontally with 6.75% overflow (should still avoid colliding with neighbours)
 			float maxfontheight = radius * 1/ text_size_normalized.y; // Fit vertically with 25% top/bottom padding
-			float maxfontsize = min(maxfontwidth, maxfontheight);
+			float maxfontsize = std::min(maxfontwidth, maxfontheight);
 
 
 			if (maxfontheight < font->FontSize * 0.75) {
@@ -3608,7 +3420,7 @@ void BoardView::DrawPartTooltips(ImDrawList *draw) {
 			if ((dist < (pin->diameter * pin->diameter))) {
 				float pd = pin->diameter * m_scale;
 
-				draw->AddCircle(CoordToScreen(pin->position.x, pin->position.y), pd, m_colors.pinHaloColor, 32, pinHaloThickness);
+				draw->AddCircle(CoordToScreen(pin->position.x, pin->position.y), pd, m_colors.pinHaloColor, 32, config.pinHaloThickness);
 				ImGui::PushStyleColor(ImGuiCol_Text, m_colors.annotationPopupTextColor);
 				ImGui::PushStyleColor(ImGuiCol_PopupBg, m_colors.annotationPopupBackgroundColor);
 				ImGui::BeginTooltip();

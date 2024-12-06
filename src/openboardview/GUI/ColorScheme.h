@@ -2,7 +2,7 @@
 #define _COLORSCHEME_H_
 
 #include <cstdint>
-
+#include <array>
 #include "confparse.h"
 
 class ColorScheme {
@@ -59,6 +59,22 @@ public:
 	uint32_t orMaskPins    = 0x00000000;
 	uint32_t orMaskParts   = 0x00000000;
 	uint32_t orMaskOutline = 0x00000000;
+	
+	uint32_t viaColor = 0xFFC7C7C7;
+	std::array<uint32_t, 2> layerColor[11] = {
+	    {0xFFFFFFFF, 0xFFFFFFFF},
+	    {0xFFFF0000, 0xFFFF8080},
+	    {0xFF00FF00, 0xFF80FF80},
+	    {0xFF0000FF, 0xFF8080FF},
+	    {0xFFFFFF00, 0xFFFFFF80},
+	    {0xFF00FFFF, 0xFF80FFFF},
+	    {0xFFFF00FF, 0xFFFF80FF},
+	    {0xFF800000, 0xFFC08080},
+	    {0xFF008000, 0xFF80C080},
+	    {0xFF000080, 0xFF8080C0},
+	    {0xFF808000, 0xFFC0C080},
+	};
+	uint32_t defaultBoardSelectColor = 0xFF00FFFF;
 
 	static uint32_t byte4swap(uint32_t x);
 

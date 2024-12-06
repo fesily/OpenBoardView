@@ -45,12 +45,22 @@ public:
 	bool boardFill            = true;
 	bool showPartName         = true;
 	bool showPinName          = true;
+	bool showPartType     	  = true;
+	enum ShowMode : int {
+		ShowMode_None, ShowMode_Diode, ShowMode_Voltage, ShowMode_Ohm
+	};
+	ShowMode showMode = ShowMode::ShowMode_Diode;
 	int boardFillSpacing      = 3;
 	bool showPosition  = true;
 
 	bool infoPanelCenterZoomNets   = true;
 	bool infoPanelSelectPartsOnNet = true;
+	bool infoPanelSelectPartsOnNetOnlyNotGround = false;
 	bool centerZoomSearchResults = true;
+
+#ifdef _WIN32
+	std::string pdfSoftwarePath;
+#endif
 
 	std::string FZKeyStr = "";
 	uint32_t FZKey[44] = {0};

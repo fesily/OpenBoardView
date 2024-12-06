@@ -75,8 +75,8 @@ void ColorScheme::ThemeSetStyle(const char *name) {
 		this->pinDefaultColor          = byte4swap(0x4040ffff);
 		this->pinDefaultTextColor      = byte4swap(0xccccccff);
 		this->pinTextBackgroundColor   = byte4swap(0xffffff80);
-		this->pinGroundColor           = byte4swap(0x0300C3ff);
-		this->pinNotConnectedColor     = byte4swap(0xaaaaaaff);
+		this->pinGroundColor           = byte4swap(0x5f5f5fff);
+		this->pinNotConnectedColor     = byte4swap(0x483D8Bff);
 		this->pinTestPadColor          = byte4swap(0x888888ff);
 		this->pinTestPadFillColor      = byte4swap(0x6c5b1fff);
 		this->pinA1PadColor            = byte4swap(0xdd0000ff);

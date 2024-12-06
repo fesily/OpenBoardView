@@ -82,8 +82,8 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 	}
 
 	for (auto &[netid, net] : m_file->nets) {
-		auto name = net.name.empty() ? to_string(netid) : std::string{net.name};
-		auto n = make_shared<Net>();
+		auto name = net.name.empty() ? std::to_string(netid) : std::string{net.name};
+		auto n = std::make_shared<Net>();
 		if (netid >= 0) {
 			n->number = netid;
 		}
@@ -141,7 +141,7 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 	};
 
 	auto getNet = [&](auto &t) {
-		string net_name = string{t.net};
+		std::string net_name = std::string{t.net};
 		std::shared_ptr<Net> net;
 		if (t.netId > 0) net = netid_map[t.netId];
 		if (!net) {
@@ -150,7 +150,7 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 				if (net_name.empty() || is_prefix(kNetUnconnectedPrefix, net_name)) {
 					net = net_map[kNetUnconnectedPrefix];
 				} else {
-					net            = make_shared<Net>();
+					net            = std::make_shared<Net>();
 					net->name      = net_name;
 					net->board_side = transform_side_fn(t.side);
 					// NOTE: net->number not set
@@ -266,7 +266,7 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 	}
 
 	for (auto& board_track : m_tracks) {
-		auto track = make_shared<Track>();
+		auto track = std::make_shared<Track>();
 		track->board_side = transform_side_fn(board_track.side);
 		all_side.emplace(track->board_side);
 		track->position_start.x = board_track.points.first.x / scale;
@@ -281,7 +281,7 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 		tracks_.push_back(track);
 	}
 	for (auto& board_via : m_vias) {
-		auto via = make_shared<Via>();
+		auto via = std::make_shared<Via>();
 		via->board_side = transform_side_fn(board_via.side);
 		all_side.emplace(via->board_side);
 		via->target_side = transform_side_fn(board_via.target_side);
@@ -297,7 +297,7 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 	}
 
 	for (auto& board_arc : m_arcs) {
-		auto arc = make_shared<PcbArc>();
+		auto arc = std::make_shared<PcbArc>();
 		arc->board_side = transform_side_fn(board_arc.side);
 		arc->radius = board_arc.radius/ scale;
 		arc->startAngle = board_arc.startAngle;

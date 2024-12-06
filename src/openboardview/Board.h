@@ -1,6 +1,7 @@
 #pragma once
 
 #include "FileFormats/BRDFile.h"
+#include "annotations.h"
 
 #include "imgui/imgui.h"
 #include <algorithm>
@@ -138,9 +139,9 @@ struct Track: BoardElement {
 
 	float width = 1.0f;
 
-	mutable string name;
+	mutable std::string name;
 
-	string UniqueId() const {
+	std::string UniqueId() const {
 		if (name.empty()) {
 			name = std::to_string(position_start.x) + ":" + std::to_string(position_start.y);
 		}
@@ -158,9 +159,9 @@ struct Via: BoardElement {
 
 	float size = 0.0;
 
-	mutable string name;
+	mutable std::string name;
 
-	string UniqueId() const {
+	std::string UniqueId() const {
 		if (name.empty()) {
 			name = std::to_string(position.x) + ":" + std::to_string(position.y);
 		}
@@ -182,9 +183,9 @@ struct PcbArc: BoardElement {
 
 	float endAngle = 0.0;
 
-	mutable string name;
+	mutable std::string name;
 
-	string UniqueId() const {
+	std::string UniqueId() const {
 		if (name.empty()) {
 			name = std::to_string(position.x) + ":" + std::to_string(position.y);
 		}
@@ -243,16 +244,6 @@ struct Pin : BoardElement {
 	// Contact belonging to this component (pin), nullptr if nail.
 	std::shared_ptr<Component> component;
 
-	string diode_value; // the pin diode
-
-	string voltage_value; // the pin voltage
-
-	string ohm_value;
-
-	string ohm_black_value;
-
-	PinVoltageFlag voltage_flag = PinVoltageFlag::unknown;
-
 	std::string diode_value; // the pin diode
 
 	std::string voltage_value; // the pin voltage
@@ -294,10 +285,10 @@ struct Component : BoardElement {
 	EComponentType component_type = kComponentTypeUnknown;
 
 	// Part name as stored in board file.
-	string name;
+	std::string name;
 
 	// Part type
-	string part_type;
+	std::string part_type;
 
 	// Part manufacturing code (aka. part number).
 	std::string mfgcode;
@@ -343,7 +334,7 @@ struct Component : BoardElement {
 		return kBoardComponentPrefix + name;
 	}
 
-	void set_part_type(const string& part_type) {
+	void set_part_type(const std::string& part_type) {
 		if (part_type.empty()) {
 			this->part_type.clear();
 			component_type = kComponentTypeUnknown;

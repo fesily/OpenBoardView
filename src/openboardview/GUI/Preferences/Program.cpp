@@ -89,7 +89,8 @@ void Program::render() {
 
 		RightAlignedText("PDF software executable", DPI(250));
 		ImGui::SameLine();
-		ImGui::InputText("##pdfSoftwarePath", &config.pdfSoftwarePath;
+		static char pdfSoftwarePath[MAX_PATH];
+		ImGui::InputText("##pdfSoftwarePath", pdfSoftwarePath, sizeof(pdfSoftwarePath));
 		ImGui::SameLine();
 		if (ImGui::Button("Browse##pdfSoftwarePath")) {
 			auto path = show_file_picker();

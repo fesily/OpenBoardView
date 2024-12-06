@@ -82,6 +82,8 @@ void Config::readFromConfig(Confparse &obvconfig) {
 	fillParts                 = obvconfig.ParseBool("fillParts", true);
 	showPartName              = obvconfig.ParseBool("showPartName", true);
 	showPinName               = obvconfig.ParseBool("showPinName", true);
+	showPartType              = obvconfig.ParseBool("showPartType", true);
+	showMode                  = (ShowMode)obvconfig.ParseInt("showMode", ShowMode_Diode);
 	centerZoomSearchResults = obvconfig.ParseBool("centerZoomSearchResults", true);
 	flipMode                  = obvconfig.ParseInt("flipMode", 0);
 
@@ -162,6 +164,8 @@ void Config::writeToConfig(Confparse &obvconfig) {
 	obvconfig.WriteBool("fillParts", fillParts);
 	obvconfig.WriteBool("showPartName", showPartName);
 	obvconfig.WriteBool("showPinName", showPinName);
+	obvconfig.WriteBool("showPartType", showPartType);
+	obvconfig.WriteInt("showMode", showMode);
 	obvconfig.WriteBool("centerZoomSearchResults", centerZoomSearchResults);
 	obvconfig.WriteInt("flipMode", flipMode);
 
@@ -183,7 +187,7 @@ void Config::writeToConfig(Confparse &obvconfig) {
 
 
 #ifdef _WIN32
-	obvconfig.WriteStr("pdfSoftwarePath", pdfSoftwarePath);
+	obvconfig.WriteStr("pdfSoftwarePath", pdfSoftwarePath.c_str());
 #endif
 
 	obvconfig.WriteBool("slowCPU", slowCPU);

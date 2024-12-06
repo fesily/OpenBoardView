@@ -21,12 +21,12 @@ enum class PinVoltageFlag {
 };
 
 struct PinInfo {
-	string partName;
-	string pinName;
-	string diode;
-	string voltage;
-	string ohm;
-	string ohm_black;
+	std::string partName;
+	std::string pinName;
+	std::string diode;
+	std::string voltage;
+	std::string ohm;
+	std::string ohm_black;
 	PinVoltageFlag voltage_flag = PinVoltageFlag::unknown;
 
 	explicit operator bool() const {
@@ -43,18 +43,18 @@ enum class PartAngle {
 	sorted,
 };
 struct PartInfo {
-	string partName;
-	string part_type;
+	std::string partName;
+	std::string part_type;
 	PartAngle angle = PartAngle::_0;
-	map<string, PinInfo> pins;
+	std::map<std::string, PinInfo> pins;
 	explicit operator bool() const {
 		return !(part_type.empty() && angle == PartAngle::_0 && pins.empty());
 	}
 };
 
 struct NetInfo {
-	string name;
-	string showname;
+	std::string name;
+	std::string showname;
 	explicit operator bool() const {
 		return !showname.empty();
 	}
@@ -65,8 +65,8 @@ struct Annotations {
 	sqlite3 *sqldb;
 	bool debug = true;
 	std::vector<Annotation> annotations;
-	std::map<string, PartInfo> partInfos;
-	std::map<string, NetInfo> netInfos;
+	std::map<std::string, PartInfo> partInfos;
+	std::map<std::string, NetInfo> netInfos;
 
 	int Init(void);
 

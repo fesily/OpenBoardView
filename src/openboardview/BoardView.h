@@ -87,7 +87,6 @@ struct BoardView {
 	Preferences::Program programPreferences{keybindings, obvconfig, config, *this};
 	Preferences::Color colorPreferences{keybindings, obvconfig, m_colors};
 	Preferences::Keyboard keyboardPreferences{keybindings, obvconfig};
-	Preferences::BoardSettings boardSettings{keybindings, backgroundImage, pdfFile};
 
 	Help::About helpAbout{keybindings};
 	Help::Controls helpControls{keybindings};
@@ -111,12 +110,7 @@ struct BoardView {
 	bool reloadFonts  = false;
 	int pinBlank       = 0;
 	uint32_t FZKey[44] = {0};
-	enum ShowMode : int {
-		ShowMode_None, ShowMode_Diode, ShowMode_Voltage, ShowMode_Ohm
-	};
-	ShowMode showMode = ShowMode::ShowMode_Diode;
 	bool inferValue = true;
-	bool showPartType = true;
 
 
 	int ConfigParse(void);
@@ -138,7 +132,6 @@ struct BoardView {
 	bool AnyItemVisible(void);
 	void ThemeSetStyle(const char *name);
 
-	bool infoPanelSelectPartsOnNetOnlyNotGround = false;
 	void CenterZoomNet(std::string netname);
 
 	void CenterZoomSearchResults(void);
