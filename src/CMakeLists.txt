@@ -49,6 +49,21 @@ if(NOT SQLITE3_FOUND)
 	add_subdirectory(sqlite3)
 endif()
 
+## freetype ##
+include(FetchContent)
+FetchContent_Declare(
+	freetype
+	GIT_REPOSITORY https://github.com/freetype/freetype.git
+	GIT_TAG VER-2-13-1
+)
+FetchContent_MakeAvailable(freetype)
+
+FetchContent_GetProperties(freetype)
+if (NOT freetype_POPULATED)
+    FetchContent_Populate(freetype)
+    add_subdirectory(${freetype_SOURCE_DIR} ${freetype_BINARY_DIR})
+endif()
+
 ## glad ##
 execute_process(
 	COMMAND git submodule update --init src/glad
@@ -145,7 +160,16 @@ if(ENABLE_GL3)
 	)
 endif()
 
+LIST(APPEND SOURCES
+	imgui/misc/freetype/imgui_freetype.cpp
+)
+
+add_definitions("-DIMGUI_ENABLE_FREETYPE")
 add_library(imgui STATIC ${SOURCES})
+
+target_link_libraries(imgui
+	freetype
+)
 target_link_libraries(imgui
 	${GLAD_LIBRARIES}
 )

@@ -13,12 +13,41 @@
 #include "DPI.h"
 #include "utils.h"
 
+#include "freetype/freetype.h"
+
+
+static std::vector<char> ExtractFontFromTTC(const std::string& ttcFilePath, int fontIndex) {
+    FT_Library ft;
+    if (FT_Init_FreeType(&ft)) {
+        throw std::runtime_error("Could not initialize FreeType library");
+    }
+
+    FT_Face face;
+    if (FT_New_Face(ft, ttcFilePath.c_str(), fontIndex, &face)) {
+        throw std::runtime_error("Failed to load font face from TTC");
+    }
+
+    // 获取字体数据
+    FT_ULong size = face->stream->size;
+    const char* buffer = reinterpret_cast<const char*>(face->stream->base);
+
+    // 拷贝到 vector
+    std::vector<char> fontData(buffer, buffer + size);
+
+    // 清理资源
+    FT_Done_Face(face);
+    FT_Done_FreeType(ft);
+
+    return fontData;
+}
+
+
 std::string Fonts::load(std::string customFont, double fontSize) {
 	fontSize = (fontSize * getDPI()) / 100;
 
 	// Font selection
 	std::deque<std::string> fontList(
-	    {"Liberation Sans", "DejaVu Sans", "Arial", "Helvetica", ""}); // Empty string = use system default font
+	    {R"(c:\windows\fonts\msyh.ttc)", "Liberation Sans", "DejaVu Sans", "Arial", "Helvetica", ""}); // Empty string = use system default font
 
 	if (!customFont.empty()) fontList.push_front(customFont);
 
@@ -39,14 +68,19 @@ std::string Fonts::load(std::string customFont, double fontSize) {
 #ifdef _WIN32
 		ImFontConfig font_cfg{};
 		font_cfg.FontDataOwnedByAtlas = false;
-		const std::vector<char> ttf   = load_font(name);
+		std::vector<char> ttf;
+		if (std::filesystem::exists(name) && std::filesystem::path{name}.extension() == ".ttc") {
+			ttf   = ExtractFontFromTTC(name,  1);
+		} else {
+			ttf   = load_font(name);
+		}
 		if (!ttf.empty()) {
 			io.Fonts->AddFontFromMemoryTTF(
-			    const_cast<void *>(reinterpret_cast<const void *>(ttf.data())), ttf.size(), fontSize, &font_cfg);
+				const_cast<void *>(reinterpret_cast<const void *>(ttf.data())), ttf.size(), fontSize, &font_cfg, io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
 			io.Fonts->AddFontFromMemoryTTF(
-			    const_cast<void *>(reinterpret_cast<const void *>(ttf.data())), ttf.size(), fontSize * largeFontScaleFactor, &font_cfg); // Larger font for resizeable (zoomed) text
+				const_cast<void *>(reinterpret_cast<const void *>(ttf.data())), ttf.size(), fontSize * largeFontScaleFactor, &font_cfg, io.Fonts->GetGlyphRangesChineseSimplifiedCommon()); // Larger font for resizeable (zoomed) text
 			io.Fonts->AddFontFromMemoryTTF(
-			    const_cast<void *>(reinterpret_cast<const void *>(ttf.data())), ttf.size(), fontSize / 2, &font_cfg); // Smaller font for resizeable (zoomed) text
+				const_cast<void *>(reinterpret_cast<const void *>(ttf.data())), ttf.size(), fontSize / 2, &font_cfg, io.Fonts->GetGlyphRangesChineseSimplifiedCommon()); // Smaller font for resizeable (zoomed) text
 			SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Loaded font: %s", name.c_str());
 			return name;
 		} else {

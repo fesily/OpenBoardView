@@ -308,6 +308,7 @@ XJsonFile::XJsonFile(std::vector<char> &b)
 	}
 	
 	for (const auto &mod : file->root.module) {
+		if (!mod.text || !mod.text.value().text) continue;
 		BRDPart part;
 		part.name          = mod.text.value().text.value();
 		part.mounting_side = yamlfile::layerMapper->toSide(mod.layer);

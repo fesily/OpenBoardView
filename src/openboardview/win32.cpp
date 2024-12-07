@@ -62,6 +62,16 @@ const filesystem::path show_file_picker(bool filterBoards) {
 	return file_path;
 }
 
+const std::string get_font_path(const std::string& name) {
+	TCHAR fontDir[MAX_PATH];
+	if (!GetWindowsDirectory(fontDir, MAX_PATH)) {
+		return {};
+	}
+
+	auto path = std::filesystem::path(fontDir) / name;
+	return path.string();
+}
+
 const std::vector<char> load_font(const std::string &name) {
 	std::vector<char> data;
 	HFONT fontHandle;

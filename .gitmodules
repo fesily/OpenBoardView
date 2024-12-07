@@ -23,4 +23,4 @@
 	url = https://github.com/orangeduck/mpc.git
 [submodule "src/SDL2"]
 	path = src/SDL2
-	url = https://github.com/spurious/SDL-mirror.git
+	url = https://github.com/libsdl-org/SDL.git

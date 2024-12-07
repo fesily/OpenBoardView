@@ -7,6 +7,8 @@
 #include <cstring>
 
 #include "history.h"
+#include <iguana/json_reader.hpp>
+#include <iguana/json_writer.hpp>
 
 FHistory::~FHistory() {}
 
@@ -17,69 +19,40 @@ int FHistory::Set_filename(const std::string &name) {
 
 int FHistory::Load(void) {
 	if (!fname.empty()) {
-		FILE *f;
-#ifdef _WIN32
-		errno_t e;
-		e = fopen_s(&f, fname.c_str(), "r");
-#else
-		f = fopen(fname.c_str(), "r");
-#endif
 
-		count = 0;
-		if (!f) return 0;
-
-		while (count < FHISTORY_COUNT_MAX) {
-			char *r;
-
-			r = fgets(history[count], FHISTORY_FNAME_LEN_MAX, f);
-			if (r) {
-				count++;
-
-				/// strip off the trailing line break
-				while (*r) {
-					if ((*r == '\r') || (*r == '\n')) {
-						*r = '\0';
-						break;
-					}
-					r++;
-				}
-
-			} else {
-				break;
-			}
+		try
+		{
+			history.clear();
+			iguana::from_json_file(history, fname);
 		}
-		fclose(f);
-	} else {
-		return -1;
+		catch(const std::exception& e)
+		{
+			std::cerr << e.what() << '\n';
+			return -1;
+		}
 	}
 
-	return count;
+	return history.size();
 }
 
 int FHistory::Prepend_save(const std::string &newfile) {
 	if (!fname.empty()) {
-		FILE *f;
-#ifdef _WIN32
-		errno_t e;
-
-		e = fopen_s(&f, fname.c_str(), "w");
-#else
-		f = fopen(fname.c_str(), "w");
-#endif
-
-		if (f) {
-			int i;
-
-			fprintf(f, "%s\n", newfile.c_str());
-			for (i = 0; i < count; i++) {
-				// Don't create duplicate entries, so check each one against the newfile
-				if (strcmp(newfile.c_str(), history[i])) {
-					fprintf(f, "%s\n", history[i]);
-				}
-			}
-			fclose(f);
-
+		try
+		{
+			history.remove(newfile);
+			history.push_front(newfile);
+			std::string ss;
+			iguana::to_json(history, ss);
+			auto fp = fopen(fname.c_str(), "w");
+			if (!fp) return -1;
+			fwrite(ss.c_str(), sizeof(char), ss.size(), fp);
+			fclose(fp);
 			Load();
+		}
+		catch(const std::exception& e)
+		{
+			std::cerr << e.what() << '\n';
+			return -1;
 		}
 	}
 

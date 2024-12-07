@@ -360,7 +360,7 @@ int main(int argc, char **argv) {
 			Renderers::current->processEvent(event);
 
 			if (event.type == SDL_DROPFILE) {
-				app.LoadFile(filesystem::u8path(event.drop.file));
+				app.LoadFile(filesystem::path((char8_t*)event.drop.file));
 			} else if(event.type == SDL_MULTIGESTURE && event.mgesture.numFingers == 2 && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
 				//Inhibit dragging board area
 				app.m_dragging_token = -1;
@@ -437,7 +437,7 @@ int main(int argc, char **argv) {
 		// PLD20160618
 		if (app.history_file_has_changed) {
 			char scratch[1024];
-			snprintf(scratch, sizeof(scratch), "%s - %s", OBV_NAME, app.fhistory.history[0]);
+			snprintf(scratch, sizeof(scratch), "%s - %s", OBV_NAME, app.fhistory.history.front().c_str());
 			SDL_SetWindowTitle(window, scratch);
 			app.history_file_has_changed = 0;
 		}

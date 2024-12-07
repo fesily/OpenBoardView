@@ -68,7 +68,7 @@ void Image::render(ImDrawList &draw, const ImVec2 &p_min, const ImVec2 &p_max, i
 
 	auto uvs = TransformRelativeCoordinates(rotation);
 
-	draw.AddImageQuad(reinterpret_cast<void*>(texture),
+	draw.AddImageQuad(static_cast<ImTextureID>(texture),
 		p_min, // Asbolute render rectangle top-left corner
 		ImVec2(p_max[0], p_min[1]), // Asbolute render rectangle top-right corner
 		p_max, // Absolute render rectangle bottom-right corner

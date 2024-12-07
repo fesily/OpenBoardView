@@ -225,7 +225,8 @@ int BoardView::LoadFile(const filesystem::path &filepath) {
 		m_error_msg.clear();
 		pdfBridge.CloseDocument();
 
-		SetLastFileOpenName(filepath.string());
+		std::string u8filepath = (char*)filepath.u8string().c_str();
+		SetLastFileOpenName(u8filepath);
 		std::vector<char> buffer = file_as_buffer(filepath, m_error_msg);
 		if (!buffer.empty()) {
 			if (filepath.filename().extension() == ".json")
@@ -241,14 +242,14 @@ int BoardView::LoadFile(const filesystem::path &filepath) {
 
 			if (m_file && m_file->valid) {
 				LoadBoard(m_file);
-				fhistory.Prepend_save(filepath.string());
+				fhistory.Prepend_save(u8filepath);
 				history_file_has_changed = 1; // used by main to know when to update the window title
 				boardMinMaxDone          = false;
 				m_rotation               = 0;
 				m_current_side           = kBoardSideTop;
 				EPCCheck(); // check to see we don't have a flipped board outline
 
-				m_annotations.SetFilename(filepath.string());
+				m_annotations.SetFilename(u8filepath);
 				m_annotations.Load();
 
 				auto conffilepath = filepath;
@@ -1109,7 +1110,7 @@ void BoardView::ClearAllHighlights(void) {
 void BoardView::Update() {
 	bool open_file = false;
 	// ImGuiIO &io = ImGui::GetIO();
-	char *preset_filename = NULL;
+	const char *preset_filename = NULL;
 	ImGuiIO &io           = ImGui::GetIO();
 
 	// Window is probably minimized, do not attempt to draw anything as our code will not handle screen size of 0 properly and crash (ocornut/imgui@bb2529d)
@@ -1153,11 +1154,11 @@ void BoardView::Update() {
 			/// Generate file history - PLD20160618-2028
 			ImGui::Separator();
 			{
-				int i;
-				for (i = 0; i < fhistory.count; i++) {
-					if (ImGui::MenuItem(fhistory.Trim_filename(fhistory.history[i], 2))) {
+				for (auto& history : fhistory.history)
+				{
+					if (ImGui::MenuItem(fhistory.Trim_filename(history.data(), 2))) {
 						open_file       = true;
-						preset_filename = fhistory.history[i];
+						preset_filename = history.c_str();
 					}
 				}
 			}
@@ -1497,9 +1498,9 @@ void BoardView::Update() {
 
 		{
 			if (m_validBoard) {
-				ImVec2 s = ImGui::CalcTextSize(fhistory.history[0]);
+				ImVec2 s = ImGui::CalcTextSize(fhistory.history.front().c_str());
 				ImGui::SameLine(ImGui::GetWindowWidth() - s.x - 20);
-				ImGui::Text("%s", fhistory.history[0]);
+				ImGui::Text("%s", fhistory.history.front().c_str());
 				ImGui::SameLine();
 			}
 		}
