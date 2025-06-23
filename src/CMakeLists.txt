@@ -67,11 +67,28 @@ add_subdirectory(glad)
 unset(CMAKE_POLICY_VERSION_MINIMUM)
 
 ## SDL2 ##
-find_package(SDL2 REQUIRED CONFIG)
+if(APPLE)
+	find_package(SDL2 REQUIRED)
+	set(SDL2_INCLUDE_DIRS "${SDL2_INCLUDE_DIR}")
+	set(SDL2_LIBRARIES "${SDL2_LIBRARY}")
+elseif(WIN32 AND NOT MINGW)
+	execute_process(
+		COMMAND git submodule update --init src/SDL2
+		WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+	)
+	# Build and use only static SDL2 lib with MSVC
+	set(SDL_STATIC ON)
+	set(SDL_SHARED OFF)
+	add_subdirectory(SDL2)
+	set(SDL2_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/SDL2/include")
+	set(SDL2_LIBRARIES "SDL2main" "SDL2-static")
+else()
+	find_package(SDL2 REQUIRED CONFIG)
+endif()
 add_definitions(-DENABLE_SDL2)
 
 # Create namespace targets for system with SDL2 older than 2.0.12
-if(NOT TARGET SDL2::SDL2)
+if(NOT MSVC AND NOT TARGET SDL2::SDL2)
 	add_library(SDL2::SDL2 SHARED IMPORTED)
 	find_library(SDL2_LIBRARY SDL2)
 	set_target_properties(SDL2::SDL2 PROPERTIES
@@ -137,7 +154,10 @@ add_library(imgui STATIC ${SOURCES})
 target_link_libraries(imgui
 	${GLAD_LIBRARIES}
 )
-if(MINGW)
+add_definitions(-DNOMINMAX)
+if(MSVC)
+target_include_directories(imgui PRIVATE ${SDL2_INCLUDE_DIRS})
+elseif(MINGW)
 target_link_libraries(imgui
 	SDL2::SDL2-static
 )
@@ -173,6 +193,10 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSI
 	message(CHECK_PASS "available")
 	set(CMAKE_CXX_STANDARD 17)
 	set(FILESYSTEM_LIBRARIES stdc++fs)
+	add_definitions(-DWITH_STD_FILESYSTEM)
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" AND MSVC_VERSION VERSION_GREATER 1910)
+	set(CMAKE_CXX_STANDARD 17)
+	add_compile_options(/Zc:__cplusplus)
 	add_definitions(-DWITH_STD_FILESYSTEM)
 else() # Other compiler/version are unsupported, use external lib
 	message(CHECK_FAIL "not available, using ghc::filesystem")

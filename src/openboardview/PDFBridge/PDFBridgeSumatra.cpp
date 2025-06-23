@@ -201,7 +201,7 @@ bool PDFBridgeSumatra::ExecuteDDECommand(std::wstring ddeCmd) {
         return false;
     }
 
-	hData = DdeClientTransaction(reinterpret_cast<LPBYTE>(hData), -1, this->hConv, nullptr, 0, XTYP_EXECUTE, 10000/*10 seconds timeout*/, nullptr);
+	hData = DdeClientTransaction((LPBYTE)(hData), -1, this->hConv, nullptr, 0, XTYP_EXECUTE, 10000/*10 seconds timeout*/, nullptr);
 
     if (hData == nullptr)   {
 		UINT ret = DdeGetLastError(this->idInst);
