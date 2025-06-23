@@ -3,7 +3,7 @@ option(ENABLE_GL1 "Build OpenGL 1 renderer." ON)
 option(ENABLE_GL3 "Build OpenGL 3 renderer." ON)
 option(ENABLE_GLES2 "Configure OpenGL 3 renderer to be OpenGL ES 2.0 compatible." OFF)
 
-if(NOT APPLE AND NOT WIN32 OR MINGW)
+if(NOT APPLE AND NOT ANDROID AND NOT WIN32 OR MINGW)
 	find_package(PkgConfig REQUIRED)
 endif()
 
@@ -58,7 +58,11 @@ execute_process(
 	WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
 )
 set(GLAD_PROFILE "compatibility" CACHE STRING "GL Profile" FORCE) # Using OpenGL Compatibility profile (for enabling use of fixed-function pipeline)
-set(GLAD_API "gl=3.2,gles2=2.0" CACHE STRING "GL versions" FORCE) # Build for OpenGL 3.0 and OpenGLES 2
+if(ANDROID) #GLES2 support only
+	set(GLAD_API "gles2=2.0" CACHE STRING "GL versions" FORCE) # Build for OpenGLES 2
+else()
+	set(GLAD_API "gl=3.2,gles2=2.0" CACHE STRING "GL versions" FORCE) # Build for OpenGL 3.0 and OpenGLES 2
+endif()
 set(GLAD_EXTENSIONS "GL_EXT_texture_compression_s3tc,GL_OES_element_index_uint" CACHE STRING "Gl exts" FORCE) # S3TC used to load texture for pins — delete when removing support. The other is used by GLES2.
 set(GLAD_NO_LOADER ON CACHE BOOL "Disable loader" FORCE) # We're using SDL2 loader
 set(GLAD_REPRODUCIBLE ON CACHE BOOL "Reproducible build" FORCE)
@@ -67,7 +71,17 @@ add_subdirectory(glad)
 unset(CMAKE_POLICY_VERSION_MINIMUM)
 
 ## SDL2 ##
-if(APPLE)
+if(ANDROID)
+    execute_process(
+            COMMAND git submodule update --init src/SDL2
+            WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+    )
+    set(SDL_STATIC ON)
+    set(SDL_SHARED OFF)
+    add_subdirectory(SDL2)
+    set(SDL2_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/SDL2/include")
+    set(SDL2_LIBRARIES "SDL2main" "SDL2-static")
+elseif(APPLE)
 	find_package(SDL2 REQUIRED)
 	set(SDL2_INCLUDE_DIRS "${SDL2_INCLUDE_DIR}")
 	set(SDL2_LIBRARIES "${SDL2_LIBRARY}")
@@ -88,7 +102,7 @@ endif()
 add_definitions(-DENABLE_SDL2)
 
 # Create namespace targets for system with SDL2 older than 2.0.12
-if(NOT MSVC AND NOT TARGET SDL2::SDL2)
+if(NOT MSVC AND NOT ANDROID AND NOT TARGET SDL2::SDL2)
 	add_library(SDL2::SDL2 SHARED IMPORTED)
 	find_library(SDL2_LIBRARY SDL2)
 	set_target_properties(SDL2::SDL2 PROPERTIES
@@ -155,7 +169,7 @@ target_link_libraries(imgui
 	${GLAD_LIBRARIES}
 )
 add_definitions(-DNOMINMAX)
-if(MSVC)
+if(MSVC OR ANDROID)
 target_include_directories(imgui PRIVATE ${SDL2_INCLUDE_DIRS})
 elseif(MINGW)
 target_link_libraries(imgui
@@ -198,6 +212,10 @@ elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" AND MSVC_VERSION VERSION_GREATER 1
 	set(CMAKE_CXX_STANDARD 17)
 	add_compile_options(/Zc:__cplusplus)
 	add_definitions(-DWITH_STD_FILESYSTEM)
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" AND MSVC_VERSION VERSION_GREATER 1910)
+	set(CMAKE_CXX_STANDARD 17)
+	add_compile_options(/Zc:__cplusplus)
+	add_definitions(-DWITH_STD_FILESYSTEM)
 else() # Other compiler/version are unsupported, use external lib
 	message(CHECK_FAIL "not available, using ghc::filesystem")
 	execute_process(
@@ -209,7 +227,7 @@ else() # Other compiler/version are unsupported, use external lib
 endif()
 
 ## stb ##
-if(NOT APPLE AND NOT WIN32 OR MINGW)
+if(NOT APPLE AND NOT ANDROID AND NOT WIN32 OR MINGW)
 	pkg_check_modules(STB stb)
 endif()
 

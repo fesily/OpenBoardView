@@ -50,7 +50,11 @@ bool ImGuiRendererSDL::init() {
 		return false;
 	}
 
+#ifdef ENABLE_GLES2
+	if (!gladLoadGLES2Loader(SDL_GL_GetProcAddress)) {
+#else
 	if (!gladLoadGLLoader(SDL_GL_GetProcAddress)) {
+#endif
 		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "%s: glad failed to load OpenGL\n", this->name().c_str());
 		return false;
 	}
@@ -141,7 +145,10 @@ std::string ImGuiRendererSDL::loadTextureFromFile(const filesystem::path &filepa
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
 	// Upload pixels into texture
+#ifndef IMGUI_IMPL_OPENGL_ES2
+	//FIXME: no support for GL_UNPACK_ROW_LENGTH on GLES2
 	glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+#endif
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image_width, image_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image_data);
 
 	GLenum code = glGetError();

@@ -2830,10 +2830,11 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 					ImVec2 pos = CoordToScreen(part->centerpoint.x, part->centerpoint.y); // Computed previously during bounding box generation
 					pos.x -= text_size.x * 0.5f;
 					pos.y -= text_size.y * 0.5f;
-
-					draw->ChannelsSetCurrent(kChannelText);
-					draw->AddText(font, maxfontsize, pos, m_colors.partTextColor, part->name.c_str());
-					draw->ChannelsSetCurrent(kChannelPolylines);
+                    if (maxfontsize > 1) {
+                        draw->ChannelsSetCurrent(kChannelText);
+                        draw->AddText(font, maxfontsize, pos, m_colors.partTextColor, part->name.c_str());
+                        draw->ChannelsSetCurrent(kChannelPolylines);
+                    }
 				}
 
 				/*

@@ -1,4 +1,12 @@
-cmake_minimum_required(VERSION 3.11)
+cmake_minimum_required(VERSION 3.15)
+# We now use project() VERSION parameter
+if(POLICY CMP0048)
+	cmake_policy(SET CMP0048 NEW)
+endif()
+# Targets with semicolon are imported targets
+if(POLICY CMP0028)
+	cmake_policy(SET CMP0028 NEW)
+endif()
 
 # Set OSX target version, before calling project() (inside version.cmake). FORCE is needed when project() is called within an included file
 set(CMAKE_OSX_DEPLOYMENT_TARGET "10.9" CACHE STRING "Minimum OS X deployment version" FORCE)
@@ -15,6 +23,7 @@ endif()
 # major.90 are alpha releases
 # major.95 are beta releases
 project(OpenBoardView VERSION 9.95.2)
+set(CMAKE_C_STANDARD 11)
 
 # Include our project variables
 include("version.cmake")

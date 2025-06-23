@@ -1,0 +1,63 @@
+plugins {
+    alias(libs.plugins.android.application)
+}
+
+android {
+    namespace 'com.fesily.openboardview'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.fesily.openboardview"
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName "R7.4-pre1"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        externalNativeBuild {
+            cmake {
+                cppFlags '-std=c++17'
+                arguments "-DANDROID_STL=c++_static",
+                        "-DENABLE_GL1=OFF",
+                        "-DENABLE_GL3=ON",
+                        "-DENABLE_GLES2=ON",
+                        "-DSDL_STATIC_PIC=ON"
+            }
+        }
+        ndk {
+            abiFilters "arm64-v8a", "x86_64"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+    externalNativeBuild {
+        cmake {
+            path file('../../../CMakeLists.txt')
+            version '3.22.1'
+        }
+    }
+    buildFeatures {
+        viewBinding true
+    }
+}
+
+dependencies {
+
+    implementation libs.appcompat
+    implementation libs.material
+    implementation libs.constraintlayout
+    testImplementation libs.junit
+    androidTestImplementation libs.ext.junit
+    androidTestImplementation libs.espresso.core
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    implementation project(':libs:SDL2')
+}

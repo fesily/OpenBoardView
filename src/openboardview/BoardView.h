@@ -242,3 +242,5 @@ struct BoardView {
 	void FlipBoard(int mode = 0);
 	void HandlePDFBridgeSelection();
 };
+
+extern BoardView app;

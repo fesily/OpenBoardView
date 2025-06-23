@@ -17,7 +17,7 @@ else()
 		find_library(COCOA_LIBRARY Cocoa)
 		find_package(OpenGL REQUIRED)
 		set(OPENGL_INCLUDE_DIR ${OPENGL_INCLUDE_DIR}/Headers)
-	else(APPLE)
+	elseif(NOT ANDROID)
 		find_package(PkgConfig REQUIRED)
 
 		pkg_check_modules(FONTCONFIG REQUIRED fontconfig)
@@ -52,7 +52,13 @@ endif()
 
 # python is required for GenCAD grammar build-rime generation
 if (CMAKE_VERSION VERSION_GREATER 3.12)
-	find_package(Python REQUIRED COMPONENTS Interpreter)
+	if (CMAKE_ANDROID_NDK)
+		message(STATUS "Using Android NDK Python interpreter")
+        set(Python_EXECUTABLE ${CMAKE_ANDROID_NDK}/toolchains/llvm/prebuilt/windows-x86_64/python3/python)
+		find_package(Python REQUIRED COMPONENTS Interpreter)
+	else()
+		find_package(Python REQUIRED COMPONENTS Interpreter)
+	endif()
 else()
 	# deprecated logic
 	find_package(PythonInterp REQUIRED)
@@ -140,6 +146,10 @@ if(APPLE)
 	set(SOURCES ${SOURCES}
 		osx.mm
 	)
+elseif(ANDROID)
+	set(SOURCES ${SOURCES}
+		android.cpp
+	)
 endif()
 	set(SOURCES ${SOURCES}
 		unix.cpp
@@ -167,12 +177,18 @@ set(SOURCES ${SOURCES}
 	${GENERATED_GENCAD_FILE_GRAMMAR_H} # dependency on generated header file to make in built
 )
 
-add_executable(${PROJECT_NAME_LOWER}
-	MACOSX_BUNDLE
-	WIN32
-	${SOURCES}
-	${ASSETS}
-)
+if(ANDROID)
+    add_library(${PROJECT_NAME_LOWER} SHARED
+            ${SOURCES}
+    )
+else()
+    add_executable(${PROJECT_NAME_LOWER}
+            MACOSX_BUNDLE
+            WIN32
+            ${SOURCES}
+            ${ASSETS}
+    )
+endif()
 
 if(MINGW) # Dirty fix to force linking all libs (esp. libstdc++) statically for Windows
 	set(CMAKE_EXE_LINKER_FLAGS "-static -static-libgcc -static-libstdc++")
@@ -209,7 +225,7 @@ target_link_libraries(${PROJECT_NAME_LOWER}
 	${CMAKE_DL_LIBS}
 )
 
-if(NOT APPLE AND NOT MINGW)
+if(NOT APPLE AND NOT MINGW AND NOT ANDROID)
 	target_link_libraries(${PROJECT_NAME_LOWER}
 		${FONTCONFIG_LIBRARIES}
 	)
@@ -221,7 +237,7 @@ if(GIO_FOUND)
 	)
 endif()
 
-if(MSVC)
+if(MSVC OR ANDROID)
 target_link_libraries(${PROJECT_NAME_LOWER} SDL2-static)
 target_include_directories(${PROJECT_NAME_LOWER} PRIVATE ${SDL2_INCLUDE_DIRS})
 elseif(MINGW)
@@ -234,7 +250,7 @@ target_link_libraries(${PROJECT_NAME_LOWER}
 )
 endif()
 
-if(MSVC)
+if(MSVC OR ANDROID)
 target_link_libraries(${PROJECT_NAME_LOWER} SDL2main)
 else()
 target_link_libraries(${PROJECT_NAME_LOWER}
@@ -242,7 +258,9 @@ target_link_libraries(${PROJECT_NAME_LOWER}
 )
 endif()
 
-install(TARGETS
-	${PROJECT_NAME_LOWER}
-	RUNTIME DESTINATION ${INSTALL_RUNTIME_DIR}
-	BUNDLE DESTINATION ${INSTALL_BUNDLE_DIR})
+if(NOT ANDROID)
+	install(TARGETS
+		${PROJECT_NAME_LOWER}
+		RUNTIME DESTINATION ${INSTALL_RUNTIME_DIR}
+		BUNDLE DESTINATION ${INSTALL_BUNDLE_DIR})
+endif()

@@ -210,12 +210,14 @@ void cleanupAndExit(int c) {
 	SDL_Quit();
 	exit(c);
 }
+float screen_density = 1.0f;
+
+BoardView app{};
 
 int main(int argc, char **argv) {
 	uint8_t sleepout;
 	std::string configDir;
 	globals g; // because some things we have to store *before* we load the config file in BoardView app.obvconf
-	BoardView app{};
 
 	// Log all messages
 	SDL_LogSetAllPriority(SDL_LOG_PRIORITY_VERBOSE);
@@ -308,6 +310,9 @@ int main(int argc, char **argv) {
 #if defined(_WIN32) || defined(__APPLE__)
 	window_flags |= SDL_WINDOW_ALLOW_HIGHDPI;
 #endif
+#ifdef ANDROID
+    window_flags |= SDL_WINDOW_FULLSCREEN;
+#endif
 	window = SDL_CreateWindow(
 	    OBV_NAME, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, window_width, window_height, window_flags);
 	if (window == NULL) {
@@ -331,6 +336,8 @@ int main(int argc, char **argv) {
 
 	ImGuiIO &io    = ImGui::GetIO();
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable ImGui's keyboard navigation
+    io.DisplayFramebufferScale = {screen_density, screen_density};
+    io.FontGlobalScale = screen_density;
 	io.IniFilename = NULL;
 	//	io.Fonts->AddFontDefault();
 
@@ -341,8 +348,11 @@ int main(int argc, char **argv) {
 
 	// Main loop
 	bool done             = false;
-	bool preload_required = false;
+	char *preload_file = nullptr;
 
+    if (screen_density > 1.0f) {
+        g.dpi = screen_density * 160;
+    }
 	if (g.dpi > 0) setDPI(g.dpi);
 
 	// Now that the configuration file is loaded in to BoardView, parse its settings.
@@ -370,7 +380,7 @@ int main(int argc, char **argv) {
 	 * in to OBV
 	 */
 	if (g.input_file) {
-		preload_required = true;
+		preload_file = strdup(g.input_file);
 	}
 
 	/*
@@ -386,6 +396,10 @@ int main(int argc, char **argv) {
 	 * If you find some things aren't working properly without you having to move
 	 * the mouse or 'waking up' OBV then increase to 5 or more.
 	 */
+
+
+	SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN);
+
 	sleepout = 30;
 	float angleacc = 0.0;
 	while (!done) {
@@ -396,7 +410,7 @@ int main(int argc, char **argv) {
 			Renderers::current->processEvent(event);
 
 			if (event.type == SDL_DROPFILE) {
-				app.LoadFile(filesystem::u8path(event.drop.file));
+				preload_file = strdup(event.drop.file);
 			} else if(event.type == SDL_MULTIGESTURE && event.mgesture.numFingers == 2 && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
 				//Inhibit dragging board area
 				app.m_dragging_token = -1;
@@ -420,6 +434,33 @@ int main(int argc, char **argv) {
 					app.Zoom(event.mgesture.x * w, event.mgesture.y * h, event.mgesture.dDist * app.config.zoomFactor * 10);
 				}
 			}
+			else if( event.type == SDL_MULTIGESTURE )
+			{
+				//Inhibit dragging board area
+				app.m_dragging_token = -1;
+				//Rotation detected, at least 1°
+				if(fabs(event.mgesture.dTheta) > 3.14 / 180.0)
+				{
+					angleacc += event.mgesture.dTheta;
+					if (angleacc >= 3.14 / 2) {
+						// > 90°
+						app.Rotate(1);
+						angleacc = 0.0;
+					} else if (angleacc <= -3.14 / 2) {
+						// < 90°
+						app.Rotate(-1);
+						angleacc = 0.0;
+					}
+				}
+				//Pinch-to-zoom
+				else if(fabs(event.mgesture.dDist) > 0.002)
+				{
+					int w;
+					int h;
+					SDL_GetWindowSize(window, &w, &h);
+					app.Zoom(event.mgesture.x * w, event.mgesture.y * h, event.mgesture.dDist * app.config.zoomFactor * 10);
+				}
+			}
 
 			if (event.type == SDL_QUIT) done = true;
 		}
@@ -427,6 +468,14 @@ int main(int argc, char **argv) {
 		// reset rotation angle accumulator
 		if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
 			angleacc = 0.0;
+		}
+
+		// Drag to scroll
+		if (ImGui::IsMouseDragging(0)) {
+			ImVec2 delta = ImGui::GetMouseDragDelta();
+			io.MouseWheelH = delta.x / 100;
+			io.MouseWheel = delta.y / 100;
+			ImGui::ResetMouseDragDelta();
 		}
 
 		if (app.reloadConfig) {
@@ -455,11 +504,17 @@ int main(int argc, char **argv) {
 		Renderers::current->initFrame();
 		ImGui::NewFrame();
 
+		if (io.WantTextInput) {
+			SDL_StartTextInput();
+		} else {
+			SDL_StopTextInput();
+		}
+
 		// If we have a board to view being passed from command line, then "inject"
 		// it here.
-		if (preload_required) {
-			app.LoadFile(filesystem::u8path(g.input_file));
-			preload_required = false;
+		if (preload_file != nullptr) {
+			app.LoadFile(filesystem::u8path(preload_file));
+			preload_file = nullptr;
 		}
 
 		app.Update();
