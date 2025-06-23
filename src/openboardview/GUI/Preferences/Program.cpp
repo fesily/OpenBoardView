@@ -93,7 +93,7 @@ void Program::render() {
 		if (config.pdfSoftwarePath.size() < 256)                           // reserve space for path
 			config.pdfSoftwarePath.resize(256, '\0');                      // Max path name length is 255 characters
 
-		ImGui::InputText("##pdfSoftwarePath", config.pdfSoftwarePath.data(), config.pdfSoftwarePath.size());
+		ImGui::InputText("##pdfSoftwarePath", (char*)config.pdfSoftwarePath.data(), config.pdfSoftwarePath.size());
 		ImGui::SameLine();
 		if (ImGui::Button("Browse##pdfSoftwarePath")) {
 			auto path = show_file_picker();

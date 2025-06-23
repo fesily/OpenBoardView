@@ -35,7 +35,7 @@ PDFBridgeSumatra &PDFBridgeSumatra::GetInstance(Confparse &obvConfig) {
 std::string PDFBridgeSumatra::GetDDEString(HSZ hsz) {
 	size_t len = DdeQueryStringW(this->idInst, hsz, nullptr, 0, CP_WINUNICODE); // Lengh of data in characters (trailing NULL char not included)
 	std::wstring wstr(len + 1, '\0');
-	DdeQueryStringW(this->idInst, hsz, wstr.data(), wstr.capacity(), CP_WINUNICODE); // Lengh of data in characters (trailing NULL char not included)
+	DdeQueryStringW(this->idInst, hsz, (wchar_t*)wstr.data(), wstr.capacity(), CP_WINUNICODE); // Lengh of data in characters (trailing NULL char not included)
 	return utf16_to_utf8(wstr);
 }
 
@@ -78,7 +78,7 @@ HDDEDATA CALLBACK PDFBridgeSumatra::DdeCallback(
 		case XTYP_EXECUTE: {
 			size_t len = DdeGetData(hdata, nullptr, 0, 0); // Length of data in bytes (trailing NULL char included)
 			std::wstring wstr(len / 2, '\0');
-			DdeGetData(hdata, reinterpret_cast<LPBYTE>(wstr.data()), wstr.capacity() * 2, 0);
+			DdeGetData(hdata, (LPBYTE)(wstr.data()), wstr.capacity() * 2, 0);
 			std::string str = utf16_to_utf8(wstr);
 
 			SDL_LogDebug(SDL_LOG_CATEGORY_APPLICATION, "PDFBridgeSumatra DdeCallback Client execute: %s", str.c_str());
@@ -184,7 +184,7 @@ bool PDFBridgeSumatra::ConnectDDEClient(const std::wstring &service, const std::
 bool PDFBridgeSumatra::ExecuteDDECommand(std::wstring ddeCmd) {
 	SDL_LogDebug(SDL_LOG_CATEGORY_APPLICATION, "PDFBridgeSumatra ExecuteDDECommand ddeCmd: %s", utf16_to_utf8(ddeCmd).c_str());
 
-	HDDEDATA hData = DdeCreateDataHandle(this->idInst, reinterpret_cast<LPBYTE>(ddeCmd.data()), (ddeCmd.size() + 1) * sizeof(wchar_t), 0, nullptr, CF_TEXT, 0);
+	HDDEDATA hData = DdeCreateDataHandle(this->idInst, (LPBYTE)(ddeCmd.data()), (ddeCmd.size() + 1) * sizeof(wchar_t), 0, nullptr, CF_TEXT, 0);
 
     if (hData == nullptr)   {
 		UINT ret = DdeGetLastError(this->idInst);
@@ -192,7 +192,7 @@ bool PDFBridgeSumatra::ExecuteDDECommand(std::wstring ddeCmd) {
         return false;
     }
 
-	hData = DdeClientTransaction(reinterpret_cast<LPBYTE>(hData), -1, this->hConv, nullptr, 0, XTYP_EXECUTE, 10000/*10 seconds timeout*/, nullptr);
+	hData = DdeClientTransaction((LPBYTE)(hData), -1, this->hConv, nullptr, 0, XTYP_EXECUTE, 10000/*10 seconds timeout*/, nullptr);
 
     if (hData == nullptr)   {
 		UINT ret = DdeGetLastError(this->idInst);
@@ -221,7 +221,7 @@ void PDFBridgeSumatra::OpenDocument(const PDFFile &pdfFile) {
 	if (!this->ConnectDDEClient(this->szService, this->szTopic)) {
 		// Get path of current executable to use SumatraPDF executable from the same directory
 		std::wstring currentExePathStr(32767, '\0');
-		DWORD ret = GetModuleFileNameW(nullptr, currentExePathStr.data(),  currentExePathStr.capacity());
+		DWORD ret = GetModuleFileNameW(nullptr, (wchar_t*)currentExePathStr.data(),  currentExePathStr.capacity());
 		if (ret == 0L) {
 			ret = GetLastError();
 			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "PDFBridgeSumatra OpenDocument GetModuleFileNameW failed: 0x%08lx", ret);
@@ -250,7 +250,7 @@ void PDFBridgeSumatra::OpenDocument(const PDFFile &pdfFile) {
 		STARTUPINFO si{};
 		si.cb = sizeof(si);
 		PROCESS_INFORMATION pi{};
-		bool success = CreateProcessW(nullptr, args.data(), nullptr, nullptr, false, 0, nullptr, nullptr, &si, &pi);
+		bool success = CreateProcessW(nullptr, (wchar_t*)args.data(), nullptr, nullptr, false, 0, nullptr, nullptr, &si, &pi);
 		if (!success) {
 			ret = GetLastError();
 			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "PDFBridgeSumatra OpenDocument CreateProcess '%s' failed: 0x%08lx", utf16_to_utf8(args).c_str(), ret);

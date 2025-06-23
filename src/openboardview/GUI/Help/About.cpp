@@ -14,7 +14,7 @@ const std::string About::OBV_LICENSE_TEXT_NONWRAPPED{removeSingleLineFeed(OBV_LI
 std::string About::removeSingleLineFeed(std::string str) {
 	for (auto it = str.begin(); it != str.end(); it++) {
 		if (*it == '\n') {
-			if (*(it + 1) == '\n') { // Two consecutive line feeds encountered
+			if ((it + 1) != str.end() && *(it + 1) == '\n') { // Two consecutive line feeds encountered
 				while (*++it == '\n'); // Skip all subsequent line feeds
 			} else {
 				*it = ' '; // Single consecutive line feed replaced with whitespace

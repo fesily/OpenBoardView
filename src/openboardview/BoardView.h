@@ -85,7 +85,6 @@ struct BoardView {
 	Preferences::Program programPreferences{keybindings, obvconfig, config, *this};
 	Preferences::Color colorPreferences{keybindings, obvconfig, m_colors};
 	Preferences::Keyboard keyboardPreferences{keybindings, obvconfig};
-	Preferences::BoardSettings boardSettings{keybindings, backgroundImage, pdfFile};
 
 	Help::About helpAbout{keybindings};
 	Help::Controls helpControls{keybindings};
@@ -98,6 +97,7 @@ struct BoardView {
 	PDFBridge pdfBridge; // Dummy implementation
 #endif
 	PDFFile pdfFile{pdfBridge};
+	Preferences::BoardSettings boardSettings{keybindings, backgroundImage, pdfFile};
 
 	bool debug                   = false;
 	int history_file_has_changed = 0;
