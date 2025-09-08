@@ -23,6 +23,7 @@
 #include "PDFBridge/PDFFile.h"
 #include <cstdint>
 #include <vector>
+#include <array>
 
 struct BRDPart;
 class BRDFile;
@@ -126,6 +127,7 @@ struct BoardView {
 	ImVec2 m_showContextMenuPos;
 
 	std::shared_ptr<Pin> m_pinSelected = nullptr;
+	std::shared_ptr<Via> m_viaSelected = nullptr;
 	//	vector<Net *> m_netHiglighted;
 	SharedVector<Pin> m_pinHighlighted;
 	SharedVector<Component> m_partHighlighted;
@@ -146,7 +148,8 @@ struct BoardView {
 	                            // when window is resized?
 	float m_lastHeight;
 	int m_rotation; // set to 0 for original orientation [0-4]
-	int m_current_side;
+	EBoardSide m_current_side;
+	bool m_track_mode = false;
 	int m_boardWidth; // board size in what coordinates? thou?
 	int m_boardHeight;
 	float m_menu_height;
@@ -203,6 +206,9 @@ struct BoardView {
 	void DrawOutlineSegments(ImDrawList *draw);
 	void DrawPins(ImDrawList *draw);
 	void DrawParts(ImDrawList *draw);
+	void DrawVies(ImDrawList *draw);
+	void DrawTracks(ImDrawList *draw);
+	void DrawArcs(ImDrawList *draw);
 	void DrawBoard();
 	void DrawNetWeb(ImDrawList *draw);
 	void LoadBoard(BRDFileBase *file);

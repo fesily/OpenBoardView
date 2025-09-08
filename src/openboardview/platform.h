@@ -6,6 +6,7 @@
 #endif                                  // _MSC_VER
 #define NTDDI_VERSION NTDDI_VISTA       // Not caring about XP. If this is a concern, find a replacement for SHGetKnownFolderPath()
 #define _WIN32_WINNT _WIN32_WINNT_VISTA // and CompareStringEx() in win32.cpp.
+#define NOMINMAX
 #include <windows.h>
 #endif // _WIN32
 

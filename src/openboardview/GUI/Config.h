@@ -52,6 +52,14 @@ public:
 	bool infoPanelCenterZoomNets   = true;
 	bool infoPanelSelectPartsOnNet = true;
 	bool centerZoomSearchResults = true;
+    bool infoPanelSelectPartsOnNetOnlyNotGround = false;
+
+	enum ShowMode : int {
+		ShowMode_None, ShowMode_Diode, ShowMode_Voltage, ShowMode_Ohm
+	};
+	ShowMode showMode = ShowMode::ShowMode_Diode;
+	bool inferValue = true;
+	bool showPartType = true;
 
 #ifdef _WIN32
 	std::string pdfSoftwarePath = "";

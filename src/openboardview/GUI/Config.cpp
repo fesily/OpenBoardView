@@ -131,6 +131,9 @@ void Config::readFromConfig(Confparse &obvconfig) {
 	pdfSoftwarePath = obvconfig.ParseStr("pdfSoftwarePath", "SumatraPDF.exe");
 #endif
 
+	showPartType              = obvconfig.ParseBool("showPartType", true);
+	showMode                  = (ShowMode)obvconfig.ParseInt("showMode", ShowMode_Diode);
+
 	/*
 	 * Some machines (Atom etc) don't have enough CPU/GPU
 	 * grunt to cope with the large number of AA'd circles
