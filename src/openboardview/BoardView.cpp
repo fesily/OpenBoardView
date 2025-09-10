@@ -30,6 +30,7 @@
 #include "FileFormats/FZFile.h"
 #include "FileFormats/GenCADFile.h"
 #include "FileFormats/XZZPCBFile.h"
+#include "FileFormats/XJsonFile.h"
 #include "GUI/DPI.h"
 #include "GUI/Fonts.h"
 #include "GUI/widgets.h"
@@ -97,6 +98,94 @@ static std::vector<std::vector<Pin*>> rotateMatrix90Counterclockwise(const std::
 
     return result;
 }
+
+static bool RotatePart(PartAngle angle, Component* part) {
+	auto &pins = part->pins;
+	// build from pins
+	auto A1PinIter = std::find_if(pins.cbegin(), pins.cend(), [](auto &p) { return p->name == "A1"; });
+	if (A1PinIter == pins.cend()) return false;
+	auto& a1Pin = (*A1PinIter);
+	using namespace linalg::aliases;
+	using transformMatrix_t = int3x3;
+
+	auto name2Pos = [](const std::shared_ptr<Pin> &pin) {
+		auto &key = pin->name;
+		auto x    = std::atoi(key.data() + 1); // index begin  1
+		int y   = key[0] - 'A' + 1.0f;              // index begin 0
+		if (key[0] > 'I') y--;
+		return int2{x - 1, y - 1};
+	};
+
+	auto pos2Name = [](int2 pos) {
+		pos.x++;
+		if (pos.y >= ('I' - 'A')) {
+			pos.y++;
+		}
+		const auto x = int(pos.x), y = int(pos.y);
+		return static_cast<char>(pos.y + 'A') + std::to_string(pos.x);
+	};
+
+	auto &max = *std::max_element(pins.cbegin(), pins.cend(), [](auto &l, auto &r) { return l->name < r->name; });
+	auto [max_x, max_y] = name2Pos(max);
+
+	auto original = *std::min_element(pins.cbegin(), pins.cend(), [](auto& p, auto &p1) {
+		return (p->position.x * p->position.x + p->position.y * p->position.y) <
+		       (p1->position.x * p1->position.x + p1->position.y * p1->position.y);
+	});
+
+	auto [original_x, original_y] = name2Pos(original);
+
+	transformMatrix_t logicToComponentLogicMatrix = {
+		{(a1Pin->position.x > max->position.x ? -1 : 1), 0, 0},
+		{0, (a1Pin->position.y > max->position.y ? -1 : 1), 0},
+	    {(original_x * (a1Pin->position.x > max->position.x ? -1 : 1) * -1),
+	     (original_y * (a1Pin->position.y > max->position.y ? -1 : 1) * -1),
+	     1},
+	};
+
+	auto length                                 = std::max(max_x, max_y);
+	const auto [center_x, center_y]             = std::pair{((length ) / 2), ((length) / 2)};
+	auto offsetCenterMatrix          = transformMatrix_t{{1, 0, 0}, {0, 1, 0}, {-center_x, -center_y, 1}};
+	transformMatrix_t revertOffsetCenterMatrix  = {{1, 0, 0}, {0, 1, 0}, {center_x, center_y, 1}};
+	auto angleR                      = [=]() -> float {
+		switch (angle) {
+			case PartAngle::_270: return 270;
+			case PartAngle::_180: return 180;
+			case PartAngle::_90: return 90;
+			default: return 0;
+		}
+	}();
+
+	angleR *= 3.1415926f / 180;
+	auto angleMatrix = transformMatrix_t {{static_cast<int>(cosf(angleR)), static_cast<int>(sinf(angleR)), 0}, {static_cast<int>(-sinf(angleR)), static_cast<int>(cosf(angleR)), 0}, {0, 0, 1}};
+	// base of rect
+	auto offsetMatrix = [&]() -> transformMatrix_t {
+		auto offset = std::abs(max_y - max_x);
+
+		if (offset != 0) {
+			if (max_x > max_y) {
+				if (angle == PartAngle::_270) return {{1, 0, 0}, {0, 1, 0}, {0, offset, 1}};
+				if (angle == PartAngle::_180) return {{1, 0, 0}, {0, 1, 0}, {offset, 0, 1}};
+			} else {
+				if (angle == PartAngle::_180)
+					return {{1, 0, 0}, {0, 1, 0}, {0, offset, 1}};
+				if (angle == PartAngle::_270) return {{1, 0, 0}, {0, 1, 0}, {offset, 0, 1}};
+			}
+		}
+		return {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+	}();
+	angleMatrix = mul(angleMatrix, offsetCenterMatrix);
+
+
+	auto target_matrix =  mul(offsetMatrix, mul(inverse(logicToComponentLogicMatrix), mul(revertOffsetCenterMatrix, mul(angleMatrix, logicToComponentLogicMatrix))));
+
+	for (auto &pin : part->pins) {
+		auto pos        = name2Pos(pin);
+		const auto pos2 = mul(target_matrix, {pos.x, pos.y, 1});
+		pin->show_name  = pos2Name({pos2.x, pos2.y});
+	}
+}
+
 void ReloadPinInfos(Annotations &m_annotations, Board *m_board) {
 	m_annotations.RefreshPinInfos();
 	for (auto &part : m_board->Components()) {
@@ -114,85 +203,13 @@ void ReloadPinInfos(Annotations &m_annotations, Board *m_board) {
 			if (pinInfo.voltage_flag != PinVoltageFlag::unknown) pin->voltage_flag = pinInfo.voltage_flag;
 		}
 		part->angle = partInfo.angle;
-		if (partInfo.angle != PartAngle::unknown) {
-			auto& pins = part->pins;
-			// build from pins
-			auto A1PinIter = std::find_if(pins.cbegin(), pins.cend(), [](auto& p) {
-				return p->name == "A1";
-			});
-			if (A1PinIter != pins.cend()) {
-				auto& a1Pin = *A1PinIter;
-				auto& max = *std::max_element(pins.cbegin(), pins.cend(), [](auto& l, auto& r){
-					return l->name < r->name;
-				});
-
-				using namespace linalg::aliases;
-				using transformMatrix_t = int3x3;
-
-				transformMatrix_t logicScreenToDataMatrix = {
-				    {1, 0, 0},
-				    {0, -1, 0},
-				    {0, 0, 1},
-				};
-
-				auto key = max->name;
-				auto m = std::atoi(key.data() + 1); // index begin  1
-				auto n = key[0] - 'A' + 1; //index begin 0
-				if (key[0] > 'I')
-					n--;
-
-				auto aMaxIter = std::find_if(pins.cbegin(), pins.cend(), [t = "A" + std::to_string(m)](auto& p){
-					return p->name == t;
-				});
-				if (aMaxIter == pins.cend()) {
-					return;
-				}
-
-				auto& aMax = *aMaxIter;
-				float2 xAsixVec{a1Pin->position.x - aMax->position.x, a1Pin->position.y - aMax->position.y};
-				transformMatrix_t logicScreenToA1LogicMatrix;
-				if (abs(xAsixVec.x) > abs(xAsixVec.y)) {
-					logicScreenToA1LogicMatrix = {
-						{a1Pin->position.x > max->position.x ? -1 : 1, 0, xAsixVec.x > 0 ? n : -n},
-						{0, a1Pin->position.y > max->position.y ? -1 : 1, 0},
-						{0, 0, 1},
-					};
-				} else {
-					return;
-				}
-
-
-				auto o1 = linalg::mul(logicScreenToA1LogicMatrix, int3{n, m, 1});
-				transformMatrix_t a1LogincToLogicScreenMatrix = linalg::inverse(logicScreenToA1LogicMatrix);
-
-				auto orgin = linalg::mul(a1LogincToLogicScreenMatrix, int3{0, 0, 1});
-                std::vector<std::vector<Pin*>> matrixPin(n, std::vector<Pin*>(m));
-				auto printMatrix = [](const auto& matrix) {
-					auto n = matrix.size();
-					auto m = matrix[0].size();
-					for (int i=0;i<n;i++) {
-						for (int j=0;j<m;j++) {
-							auto pin = matrix[i][j];
-							printf("%s ", pin ? pin->name.c_str(): "__");
-						}
-						printf("\n");
-					}
-				};
-
-				for (auto &pin : part->pins) {
-					auto& name = pin->name;
-					auto m1 = std::atoi(name.data() + 1) - 1;
-					auto n1 = name[0] - 'A';
-					if (name[0] > 'I')
-						n1--;
-
-					if (partInfo.angle == PartAngle::_270) {
-
-					}
-					matrixPin[n1][m1] = pin.get();
-				}
-				printMatrix(matrixPin);
-			}
+//		if (part->angle != PartAngle::_0)
+//			RotatePart(partInfo.angle, part.get());
+	}
+	for (auto &net : m_board->Nets()) {
+		if (m_annotations.netInfos.contains(net->name)) {
+			auto& netinfo = m_annotations.netInfos[net->name];
+			net->show_name = netinfo.showname;
 		}
 	}
 }
@@ -255,6 +272,8 @@ int BoardView::LoadFile(const filesystem::path &filepath) {
 				m_file = new BRDAllegroFile(buffer);
 			else if (XZZPCBFile::verifyFormat(buffer))
 				m_file = new XZZPCBFile(buffer, config.XZZPCBKey);
+			else if (filepath.filename().extension() == ".json")
+				m_file = new XJsonFile(buffer);
 			else
 				m_error_msg = "Unrecognized file format.";
 
@@ -463,7 +482,7 @@ void BoardView::ShowInfoPane(void) {
 						to_copy += " " + part->mfgcode;
 					}
 					for (const auto &pin : part->pins) {
-						to_copy += "\n" + pin->name + " " + pin->net->name;
+						to_copy += "\n" + pin->show_name + " " + pin->net->show_name;
 					}
 					ImGui::SetClipboardText(to_copy.c_str());
 				}
@@ -496,7 +515,7 @@ void BoardView::ShowInfoPane(void) {
 			if (ImGui::BeginListBox(str.c_str(), listSize)) { //, ImVec2(m_board_surface.x/3 -5, m_board_surface.y/2));
 				for (auto pin : part->pins) {
 					char ss[1024];
-					snprintf(ss, sizeof(ss), "%4s  %s", pin->name.c_str(), pin->net->name.c_str());
+					snprintf(ss, sizeof(ss), "%4s  %s(%s)", pin->show_name.c_str(), pin->net->show_name.c_str(), pin->net->name.c_str());
 					if (ImGui::Selectable(ss, (pin == m_pinSelected))) {
 						ClearAllHighlights();
 
@@ -537,7 +556,7 @@ void BoardView::ContextMenu(void) {
 	bool dummy                       = true;
 	static char contextbuf[10240]    = "";
 	static char contextbufnew[10240] = "";
-	static std::string pin, partn, net;
+	static std::string pin, pin_name, partn, net, net_name;
 	double tx, ty;
 
 	ImVec2 pos = ScreenToCoord(m_showContextMenuPos.x, m_showContextMenuPos.y);
@@ -601,8 +620,10 @@ void BoardView::ContextMenu(void) {
 			Component* selection_component = nullptr;
 			if (selection != nullptr) {
 				pin   = selection->name;
+				pin_name = selection->show_name;
 				partn = selection->component->name;
 				net   = selection->net->name;
+				net_name = selection->net->show_name;
 			}
 
 			/*
@@ -698,9 +719,9 @@ void BoardView::ContextMenu(void) {
 					            ty,
 					            net.c_str(),
 					            partn.c_str(),
-					            partn.empty() || pin.empty() ? ' ' : '[',
-					            pin.c_str(),
-					            partn.empty() || pin.empty() ? ' ' : ']');
+					            partn.empty() || pin_name.empty() ? ' ' : '[',
+					            pin_name.c_str(),
+					            partn.empty() || pin_name.empty() ? ' ' : ']');
 				}
 				if ((m_annotation_clicked_id < 0) || ImGui::Button("Add New##1") || m_annotationnew_retain) {
 					static char diodeNew[128];
@@ -708,6 +729,7 @@ void BoardView::ContextMenu(void) {
 					static char ohmNew[128];
 					static char ohmBlackNew[128];
 					static char partTypeNew[128];
+					static char netNameNew[128];
 					static PinVoltageFlag voltageFlagNew;
 					static bool pinMode;
 					static bool inferValueMode;
@@ -718,6 +740,7 @@ void BoardView::ContextMenu(void) {
 						memcpy(ohmNew, selection->ohm_value.c_str(), std::min<size_t>(sizeof(ohmNew), selection->ohm_value.size()));
 						memcpy(ohmBlackNew, selection->ohm_black_value.c_str(), std::min<size_t>(sizeof(ohmBlackNew), selection->ohm_black_value.size()));
 						voltageFlagNew = selection->voltage_flag;
+						memcpy(netNameNew, selection->net->show_name.c_str(), std::min<size_t>(sizeof(netNameNew), selection->net->show_name.size()));
 					};
 					if (m_annotationnew_retain == false) {
 						contextbufnew[0]        = 0;
@@ -729,9 +752,10 @@ void BoardView::ContextMenu(void) {
 						memset(ohmNew, 0, sizeof (ohmNew));
 						memset(ohmBlackNew, 0, sizeof (ohmBlackNew));
 						memset(partTypeNew, 0, sizeof (partTypeNew));
+						memset(netNameNew, 0, sizeof (netNameNew));
 						voltageFlagNew = PinVoltageFlag::unknown;
 						inferValueMode = false;
-						partAngleNew = PartAngle::unknown;
+						partAngleNew   = PartAngle::_0;
 						if (selection_component) {
 							memcpy(partTypeNew, selection_component->part_type.c_str(), std::min<size_t>(sizeof(partTypeNew), selection_component->part_type.size()));
 							partAngleNew = selection_component->angle;
@@ -766,9 +790,13 @@ void BoardView::ContextMenu(void) {
 
 						ImGui::Text("Part Angle: ");
 						ImGui::SameLine();
-						ImGui::RadioButton("unknown", (int*)&partAngleNew, (int)PartAngle::unknown);
+						ImGui::RadioButton("0", (int *)&partAngleNew, (int)PartAngle::_0);
 						ImGui::SameLine();
 						ImGui::RadioButton("270", (int*)&partAngleNew, (int)PartAngle::_270);
+						ImGui::SameLine();
+						ImGui::RadioButton("180", (int *)&partAngleNew, (int)PartAngle::_180);
+						ImGui::SameLine();
+						ImGui::RadioButton("90", (int *)&partAngleNew, (int)PartAngle::_90);
 					}
 					if (pinMode) {
 						ImGui::InputText("Diode##diodeNew",
@@ -794,6 +822,11 @@ void BoardView::ContextMenu(void) {
 						ImGui::SameLine();
 						ImGui::RadioButton("Output", (int*)&voltageFlagNew, (int)PinVoltageFlag::output);
 
+						if (!selection->net->is_ground && selection->type != Pin::kPinTypeNotConnected) {
+							ImGui::InputText("netName##netNameNew",
+											netNameNew,
+											sizeof(netNameNew));
+						}
 					}
 
 
@@ -809,6 +842,12 @@ void BoardView::ContextMenu(void) {
 							pinInfo.ohm = selection->ohm_value = ohmNew;
 							pinInfo.ohm_black = selection->ohm_black_value = ohmBlackNew;
 							pinInfo.voltage_flag = selection->voltage_flag = voltageFlagNew;
+
+							if (std::string_view{netNameNew} != net_name) {
+								m_annotations.NewNetInfo(net.c_str()).showname = selection->net->show_name = netNameNew;
+								if (selection->net->show_name.empty())
+									selection->net->show_name = net;
+							}
 						}
 						if (selection_component) {
 							auto& partInfo = m_annotations.NewPartInfo(selection_component->name.c_str());;
@@ -816,6 +855,7 @@ void BoardView::ContextMenu(void) {
 							selection_component->set_part_type(partTypeNew);
 							if (partAngleNew != selection_component->angle) {
 								partInfo.angle = selection_component->angle = partAngleNew;
+								RotatePart(partAngleNew, selection_component);
 							}
 						}
 						m_annotations.SavePinInfos();
@@ -1106,6 +1146,13 @@ void BoardView::ClearAllHighlights(void) {
  */
 void BoardView::Update() {
 	bool open_file = false;
+#if ANDROID
+    constexpr bool has_export_folder = true;
+#else
+    constexpr bool has_export_folder = false;
+#endif
+
+    bool export_folder = false;
 	char *preset_filename = NULL;
 	ImGuiIO &io           = ImGui::GetIO();
 
@@ -1147,6 +1194,9 @@ void BoardView::Update() {
 		ContextMenu();
 
 		if (ImGui::BeginMenu("File")) {
+            if (has_export_folder && ImGui::MenuItem("Export Folder", keybindings.getKeyNames("ExportFolder").c_str())) {
+                export_folder = true;
+            }
 			if (ImGui::MenuItem("Open", keybindings.getKeyNames("Open").c_str())) {
 				open_file = true;
 			}
@@ -1425,6 +1475,11 @@ void BoardView::Update() {
 		}
 		ImGui::EndMainMenuBar();
 	}
+#if ANDROID
+    if (has_export_folder && export_folder) {
+        export_folder_to_private_folder();
+    }
+#endif
 
 	if (open_file) {
 		filesystem::path filepath;
@@ -1465,9 +1520,10 @@ void BoardView::Update() {
 	ImGui::Begin("status", nullptr, flags | ImGuiWindowFlags_NoFocusOnAppearing);
 	if (m_file && m_board && m_pinSelected) {
 		auto pin = m_pinSelected;
-		ImGui::Text("Part: %s   Pin: %s   Net: %s   Probe: %d   (%s.) Voltage: %s  Ohm: %s OhmBlack: %s",
+		ImGui::Text("Part: %s   Pin: %s   Net: %s(%s)   Probe: %d   (%s.) Voltage: %s  Ohm: %s OhmBlack: %s",
 		            pin->component->name.c_str(),
-		            pin->name.c_str(),
+		            pin->show_name.c_str(),
+		            pin->net->show_name.c_str(),
 		            pin->net->name.c_str(),
 		            pin->net->number,
 		            pin->component->mount_type_str().c_str(),
@@ -2462,7 +2518,10 @@ void BoardView::DrawNetWeb(ImDrawList *draw) {
 				col = m_colors.pinNetWebOSColor;
 				draw->AddCircle(CoordToScreen(p->position.x, p->position.y), p->diameter * m_scale, col, 16);
 			}
-
+			if (config.infoPanelSelectPartsOnNetOnlyNotGround && p->component->pins.size() == 2) {
+				auto& pins = p->component->pins;
+				if (pins[0]->net->is_ground || pins[1]->net->is_ground) continue;
+			}
 			draw->AddLine(CoordToScreen(m_pinSelected->position.x, m_pinSelected->position.y),
 			              CoordToScreen(p->position.x, p->position.y),
 			              ImColor(col),
@@ -2622,7 +2681,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 			}
 			// Check for BGA pin '1'
 			//
-			if (pin->name == "A1") {
+			if (pin->show_name == "A1") {
 				color = fill_color = m_colors.pinA1PadColor;
 				fill_pin           = m_colors.pinA1PadColor;
 				draw_ring          = false;
@@ -2636,8 +2695,9 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				}
 			}
 
-			if (pin->voltage_flag != PinVoltageFlag::unknown) {
-
+			if (m_pinSelected && pin->net == m_pinSelected->net && pin->voltage_flag != PinVoltageFlag::unknown) {
+				color &= m_colors.pinA1PadColor;
+				fill_color &= m_colors.pinA1PadColor;
 			}
 
 			// don't show text if it doesn't make sense
@@ -2664,6 +2724,11 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 			if (pin->angle == 90 || pin->angle == 270) {
 				std::swap(w, h);
 			}
+
+			if (m_rotation == 1 || m_rotation == 3) {
+				std::swap(w, h);
+			}
+
 
 			/*
 			 * if we're going to be showing the text of a pin, then we really
@@ -2707,9 +2772,9 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 			// config.pinHaloThickness);
 			//		}
 
-			// Show all pin names when config.showPinName is enabled and pin diameter is above threshold or show pin name only for selected part
+			// Show all pin names when showPinName is enabled and pin diameter is above threshold or show pin name only for selected part
 			if ((config.showPinName && psz > 3) || show_text) {
-				std::string text = pin->name + "\n" + pin->net->name;
+				std::string text = pin->show_name + "\n" + pin->net->show_name;
 				ImFont *font = ImGui::GetIO().Fonts->Fonts[0]; // Default font
 				ImVec2 text_size_normalized = font->CalcTextSizeA(1.0f, FLT_MAX, 0.0f, text.c_str());
 
@@ -2720,9 +2785,9 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				float maxfontsize = std::min(maxfontwidth, maxfontheight);
 
 				// Font size for pin name only depends on height of text (rather than width of full text incl. net name) to scale to pin bounding box
-				ImVec2 size_pin_name = font->CalcTextSizeA(maxfontheight, FLT_MAX, 0.0f, pin->name.c_str());
+				ImVec2 size_pin_name = font->CalcTextSizeA(maxfontheight, FLT_MAX, 0.0f, pin->show_name.c_str());
 				// Font size for net name also depends on width of full text to avoid overflowing too much and colliding with text from other pin
-				ImVec2 size_net_name = font->CalcTextSizeA(maxfontsize, FLT_MAX, 0.0f, pin->net->name.c_str());
+				ImVec2 size_net_name = font->CalcTextSizeA(maxfontsize, FLT_MAX, 0.0f, pin->net->show_name.c_str());
 
 				std::string show_value;
 				if (config.showMode != Config::ShowMode_None) {
@@ -2764,8 +2829,8 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 											m_scale * 0.5f/*rounding*/);
 
 				draw->ChannelsSetCurrent(kChannelText);
-				draw->AddText(font, maxfontheight, pos_pin_name, text_color, pin->name.c_str());
-				draw->AddText(font, maxfontsize, pos_net_name, text_color, pin->net->name.c_str());
+				draw->AddText(font, maxfontheight, pos_pin_name, text_color, pin->show_name.c_str());
+				draw->AddText(font, maxfontsize, pos_net_name, text_color, pin->net->show_name.c_str());
                 if (!show_value.empty()) {
                     draw->AddText(font, maxfontheight, pos_show_value, m_colors.annotationBoxColor, show_value.c_str());
                 }
@@ -3287,10 +3352,13 @@ inline void BoardView::DrawArcs(ImDrawList *draw) {
 
 		uint32_t color      = (m_colors.layerColor[arc->board_side][0] & cmask) | omask;
 		auto radius = arc->radius * m_scale;
+		float startAngle = arc->startAngle - M_PI / 2 * m_rotation;
+		float endAngle      = arc->endAngle - M_PI / 2 * m_rotation;
+		float width         = arc->width * m_scale;
 		if ((m_pinSelected && m_pinSelected->net == arc->net ) || (m_viaSelected && m_viaSelected->net == arc->net)) {
-			DrawArc(draw, pos, radius, m_colors.defaultBoardSelectColor, arc->startAngle, arc->endAngle, 50, m_scale*1.5);
+			DrawArc(draw, pos, radius, m_colors.defaultBoardSelectColor, startAngle, endAngle, 50, width * 1.5);
 		}
-		DrawArc(draw, pos, radius, color, arc->startAngle, arc->endAngle, 50, m_scale);
+		DrawArc(draw, pos, radius, color, startAngle, endAngle, 50, width);
 		//draw->AddText(pos, color, std::to_string(arc->startAngle * 180 / 3.1415).c_str());
 		//draw->AddText(ImVec2(pos.x, pos.y - 10), color, std::to_string(arc->endAngle * 180 / 3.1415).c_str());
 	}
@@ -3377,18 +3445,33 @@ void BoardView::DrawPartTooltips(ImDrawList *draw) {
 	 */
 	for (auto &pin : m_board->Pins()) {
 
-		if (pin->type == Pin::kPinTypeTestPad) {
+		if (pin->type == Pin::kPinTypeTestPad && !pin->net->is_ground) {
 			float dx   = pin->position.x - pos.x;
 			float dy   = pin->position.y - pos.y;
 			float dist = dx * dx + dy * dy;
 			if ((dist < (pin->diameter * pin->diameter))) {
 				float pd = pin->diameter * m_scale;
 
-				draw->AddCircle(CoordToScreen(pin->position.x, pin->position.y), pd, m_colors.pinHaloColor, 32, config.pinHaloThickness);
+				if (pin->shape == kShapeTypeRect) {
+					auto pos = CoordToScreen(pin->position.x, pin->position.y);
+					auto w   = pin->size.x;
+					auto h   = pin->size.y;
+					if (pin->shape == kShapeTypeRect) {
+						w = pin->size.x * m_scale / 2;
+						h = pin->size.y * m_scale / 2;
+						w *= 1.05;
+						h *= 1.05;
+					}
+					draw->AddRect(ImVec2(pos.x - w, pos.y - h), ImVec2(pos.x + w, pos.y + h), m_colors.pinHaloColor);
+				} else {
+					draw->AddCircle(
+					    CoordToScreen(pin->position.x, pin->position.y), pd, m_colors.pinHaloColor, 32, config.pinHaloThickness);
+				}
+
 				ImGui::PushStyleColor(ImGuiCol_Text, m_colors.annotationPopupTextColor);
 				ImGui::PushStyleColor(ImGuiCol_PopupBg, m_colors.annotationPopupBackgroundColor);
 				ImGui::BeginTooltip();
-				ImGui::Text("TP[%s]%s", pin->name.c_str(), pin->net->name.c_str());
+				ImGui::Text("TP[%s]%s", pin->show_name.c_str(), pin->net->show_name.c_str());
 				ImGui::EndTooltip();
 				ImGui::PopStyleColor(2);
 				break;
@@ -3472,8 +3555,8 @@ void BoardView::DrawPartTooltips(ImDrawList *draw) {
 			if (currentlyHoveredPin) {
 				ImGui::Text("%s\n[%s]%s",
 				            currentlyHoveredPart->name.c_str(),
-				            (currentlyHoveredPin ? currentlyHoveredPin->name.c_str() : " "),
-				            (currentlyHoveredPin ? currentlyHoveredPin->net->name.c_str() : " "));
+				            (currentlyHoveredPin ? currentlyHoveredPin->show_name.c_str() : " "),
+				            (currentlyHoveredPin ? currentlyHoveredPin->net->show_name.c_str() : " "));
 			} else {
 				ImGui::Text("%s", currentlyHoveredPart->name.c_str());
 			}
@@ -3493,8 +3576,8 @@ inline void BoardView::DrawPinTooltips(ImDrawList *draw) {
 		ImGui::BeginTooltip();
 		ImGui::Text("%s[%s]\n%s",
 		            m_pinHighlightedHovered->component->name.c_str(),
-		            m_pinHighlightedHovered->name.c_str(),
-		            m_pinHighlightedHovered->net->name.c_str());
+		            m_pinHighlightedHovered->show_name.c_str(),
+		            m_pinHighlightedHovered->net->show_name.c_str());
 		ImGui::EndTooltip();
 		ImGui::PopStyleColor(2);
 	}

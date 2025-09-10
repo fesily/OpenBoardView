@@ -397,8 +397,9 @@ int main(int argc, char **argv) {
 	 * the mouse or 'waking up' OBV then increase to 5 or more.
 	 */
 
-
+#if ANDROID
 	SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN);
+#endif
 
 	sleepout = 30;
 	float angleacc = 0.0;

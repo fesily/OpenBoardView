@@ -18,6 +18,9 @@
 // Loads an entire file in to memory
 #ifndef __ANDROID__
 std::vector<char> file_as_buffer(const filesystem::path &filepath, std::string &error_msg) {
+#else
+std::vector<char> file_as_buffer_native(const filesystem::path &filepath, std::string &error_msg) {
+#endif
 	std::vector<char> data;
 
 	if (!filesystem::is_regular_file(filepath)) {
@@ -47,7 +50,6 @@ std::vector<char> file_as_buffer(const filesystem::path &filepath, std::string &
 
 	return data;
 }
-#endif
 
 // Extract extension from filename and check against given fileext
 // fileext must be lowercase

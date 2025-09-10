@@ -99,10 +99,10 @@ BVRFile::BVRFile(std::vector<char> &buf) {
 					part.mounting_side = BRDPartMountingSide::Bottom; // SMD part on bottom
 
 				// If this is the first time we've seen this part
-				if ((strcmp(ppn, part.name))) {
+				if ((strcmp(ppn, part.name.c_str()))) {
 					part.end_of_pins = 0;
 					parts.push_back(part);
-					snprintf(ppn, sizeof(ppn), "%s", part.name);
+					snprintf(ppn, sizeof(ppn), "%s", part.name.c_str());
 				}
 
 				pin.part = parts.size(); // the part this pin is associated with, is the last part on the vector

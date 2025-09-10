@@ -39,7 +39,7 @@ struct ADFile : public BRDFileBase {
 	struct {
 		bool operator()(BRDPin a, BRDPin b) const {
 			char *pEnd;
-			return strtod(a.snum, &pEnd) < strtod(b.snum, &pEnd);
+			return strtod(a.snum.c_str(), &pEnd) < strtod(b.snum.c_str(), &pEnd);
 		}
 	} customLess;
 

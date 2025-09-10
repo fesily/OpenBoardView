@@ -1,6 +1,7 @@
 package com.fesily.openboardview;
 
 import org.libsdl.app.SDLActivity;
+
 import android.Manifest;
 import android.os.Build;
 import android.os.Bundle;
@@ -8,29 +9,34 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.UriPermission;
 import android.content.pm.PackageManager;
-import android.database.Cursor;
+import android.os.Handler;
 import android.util.DisplayMetrics;
 import android.util.Log;
-import android.view.View;
-import android.view.View.OnClickListener;
-import android.widget.Button;
-import android.widget.EditText;
-import android.widget.TextView;
 import android.widget.Toast;
 import android.net.Uri;
+
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
+import androidx.documentfile.provider.DocumentFile;
+
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.ByteArrayOutputStream;
+import java.util.ArrayList;
+
+import android.os.Looper;
 
 public class OBVActivity extends SDLActivity {
     private static final int FILE_SELECT_CODE = 0;
+    private static final int FOLDER_SELECT_CODE = 1;
     private static final String TAG = "[OBV]";
     private static OBVActivity activity;
 
     @Override
     protected String[] getLibraries() {
-        return new String[] {
+        return new String[]{
                 "SDL2",
                 // "SDL2_image",
                 // "SDL2_mixer",
@@ -41,18 +47,64 @@ public class OBVActivity extends SDLActivity {
     }
 
     public static void openFilePicker() {
+        if (!Looper.getMainLooper().isCurrentThread()) {
+            activity.runOnUiThread(OBVActivity::openFilePicker);
+            return;
+        }
+        try {
+            File privateDir = activity.getFilesDir(); // 或使用 getExternalFilesDir(null) 获取外部私有目录
+            File[] files = privateDir.listFiles(); // 列出目录下的所有文件
+
+            // 提取文件名列表
+            ArrayList<String> fileNames = new ArrayList<>();
+            if (files != null) {
+                for (File file : files) {
+                    if (file.isFile()) { // 只显示文件，忽略子目录
+                        fileNames.add(file.getName());
+                    }
+                }
+            }
+
+            // 如果没有文件，提示用户
+            if (fileNames.isEmpty()) {
+                new AlertDialog.Builder(activity)
+                        .setTitle("提示")
+                        .setMessage("私有目录下没有文件")
+                        .setPositiveButton("确定", null)
+                        .show();
+                return;
+            }
+
+            // 创建文件选择对话框
+            new AlertDialog.Builder(activity)
+                    .setTitle("选择文件")
+                    .setItems(fileNames.toArray(new String[0]), (dialog, which) -> {
+                        String selectedFileName = fileNames.get(which);
+                        File selectedFile = new File(privateDir, selectedFileName);
+                        // 处理选中的文件，例如读取内容
+                        openFileWrapper(selectedFile.getAbsolutePath());
+                    })
+                    .setNegativeButton("取消", null)
+                    .show();
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error opening file picker: " + e.getMessage());
+            Toast.makeText(activity, "Error accessing private files", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    public static void exportFolderPicker() {
         Log.d(TAG, "Opening file picker");
 
-        Intent fileIntent;
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT) {
-            fileIntent = new Intent(Intent.ACTION_GET_CONTENT);
+        Intent folderIntent;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            folderIntent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         } else {
-            fileIntent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            Toast.makeText(activity, "Folder selection not supported on this Android version. Selecting file instead.", Toast.LENGTH_SHORT).show();
+            return;
         }
-        fileIntent.setType("*/*"); // intent type to filter application based on your requirement
-        fileIntent.addCategory(Intent.CATEGORY_OPENABLE);
         try {
-            activity.startActivityForResult(Intent.createChooser(fileIntent, "Select a File to Upload"), FILE_SELECT_CODE);
+            activity.startActivityForResult(Intent.createChooser(folderIntent, "Select a Folder"), FOLDER_SELECT_CODE);  // 建议使用不同的 request code，如 FOLDER_SELECT_CODE
         } catch (android.content.ActivityNotFoundException ex) {
             Toast.makeText(activity, "Please install a File Manager.", Toast.LENGTH_SHORT).show();
         }
@@ -80,7 +132,7 @@ public class OBVActivity extends SDLActivity {
         return buffer.toByteArray();
     }
 
-    public native void openFileWrapper(String filePath);
+    public static native void openFileWrapper(String filePath);
 
     @Override
     protected void onCreate(Bundle bundle) {
@@ -92,14 +144,87 @@ public class OBVActivity extends SDLActivity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        if (requestCode == FILE_SELECT_CODE) {
-            if (resultCode == RESULT_OK) {
-                // Get the Uri of the selected file
-                Uri uri = data.getData();
-                openFileWrapper(uri.toString());
+        switch (requestCode) {
+            case FILE_SELECT_CODE: {
+                if (resultCode == RESULT_OK) {
+                    // Get the Uri of the selected file
+                    Uri uri = data.getData();
+                    openFileWrapper(uri.toString());
+                }
+                break;
+            }
+            case FOLDER_SELECT_CODE: {
+                if (resultCode == RESULT_OK && data != null) {
+                    Uri folderUri = data.getData();
+                    if (folderUri != null) {
+                        DocumentFile sourceFolder = DocumentFile.fromTreeUri(activity, folderUri);
+                        if (sourceFolder != null && sourceFolder.isDirectory()) {
+                            Handler mainHandler = new Handler(Looper.getMainLooper());
+                            new Thread(() -> {
+                                File destDir = new File(activity.getFilesDir().getPath());
+                                String msg = "";
+                                try {
+                                    copyFolder(activity, sourceFolder, destDir);
+                                    Log.d(TAG, "Folder copied to: " + destDir.getAbsolutePath());
+                                    msg = "Folder copied successfully!";
+
+                                } catch (IOException e) {
+                                    Log.e(TAG, "Failed to copy folder: " + e.getMessage());
+                                    msg = "Failed to copy folder: " + e.getMessage();
+                                }
+                                String finalMsg = msg;
+                                mainHandler.post(() -> {
+                                        Toast.makeText(activity, finalMsg, Toast.LENGTH_SHORT).show();
+                                    });
+                            }).start();
+
+                        } else {
+                            Log.e(TAG, "Invalid folder selected");
+                            android.widget.Toast.makeText(activity, "Invalid folder selected", android.widget.Toast.LENGTH_SHORT).show();
+                        }
+                    }
+                }
+                break;
             }
         }
+
         super.onActivityResult(requestCode, resultCode, data);
+    }
+
+    // 递归复制文件夹内容
+    private static void copyFolder(Activity activity, @NonNull DocumentFile sourceFolder, @NonNull File destDir) throws IOException {
+        if (!destDir.exists() && !destDir.mkdirs()) {
+            throw new IOException("Failed to create destination directory: " + destDir.getAbsolutePath());
+        }
+
+        for (DocumentFile file : sourceFolder.listFiles()) {
+            String fileName = file.getName();
+            if (fileName == null) {
+                fileName = "unnamed_" + System.currentTimeMillis(); // 防止空文件名
+            }
+            File destFileOrDir = new File(destDir, fileName);
+
+            if (file.isDirectory()) {
+                // 递归复制子文件夹
+                copyFolder(activity, file, destFileOrDir);
+            } else if (file.isFile()) {
+                // 复制文件
+                try (InputStream in = activity.getContentResolver().openInputStream(file.getUri());
+                     FileOutputStream out = new FileOutputStream(destFileOrDir)) {
+                    if (in == null) {
+                        throw new IOException("Failed to open input stream for: " + fileName);
+                    }
+                    byte[] buffer = new byte[4096];
+                    int bytesRead;
+                    while ((bytesRead = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, bytesRead);
+                    }
+                } catch (IOException e) {
+                    Log.e(TAG, "Failed to copy file: " + fileName + ", error: " + e.getMessage());
+                    throw e; // 继续抛出异常，通知上层调用者
+                }
+            }
+        }
     }
 
     boolean takePersistentPerms(Uri uri) {
@@ -136,5 +261,6 @@ public class OBVActivity extends SDLActivity {
 
         setScreenDensity(density);
     }
+
     public native void setScreenDensity(float density);
 }

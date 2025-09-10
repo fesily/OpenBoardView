@@ -119,6 +119,8 @@ struct Point {
 struct Net : BoardElement {
 	int number;
 	std::string name;
+	std::string show_name;
+	std::string diode;
 	bool is_ground;
 
 	SharedVector<Pin> pins;
@@ -176,6 +178,8 @@ struct PcbArc: BoardElement {
 
 	float radius = 0.0;
 
+	float width = 0.0;
+	
 	float startAngle = 0.0;
 
 	float endAngle = 0.0;
@@ -192,6 +196,9 @@ struct PcbArc: BoardElement {
 	Net *net;
 };
 
+struct Text {
+	Point position;
+};
 // Any observeable contact (nails, component pins).
 // Convieniently/Confusingly named Pin not Contact here.
 struct Pin : BoardElement {
@@ -209,6 +216,7 @@ struct Pin : BoardElement {
 	// Pin number / Nail count.
 	std::string number;
 
+	std::string show_name;
 	std::string name; // for BGA pads will be AZ82 etc
 
 	EShapeType shape = EShapeType::kShapeTypeCircle;
@@ -217,8 +225,17 @@ struct Pin : BoardElement {
 	// Contact diameter, e.g. via or pin size. (probably in inches)
 	float diameter;
 
+	EShapeType top_shape = EShapeType::kShapeTypeCircle;
+	// Rect size
+	Point top_size;
+	
 	// Rect size
 	Point size;
+
+	EShapeType bottom_shape = EShapeType::kShapeTypeCircle;
+	// Rect size
+	Point bottom_size;
+	bool complex_draw = false;
 	// Rect angle
 	int angle;
 
@@ -293,7 +310,7 @@ struct Component : BoardElement {
 	ImVec2 centerpoint;
 	double expanse = 0.0f; // quick measure of distance between pins.
 
-	PartAngle angle = PartAngle::unknown;
+	PartAngle angle = PartAngle::_0;
 
 	// enum ComponentVisualModes { CVMNormal = 0, CVMSelected, CVMShowPins, CVMModeCount };
 	enum ComponentVisualModes { CVMNormal = 0, CVMSelected, CVMModeCount };
@@ -319,7 +336,11 @@ struct Component : BoardElement {
 	}
 
 	void set_part_type(const std::string& part_type) {
-		if (part_type.empty()) return;
+		if (part_type.empty()) {
+			this->part_type.clear();
+			component_type = kComponentTypeUnknown;
+			return;
+		}
 		const auto t = part_type[0];
 		switch (t) {
 			case 'R':

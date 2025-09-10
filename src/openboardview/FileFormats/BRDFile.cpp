@@ -139,11 +139,11 @@ BRDFile::BRDFile(std::vector<char> &buf) {
 	// Lenovo brd variant, find net from nail
 	std::unordered_map<int, const char *> nailsToNets; // Map between net id and net name
 	for (auto &nail : nails) {
-		nailsToNets[nail.probe] = nail.net;
+		nailsToNets[nail.probe] = nail.net.c_str();
 	}
 
 	for (auto &pin : pins) {
-		if (!strcmp(pin.net, "")) {
+		if (pin.net.empty()) {
 			try {
 				pin.net = nailsToNets.at(pin.probe);
 			} catch (const std::out_of_range &e) {

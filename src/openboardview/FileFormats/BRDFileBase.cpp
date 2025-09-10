@@ -93,6 +93,18 @@ void BRDFileBase::AddNailsAsPins() {
 }
 
 std::vector<std::pair<BRDPoint, BRDPoint> > BRDFileBase::arc_to_segments(
+	double startAngle, double endAngle, double radius, BRDPoint pc)
+{
+	BRDPoint p1,p2;
+	p1.x = pc.x + radius * cos(startAngle);
+	p1.y = pc.y + radius * sin(startAngle);
+
+	p2.x          = pc.x + radius * cos(endAngle);
+	p2.y          = pc.y + radius * sin(endAngle);
+	return arc_to_segments(startAngle, endAngle, radius, p1, p2, pc);
+}
+
+std::vector<std::pair<BRDPoint, BRDPoint> > BRDFileBase::arc_to_segments(
 	double startAngle, double endAngle, double r, BRDPoint p1, BRDPoint p2, BRDPoint pc)
 {
 	std::vector<std::pair<BRDPoint, BRDPoint>> arc_segments{};

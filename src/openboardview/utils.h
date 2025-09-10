@@ -20,6 +20,7 @@
 
 // Loads an entire file in to memory
 std::vector<char> file_as_buffer(const filesystem::path &filepath, std::string &error_msg);
+std::vector<char> file_as_buffer_native(const filesystem::path &filepath, std::string &error_msg);
 
 // Extract extension from filename and check against given fileext
 // fileext must be lowercase

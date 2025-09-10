@@ -1,5 +1,6 @@
 #include "platform.h"
 #include "BoardView.h"
+#include "utils.h"
 #include <SDL.h>
 #include <jni.h>
 
@@ -15,7 +16,7 @@ void loadFileWrapper(char* path) {
 #define JAVA_FUNC(name) extern "C" JNIEXPORT void JNICALL Java_com_fesily_openboardview_OBVActivity_##name
 constexpr auto java_package = "com/fesily/openboardview/OBVActivity";
 
-JAVA_FUNC(openFileWrapper) (JNIEnv * env, jobject o, jstring filePath) {
+JAVA_FUNC(openFileWrapper) (JNIEnv * env, jclass clazz, jstring filePath) {
     const char *utf = env->GetStringUTFChars(filePath, 0);
     if (utf) {
         char *path = SDL_strdup(utf);
@@ -35,7 +36,23 @@ const filesystem::path show_file_picker(bool filterBoards) {
 	return {}; // We have to wait for the result, it will call the above JNI function
 }
 
+void export_folder_to_private_folder() {
+	JNIEnv *env = (JNIEnv*) SDL_AndroidGetJNIEnv();
+	jclass activity = env->FindClass(java_package);
+	jmethodID openFilePicker= env->GetStaticMethodID(activity, "exportFolderPicker", "()V");
+	env->CallStaticVoidMethod(activity, openFilePicker);
+	env->DeleteLocalRef(activity);
+}
+
+static bool isSafUri(const std::string& path) {
+	constexpr std::string_view prefix = "content://";
+	return path.rfind(prefix, 0) == 0; // 检查字符串是否以 "content://" 开头
+}
+
 std::vector<char> file_as_buffer(const filesystem::path &filepath, std::string &error_msg) {
+	if (!isSafUri(filepath.string())){
+		return file_as_buffer_native(filepath, error_msg);
+	}
 	JNIEnv *env = (JNIEnv*) SDL_AndroidGetJNIEnv();
 	jclass activity = env->FindClass(java_package);
 	jmethodID readFile = env->GetStaticMethodID(activity, "readFile", "(Ljava/lang/String;)[B");

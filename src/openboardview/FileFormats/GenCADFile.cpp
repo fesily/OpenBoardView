@@ -282,8 +282,8 @@ bool GenCADFile::parse_shape_pins_to_component(
 					pin.pos.x += mirror_x_sign * (tmpPos.x * cos_ - tmpPos.y * sin_);
 					pin.pos.y += mirror_y_sign * (tmpPos.x * sin_ + tmpPos.y * cos_);
 
-					pin.net = get_signal_name_for_component_pin(part->name, pin_ast);
-					if (!pin.net) {
+					pin.net = get_signal_name_for_component_pin(part->name.c_str(), pin_ast);
+					if (pin.net.empty()) {
 						char *tmp = new char[32];
 						sprintf(tmp, "NC@%d", nc_counter);
 						pin.net = tmp;

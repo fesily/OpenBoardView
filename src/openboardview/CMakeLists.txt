@@ -65,6 +65,16 @@ else()
 	set(Python_EXECUTABLE "${PYTHON_EXECUTABLE}")
 endif()
 
+include(FetchContent)
+
+FetchContent_Declare(
+    iguana
+    GIT_REPOSITORY https://github.com/fesily/iguana.git
+    GIT_TAG 58dacce85385244e7ab8e47a9912f11c8e74249c # optional ( default master / main )
+)
+
+FetchContent_MakeAvailable(iguana)
+
 set(SOURCES
 	annotations.cpp
 	confparse.cpp
@@ -89,6 +99,7 @@ set(SOURCES
 	FileFormats/FZFile.cpp
 	FileFormats/GenCADFile.cpp
 	FileFormats/XZZPCBFile.cpp
+	FileFormats/XJsonFile.cpp
 	NetList.cpp
 	PartList.cpp
 	Renderers/Renderers.cpp
@@ -200,6 +211,8 @@ elseif(APPLE)
 	set_target_properties(${PROJECT_NAME_LOWER} PROPERTIES MACOSX_BUNDLE_INFO_STRING "Boardview viewing")
 	set_target_properties(${PROJECT_NAME_LOWER} PROPERTIES MACOSX_BUNDLE_GUI_IDENTIFIER "org.openboardview.openboardview")
 endif()
+
+target_include_directories(${PROJECT_NAME_LOWER} PRIVATE ${iguana_SOURCE_DIR})
 
 target_include_directories(${PROJECT_NAME_LOWER} PRIVATE
 	${CMAKE_CURRENT_SOURCE_DIR}
