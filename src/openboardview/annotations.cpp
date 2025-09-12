@@ -130,7 +130,7 @@ static void deserialize(Annotations& ann, const std::string& filename) {
 	auto version = root["Version"];
 	auto partInfos = root["PartInfos"];
 	auto netInfos = root["NetInfos"];
-	if (!partInfos.empty()) {
+	if (partInfos.readable() && !partInfos.empty()) {
 		for (auto child1 : partInfos.children()) {
 			std::string partName = {child1.key().str, child1.key().size()};
 			PartInfo partInfo;
@@ -144,7 +144,7 @@ static void deserialize(Annotations& ann, const std::string& filename) {
 		}
 	}
 
-	if (!netInfos.empty()) {
+	if (netInfos.readable() && !netInfos.empty()) {
 		for (auto child1 : netInfos.children()) {
 			std::string netName = {child1.key().str, child1.key().size()};
 			NetInfo netInfo;

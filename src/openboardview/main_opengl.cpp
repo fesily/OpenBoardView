@@ -215,6 +215,9 @@ float screen_density = 1.0f;
 BoardView app{};
 
 int main(int argc, char **argv) {
+#ifdef _WIN32
+	setlocale(LC_ALL, ".UTF8");
+#endif
 	uint8_t sleepout;
 	std::string configDir;
 	globals g; // because some things we have to store *before* we load the config file in BoardView app.obvconf

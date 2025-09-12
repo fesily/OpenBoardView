@@ -107,7 +107,9 @@ std::vector<char> load_font(const std::string &name) {
 	DeleteObject(fontHandle);
 	return data;
 }
-
+const std::string get_font_path(const std::string &name) {
+	return "C:\\Windows\\Fonts\\" + name + ".ttc"; // Simplest way
+}
 const std::string get_user_dir(const UserDir userdir) {
 	int cdret = 0;
 	std::string configPath;

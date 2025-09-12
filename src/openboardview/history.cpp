@@ -3,6 +3,9 @@
 #include <climits>
 #include <memory>
 #include <cstdio>
+#include <fstream>
+#include <string>
+#include <fstream>
 #include <cstdlib>
 #include <cstring>
 
@@ -17,72 +20,44 @@ int FHistory::Set_filename(const std::string &name) {
 
 int FHistory::Load(void) {
 	if (!fname.empty()) {
-		FILE *f;
-#ifdef _WIN32
-		errno_t e;
-		e = fopen_s(&f, fname.c_str(), "r");
-#else
-		f = fopen(fname.c_str(), "r");
-#endif
-
+		std::ifstream fin(fname, std::ios::in);
 		count = 0;
-		if (!f) return 0;
-
-		while (count < FHISTORY_COUNT_MAX) {
-			char *r;
-
-			r = fgets(history[count], FHISTORY_FNAME_LEN_MAX, f);
-			if (r) {
-				count++;
-
-				/// strip off the trailing line break
-				while (*r) {
-					if ((*r == '\r') || (*r == '\n')) {
-						*r = '\0';
-						break;
-					}
-					r++;
-				}
-
-			} else {
-				break;
+		if (!fin.is_open()) return 0;
+		std::string line;
+		while (count < FHISTORY_COUNT_MAX && std::getline(fin, line)) {
+			// 去除结尾的 \r 或 \n
+			size_t end = line.find_first_of("\r\n");
+			if (end != std::string::npos) {
+				line = line.substr(0, end);
 			}
+			std::u8string u8line = reinterpret_cast<const char8_t*>(line.c_str());
+			strncpy(history[count], reinterpret_cast<const char*>(u8line.c_str()), FHISTORY_FNAME_LEN_MAX - 1);
+			history[count][FHISTORY_FNAME_LEN_MAX - 1] = '\0';
+			count++;
 		}
-		fclose(f);
+		fin.close();
 	} else {
 		return -1;
 	}
-
 	return count;
 }
 
-int FHistory::Prepend_save(const std::string &newfile) {
+int FHistory::Prepend_save(const std::u8string &newfile) {
 	if (!fname.empty()) {
-		FILE *f;
-#ifdef _WIN32
-		errno_t e;
-
-		e = fopen_s(&f, fname.c_str(), "w");
-#else
-		f = fopen(fname.c_str(), "w");
-#endif
-
-		if (f) {
-			int i;
-
-			fprintf(f, "%s\n", newfile.c_str());
-			for (i = 0; i < count; i++) {
+		std::ofstream fout(fname, std::ios::out | std::ios::trunc);
+		if (fout.is_open()) {
+			// u8string 转 std::string 写入
+			fout << std::string(reinterpret_cast<const char*>(newfile.c_str())) << "\n";
+			for (int i = 0; i < count; i++) {
 				// Don't create duplicate entries, so check each one against the newfile
-				if (strcmp(newfile.c_str(), history[i])) {
-					fprintf(f, "%s\n", history[i]);
+				if (newfile != reinterpret_cast<const char8_t*>(history[i])) {
+					fout << std::string(history[i]) << "\n";
 				}
 			}
-			fclose(f);
-
+			fout.close();
 			Load();
 		}
 	}
-
 	return 0;
 }
 

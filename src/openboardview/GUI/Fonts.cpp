@@ -24,7 +24,6 @@ std::string Fonts::load(std::string customFont) {
 	ImGuiIO &io = ImGui::GetIO();
 
 	for (const auto &name : fontList) {
-#ifdef _WIN32
 		std::vector<char> ttf = load_font(name);
 
 		ImFontConfig font_cfg{};
@@ -44,21 +43,20 @@ std::string Fonts::load(std::string customFont) {
 		} else {
 			SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Cannot load font %s: not found", name.c_str());
 		}
-#else
+
 		const std::string fontpath = get_font_path(name);
-		if (fontpath.empty()) {
+		if (fontpath.empty() || !filesystem::exists(fontpath)) {
 			SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Cannot load font %s: not found", name.c_str());
 			continue;
 		}
 		// ImGui handles TrueType and OpenType fonts, exclude anything which has a different ext
-		if (check_fileext(fontpath, ".ttf") || check_fileext(fontpath, ".otf")) {
+		if (check_fileext(fontpath, ".ttf") || check_fileext(fontpath, ".otf") || check_fileext(fontpath, ".ttc")) {
 			io.Fonts->AddFontFromFileTTF(fontpath.c_str());
 			SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Loaded font: %s, path: %s", name.c_str(), fontpath.c_str());
 			return name;
 		} else {
 			SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Cannot load font %s: file name %s does not have .ttf or .otf extension", name.c_str(), fontpath.c_str());
 		}
-#endif
 	}
 	return {};
 }

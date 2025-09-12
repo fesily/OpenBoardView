@@ -279,7 +279,7 @@ int BoardView::LoadFile(const filesystem::path &filepath) {
 
 			if (m_file && m_file->valid) {
 				LoadBoard(m_file);
-				fhistory.Prepend_save(filepath.string());
+				fhistory.Prepend_save(filepath.u8string());
 				history_file_has_changed = 1; // used by main to know when to update the window title
 				boardMinMaxDone          = false;
 				m_rotation               = 0;
@@ -1208,6 +1208,7 @@ void BoardView::Update() {
 				for (i = 0; i < fhistory.count; i++) {
 					std::string history_item(fhistory.Trim_filename(fhistory.history[i], 2));
 					history_item += "##History" + std::to_string(i);
+					std::u8string utf8_history = (const char8_t*)(fhistory.history[i]);
 					if (ImGui::MenuItem(history_item.c_str())) {
 						open_file       = true;
 						preset_filename = fhistory.history[i];
@@ -1301,8 +1302,13 @@ void BoardView::Update() {
 				m_needsRedraw = true;
 			}
 
-			if (ImGui::Checkbox("Part type", &config.showPartType)) {
+			if (MenuItemWithCheckbox("Part type", {}, config.showPartType)) {
 				obvconfig.WriteBool("showPartType", config.showPartType);
+				m_needsRedraw = true;
+			}
+
+			if (MenuItemWithCheckbox("show Net Name", {}, config.showNetName)) {
+				obvconfig.WriteBool("showNetName", config.showNetName);
 				m_needsRedraw = true;
 			}
 
@@ -1744,7 +1750,7 @@ void BoardView::HandleInput() {
 					min_dist *= min_dist; // all distance squared
 					std::shared_ptr<Pin> selection = nullptr;
 					for (auto &pin : m_board->Pins()) {
-						if (!pin->net->is_ground && BoardElementIsVisible(pin)) {
+						if (BoardElementIsVisible(pin)) {
 							float dx   = pin->position.x - pos.x;
 							float dy   = pin->position.y - pos.y;
 							float dist = dx * dx + dy * dy;
@@ -2580,7 +2586,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 		bool fill_pin       = false;
 		bool show_text      = false;
 		bool draw_ring      = true;
-		bool show_net_name  = true;
+		bool show_net_name  = config.showNetName;
 
 		// continue if pin is not visible anyway
 		if (!BoardElementIsVisible(pin)) continue;
@@ -2606,6 +2612,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				// text_color = color = m_colors.pinSameNetColor;
 				fill_pin  = true;
 				show_text = true;
+				show_net_name = true;
 				draw_ring = true;
 				threshold = 0;
 				//				draw->AddCircle(ImVec2(pos.x, pos.y), psz * pinHaloDiameter, ImColor(0xff0000ff), 32);
@@ -2620,6 +2627,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				fill_pin   = false;
 				draw_ring  = true;
 				show_text  = true;
+				show_net_name = true;
 				threshold  = 0;
 			}
 
@@ -2637,6 +2645,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				fill_pin   = false;
 				draw_ring  = true;
 				show_text  = true;
+				show_net_name = true;
 				threshold  = 0;
 			}
 
@@ -2656,6 +2665,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				draw_ring  = false;
 				fill_pin   = true;
 				show_text  = true; // is this something we want? Maybe an optional thing?
+				show_net_name = true;
 				threshold  = 0;
 			}
 
@@ -2668,6 +2678,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				fill_color = m_colors.pinSelectedFillColor;
 				draw_ring  = false;
 				show_text  = true;
+				show_net_name = true;
 				fill_pin   = true;
 				threshold  = 0;
 			}
@@ -2740,8 +2751,13 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 			switch (pin->type) {
 				case Pin::kPinTypeTestPad:
 					if ((psz > 3) && (!config.slowCPU)) {
-						draw->AddCircleFilled(ImVec2(pos.x, pos.y), psz, fill_color, segments);
-						draw->AddCircle(ImVec2(pos.x, pos.y), psz, color, segments);
+						if (pin->shape == kShapeTypeRect) {
+							draw->AddRectFilled(ImVec2(pos.x - w, pos.y - h), ImVec2(pos.x + w, pos.y + h),  fill_color);
+						} else {
+							draw->AddCircleFilled(ImVec2(pos.x, pos.y), psz, fill_color, segments);
+							draw->AddCircle(ImVec2(pos.x, pos.y), psz, color, segments);						
+						}
+
 					} else if (psz > threshold) {
 						draw->AddRectFilled(ImVec2(pos.x - w, pos.y - h), ImVec2(pos.x + w, pos.y + h), fill_color);
 					}
@@ -2785,7 +2801,7 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				float maxfontsize = std::min(maxfontwidth, maxfontheight);
 
 				// Font size for pin name only depends on height of text (rather than width of full text incl. net name) to scale to pin bounding box
-				ImVec2 size_pin_name = font->CalcTextSizeA(maxfontheight, FLT_MAX, 0.0f, pin->show_name.c_str());
+				ImVec2 size_pin_name = font->CalcTextSizeA(pin->shape == EShapeType::kShapeTypeRect ? maxfontsize : maxfontheight, FLT_MAX, 0.0f, pin->show_name.c_str());
 				// Font size for net name also depends on width of full text to avoid overflowing too much and colliding with text from other pin
 				ImVec2 size_net_name = font->CalcTextSizeA(maxfontsize, FLT_MAX, 0.0f, pin->net->show_name.c_str());
 
@@ -2821,19 +2837,22 @@ inline void BoardView::DrawPins(ImDrawList *draw) {
 				ImVec2 pos_net_name   = ImVec2(pos.x - size_net_name.x * 0.5f, pos.y);
 				ImVec2 pos_show_value = ImVec2(pos.x - size_show_value.x*0.5f, pos_pin_name.y - size_show_value.y);
 
+				if (pin->type == Pin::kPinTypeTestPad && pin->net->is_ground)
+					continue;
+
 				// Background rectangle
-				if (show_net_name)
+				if (show_net_name) {
 					draw->AddRectFilled(ImVec2(pos_net_name.x - m_scale * 0.5f, pos_net_name.y), // Begining of text with slight padding
 											ImVec2(pos_net_name.x + size_net_name.x + m_scale * 0.5f, pos_net_name.y + size_net_name.y), // End of text with slight padding
 											m_colors.pinTextBackgroundColor,
 											m_scale * 0.5f/*rounding*/);
-
+					draw->AddText(font, maxfontsize, pos_net_name, text_color, pin->net->show_name.c_str());
+				}
 				draw->ChannelsSetCurrent(kChannelText);
 				draw->AddText(font, maxfontheight, pos_pin_name, text_color, pin->show_name.c_str());
-				draw->AddText(font, maxfontsize, pos_net_name, text_color, pin->net->show_name.c_str());
-                if (!show_value.empty()) {
-                    draw->AddText(font, maxfontheight, pos_show_value, m_colors.annotationBoxColor, show_value.c_str());
-                }
+				if (!show_value.empty()) {
+					draw->AddText(font, maxfontheight, pos_show_value, m_colors.annotationBoxColor, show_value.c_str());
+				}
 				draw->ChannelsSetCurrent(kChannelPins);
 			}
 		}

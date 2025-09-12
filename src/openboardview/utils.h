@@ -6,7 +6,7 @@
 #include <SDL.h>
 
 #include "filesystem_impl.h"
-#if !defined(__PRETTY_FUNCTION__) && !defined(__GNUC__)
+#if !defined(__PRETTY_FUNCTION__) && !defined(__GNUC__) && defined(_MSC_VER)
 #define __PRETTY_FUNCTION__ __FUNCSIG__
 #endif
 // Verify predicate X, if false write error to ERROR_MSG and log and execute ACTION

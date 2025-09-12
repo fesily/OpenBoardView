@@ -60,6 +60,7 @@ public:
 	ShowMode showMode = ShowMode::ShowMode_Diode;
 	bool inferValue = true;
 	bool showPartType = true;
+	bool showNetName = true;
 
 #ifdef _WIN32
 	std::string pdfSoftwarePath = "";

@@ -13,7 +13,7 @@
 #include <set>
 
 constexpr float number_scale = 10000;
-namespace yamlfile {
+namespace xjsonfile {
 
 struct Position {
 	float x;
@@ -21,13 +21,27 @@ struct Position {
 };
 YLT_REFL(Position, x, y);
 
-enum PCB_LAYER_ID { Unknown = 0, Bottom = 16, Top = 17, Board3 = 18, Board = 28, TestPad = 34 };
+enum PCB_LAYER_ID { Unknown = 0, Bottom = 16, SILKSCREEN = 17, Board3 = 18, Board = 28, PART_OUTLINES = 29, TestPad = 34 };
 
 struct LayerMapper {
-	int max;
-	BRDPartMountingSide toSide(PCB_LAYER_ID id) {
+	std::vector<int> layers;
+	LayerMapper(std::vector<int>&& l = {}) : layers(l) {
+		if (layers.size() < 2) return;
+		for (size_t i = 1; i < layers.size(); i++)
+		{
+			if (layers[i] != layers[i - 1] + 1) {
+				max = layers[i - 1];
+				break;
+			}
+		}
+		if (max == 1) {// only top no bottom
+			max = -1;
+		}
+	}
+	int max = -1;
+	static BRDPartMountingSide castSide(PCB_LAYER_ID id) {
 		switch (id) {
-			case Top: return BRDPartMountingSide::Top;
+			case SILKSCREEN: return BRDPartMountingSide::Top;
 			case Board: return BRDPartMountingSide::Both;
 			case Bottom: return BRDPartMountingSide::Bottom;
 			case Board3: return BRDPartMountingSide::Top;
@@ -37,9 +51,15 @@ struct LayerMapper {
 		}
 	}
 
-	BRDPinSide toPinSide(PCB_LAYER_ID id) {
+	BRDPartMountingSide toSide(PCB_LAYER_ID id) {
+		auto side = castSide(id);
+		if (side == (BRDPartMountingSide)max) return BRDPartMountingSide::Bottom;
+		return side;
+	}
+
+	static BRDPinSide castPinSide(PCB_LAYER_ID id) {
 		switch (id) {
-			case Top: return BRDPinSide::Top;
+			case SILKSCREEN: return BRDPinSide::Top;
 			case Board: return BRDPinSide::Both;
 			case Bottom: return BRDPinSide::Bottom;
 			case Board3: return BRDPinSide::Top;
@@ -47,6 +67,12 @@ struct LayerMapper {
 			// todo: both
 			default: return (BRDPinSide)id;
 		}
+	}
+
+	BRDPinSide toPinSide(PCB_LAYER_ID id) {
+		auto side = castPinSide(id);
+		if (side == (BRDPinSide)max) return BRDPinSide::Bottom;
+		return side;
 	}
 };
 static std::unique_ptr<LayerMapper> layerMapper;
@@ -112,7 +138,7 @@ struct PcbPad {
 		p.angle = angle.value_or(0);
 		p.radius     = length.value_or(0) * number_scale;
 		if (p.radius < 0.0001) {
-			p.radius = std::max(p.size.x, p.size.y) / 2;
+			p.radius = std::min(p.size.x, p.size.y) / 2;
 		}
 		return p;
 	}
@@ -213,23 +239,23 @@ struct Net {
 	std::string_view info, diode, voltage;
 };
 
-} // namespace yamlfile
-struct YamlFile {
-	struct YamlFileRoot{
-		std::vector<yamlfile::PcbTrack> track;
-		std::vector<yamlfile::PcbText> text;
-		std::vector<yamlfile::PcbArc> arc;
-		std::vector<yamlfile::PcbVia> via;
-		std::vector<yamlfile::PcbPad> pad;
-		std::vector<yamlfile::PcbModule> module;
+} // namespace xjsonfile
+struct XJsonFileImpl {
+	struct XJsonFileRoot {
+		std::vector<xjsonfile::PcbTrack> track;
+		std::vector<xjsonfile::PcbText> text;
+		std::vector<xjsonfile::PcbArc> arc;
+		std::vector<xjsonfile::PcbVia> via;
+		std::vector<xjsonfile::PcbPad> pad;
+		std::vector<xjsonfile::PcbModule> module;
 	} root;
-	std::unordered_map<int, yamlfile::Net> nets;
+	std::unordered_map<int, xjsonfile::Net> nets;
 	std::string name;
 };
 
 namespace iguana {
 	template<>
-	struct variant_type_field_helper<std::variant<yamlfile::PcbPad, yamlfile::PcbTrack>> : std::true_type {
+	struct variant_type_field_helper<std::variant<xjsonfile::PcbPad, xjsonfile::PcbTrack>> : std::true_type {
 		template<typename T>
 	    constexpr std::string_view operator()(T *) {
 		    return T{}.type;
@@ -241,7 +267,7 @@ XJsonFile::~XJsonFile() {
 	
 }
 
-auto get_all_layer(YamlFile* file) {
+auto get_all_layer(XJsonFileImpl* file) {
 	std::set<int> layers;
 	ylt::reflection::for_each(file->root, [&](auto &filed, auto name, auto index) {
 		for (const auto &v : filed) {
@@ -257,7 +283,7 @@ XJsonFile::XJsonFile(std::vector<char> &b)
 	scale = number_scale;
 	try
 	{
-		file = std::make_unique<YamlFile>();
+		file = std::make_unique<XJsonFileImpl>();
 		iguana::from_json(*file, buf.begin(), buf.end());
 	}
 	catch(const std::exception& e)
@@ -265,13 +291,13 @@ XJsonFile::XJsonFile(std::vector<char> &b)
 		std::cerr << e.what() << '\n';
 		return;
 	}
-	yamlfile::layerMapper = std::make_unique<yamlfile::LayerMapper>();
 	auto layers = get_all_layer(file.get());
 	std::ranges::sort(layers);
+	xjsonfile::layerMapper = std::make_unique<xjsonfile::LayerMapper>(std::move(layers));
 
 	
 	for (const auto &track : file->root.track) {
-		if (track.layer == yamlfile::Board) {
+		if (track.layer == xjsonfile::Board) {
 			outline_segments.push_back({toPt(track.start), toPt(track.end)});
 		} else {
 			tracks.push_back(track);
@@ -283,7 +309,7 @@ XJsonFile::XJsonFile(std::vector<char> &b)
 		texts.push_back(text);
 	}
 	for (const auto &arc : file->root.arc) {
-		if (arc.layer == yamlfile::Board) {
+		if (arc.layer == xjsonfile::Board) {
 			BRDArc a = arc;
 			auto segments = arc_to_segments(a.startAngle, a.endAngle, a.radius, a.pos);
 			std::move(segments.begin(), segments.end(), std::back_inserter(this->outline_segments));
@@ -301,7 +327,7 @@ XJsonFile::XJsonFile(std::vector<char> &b)
 		pins.back().part = parts.size() + 1;
 		parts.push_back(BRDPart{
 		    .name          = "..." + std::string{pad.name.value()},
-			.mounting_side = yamlfile::layerMapper->toSide(pad.layer),
+			.mounting_side = xjsonfile::layerMapper->toSide(pad.layer),
 			.part_type = BRDPartType::SMD,
 			.end_of_pins = (uint32_t)pins.size(),
 		});
@@ -309,8 +335,8 @@ XJsonFile::XJsonFile(std::vector<char> &b)
 	
 	for (const auto &mod : file->root.module) {
 		BRDPart part;
-		part.name          = mod.text.value().text.value();
-		part.mounting_side = yamlfile::layerMapper->toSide(mod.layer);
+		part.name          = mod.text.value().text.value_or("unknown");
+		part.mounting_side = xjsonfile::layerMapper->toSide(mod.layer);
 		part.part_type     = BRDPartType::SMD;
 		int partId = parts.size() + 1;
 		auto pinsz         = pins.size();
@@ -318,12 +344,12 @@ XJsonFile::XJsonFile(std::vector<char> &b)
 			std::visit(
 			    [&part, this, partId](auto &p) {
 				    using T = std::remove_cv_t<std::remove_reference_t<decltype(p)>>;
-				    if constexpr (std::is_same_v<T, yamlfile::PcbTrack>) {
-						const yamlfile::PcbTrack& t = p;
+				    if constexpr (std::is_same_v<T, xjsonfile::PcbTrack>) {
+						const xjsonfile::PcbTrack& t = p;
 					    part.format.push_back(toPt(t.start));
 					    part.format.push_back(toPt(t.end));
-				    } else if constexpr(std::is_same_v<T, yamlfile::PcbPad>) {
-						const yamlfile::PcbPad& t = p;
+				    } else if constexpr(std::is_same_v<T, xjsonfile::PcbPad>) {
+						const xjsonfile::PcbPad& t = p;
 						pins.push_back(t);
 						pins.back().part = partId;
 				    }

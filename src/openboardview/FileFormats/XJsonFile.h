@@ -4,7 +4,7 @@
 
 #include "BRDFileBase.h"
 
-struct YamlFile;
+struct XJsonFileImpl;
 struct XJsonFile : public BRDFileBase {
 	XJsonFile(std::vector<char> &buf);
 	~XJsonFile();
@@ -12,5 +12,5 @@ struct XJsonFile : public BRDFileBase {
 	static bool verifyFormat(std::vector<char> &buf);
 private:
 	std::vector<char> buf;	
-	std::unique_ptr<YamlFile> file;
+	std::unique_ptr<XJsonFileImpl> file;
 };

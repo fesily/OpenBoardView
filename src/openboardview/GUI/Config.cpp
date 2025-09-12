@@ -57,7 +57,7 @@ void Config::SetCAEKey(const char *keytext) {
 
 void Config::SetXZZPCBKey(const std::string &keytext) {
 	try {
-		XZZPCBKey = std::stoul(keytext, nullptr, 0);
+		XZZPCBKey = std::stoull(keytext, nullptr, 16);
 		XZZPCBKeyStr = keytext;
 	} catch (const std::invalid_argument &e) {
 
