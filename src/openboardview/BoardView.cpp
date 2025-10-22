@@ -312,6 +312,9 @@ int BoardView::LoadFile(const filesystem::path &filepath) {
 				m_lastFileOpenWasInvalid = false;
 				m_validBoard             = true;
 				m_error_msg.clear();
+				m_showSides.clear();
+				m_showBoardSymmetry = m_board->GetBRDFile().boardSymmetry;
+				m_showPcbSide = m_showBoardSymmetry;
 			}
 		}
 	} else {
@@ -1319,6 +1322,14 @@ void BoardView::Update() {
 			}
 			MenuItemWithCheckbox("Net List", keybindings.getKeyNames("NetList"), m_showNetList);
 			MenuItemWithCheckbox("Part List", keybindings.getKeyNames("PartList"), m_showPartList);
+			bool showPcbSide = m_showPcbSide;
+			MenuItemWithCheckbox("PcbSide", keybindings.getKeyNames("PcbSide"), showPcbSide);
+			if (showPcbSide != m_showPcbSide) {
+				m_showPcbSide = showPcbSide;
+				if (!m_showPcbSide) {
+					m_showSides.clear();
+				}
+			}
 
 			ImGui::EndMenu();
 		}
@@ -1408,12 +1419,13 @@ void BoardView::Update() {
 			ClearAllHighlights();
 		}
 
-		ImGui::Text(" Show mode:");
+		ImGui::Dummy(ImVec2(DPI(20), 1));
 		ImGui::SameLine();
 		if (ImGui::RadioButton("None", (int*)&config.showMode, Config::ShowMode_None)) {
 			obvconfig.WriteInt("showMode", config.showMode);
 			m_needsRedraw = true;
 		}
+		ImGui::SameLine();
 		if (ImGui::RadioButton("diode", (int*)&config.showMode, Config::ShowMode_Diode)) {
 			obvconfig.WriteInt("showMode", config.showMode);
 			m_needsRedraw = true;
@@ -1999,6 +2011,58 @@ void BoardView::ShowPartList(bool *p_open) {
 	partList.Draw("Part List", p_open, m_board);
 }
 
+
+void BoardView::ShowPcbSide(void) {
+	if (!m_board) return;
+
+	static ImVec2 window_pos = ImVec2(100, 100); 
+
+    ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always); 
+    ImGui::SetNextWindowSize(ImVec2(70, 300), ImGuiCond_FirstUseEver);
+
+    ImGui::Begin("PcbSide", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse);
+
+	if (m_sideNames.size() != m_board->AllSide().size()) {
+		m_sideNames.clear();
+		for (auto side : m_board->AllSide()) {
+			m_sideNames.emplace_back(std::to_string(int(side)), side);
+			bool &val = m_showSides[side];
+			if (m_current_side == side) {
+				val = true;
+			}
+		}
+	}
+	auto getSysmmetrySide = [this](EBoardSide side)->EBoardSide {
+		auto maxside = m_sideNames.back().second;
+		auto index = maxside - m_current_side;
+		return (EBoardSide)index;
+	};
+	auto m_current_side2 = getSysmmetrySide(m_current_side);
+	
+	ImGui::Checkbox("multi select", &m_multiSelectPcbSide);
+	for (auto [name, side] : m_sideNames) {
+		if (m_multiSelectPcbSide) {
+			bool &val = m_showSides[side];
+			ImGui::Selectable(name.c_str(), &val, ImGuiSelectableFlags_SpanAllColumns);
+		}
+		else {
+			bool &val = m_showSides[side];
+			auto iter = m_showSides.find(side);
+			val == m_current_side == side;
+			if (m_showBoardSymmetry) {
+				val == m_current_side2 == side;
+			}
+			val = ImGui::RadioButton(name.c_str(), val);
+		}
+	}
+
+	if (m_multiSelectPcbSide) {
+
+	}
+
+    ImGui::End();
+}
+
 void BoardView::RenderOverlay() {
 
 	ShowInfoPane();
@@ -2009,6 +2073,9 @@ void BoardView::RenderOverlay() {
 	}
 	if (m_showPartList) {
 		ShowPartList(&m_showPartList);
+	}
+	if (m_showPcbSide) {
+		ShowPcbSide();
 	}
 }
 
@@ -4046,9 +4113,12 @@ void BoardView::SetTarget(float x, float y) {
 inline bool BoardView::BoardElementIsVisible(const std::shared_ptr<BoardElement> be) {
 	if (!be) return true; // no element? => no board side info
 
+	if (m_showSides[be->board_side]) return true;
+
 	if (be->board_side == m_current_side) return true;
 
-	if (m_track_mode) {
+	bool showSideSymmetry = m_showBoardSymmetry && m_track_mode;
+	if (showSideSymmetry) {
 		const auto sz = m_board->AllSide().size();
 		if (sz + 1 - be->board_side == m_current_side)
 			return true;
@@ -4060,7 +4130,7 @@ inline bool BoardView::BoardElementIsVisible(const std::shared_ptr<BoardElement>
 		auto minLayer = std::min(via->board_side, via->target_side);
 		auto maxLayer = std::max(via->board_side, via->target_side);
 		if (m_current_side >= minLayer && m_current_side <= maxLayer) return true;
-		if (m_track_mode) {
+		if (showSideSymmetry) {
 			const auto sz = m_board->AllSide().size();
 			auto minLayer1 = EBoardSide(sz + 1 - maxLayer);
 			auto maxLayer1 = EBoardSide(sz + 1 - minLayer);
@@ -4178,22 +4248,6 @@ void BoardView::FlipBoard(int mode) {
 		mode = 0;
 	else
 		mode = config.flipMode;
-
- 	if (m_track_mode) {
-		const auto &all_side = m_board->AllSide();
-		// skip empty side
-		auto iter = std::find(all_side.cbegin(), all_side.cend(), m_current_side);
-		if (iter != all_side.cend()) {
-			++iter;
-		}
-		m_current_side = iter == all_side.cend() ? kBoardSideTop : *iter;
-		if (m_current_side == kBoardSideBottom)
-			m_current_side = kBoardSideTop;
-		else if (m_current_side == *(all_side.data() + all_side.size()/2))
-			m_current_side = EBoardSide(m_current_side + 1);
-		m_needsRedraw = true;
-		return;
-	}
 
 	m_current_side = m_current_side == kBoardSideTop ? kBoardSideBottom : kBoardSideTop;
 

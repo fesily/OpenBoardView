@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <vector>
 #include <array>
+#include <map>
 
 struct BRDPart;
 class BRDFile;
@@ -181,12 +182,17 @@ struct BoardView {
 	bool m_searchNets       = true;
 	bool m_showNetList;
 	bool m_showPartList;
+	bool m_showPcbSide;
+	bool m_multiSelectPcbSide;
+	bool m_showBoardSymmetry;
 	bool m_showPreferences;
 	bool m_showColorPreferences;
 	bool m_firstFrame = true;
 	bool m_lastFileOpenWasInvalid;
 	bool m_validBoard = false;
 	bool m_wantsQuit;
+	std::map<EBoardSide, bool> m_showSides; // which sides to show
+	std::vector<std::pair<std::string, EBoardSide>> m_sideNames;
 
 	std::string m_error_msg;
 
@@ -194,6 +200,7 @@ struct BoardView {
 
 	void ShowNetList(bool *p_open);
 	void ShowPartList(bool *p_open);
+	void ShowPcbSide();
 
 	void Update();
 	void HandleInput();

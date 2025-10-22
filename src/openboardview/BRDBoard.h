@@ -24,7 +24,7 @@ class BRDBoard : public Board {
 	SharedVector<PcbArc> &arcs();
 	std::vector<std::pair<Point, Point>> &OutlineSegments();
 	std::vector<EBoardSide> &AllSide();
-
+	const BRDFileBase& GetBRDFile() const { return *m_file; }
 
   private:
 	static const std::string kNetUnconnectedPrefix;

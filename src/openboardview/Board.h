@@ -38,6 +38,8 @@ using SharedStringMap = std::map<std::string, std::shared_ptr<T>>;
 
 enum EBoardSide {
 	kBoardSideBoth,
+	kBoardSideBottom,
+	kBoardSideTop,
 	kBoardSideS1,
 	kBoardSideS2,
 	kBoardSideS3,
@@ -47,9 +49,13 @@ enum EBoardSide {
 	kBoardSideS7,
 	kBoardSideS8,
 	kBoardSideS9,
-	kBoardSideS10 ,
-	kBoardSideBottom = kBoardSideS10,
-	kBoardSideTop = kBoardSideS1,
+	kBoardSideS10,
+	kBoardSideS11,
+	kBoardSideS12,
+	kBoardSideS13,
+	kBoardSideS14,
+	kBoardSideS15,
+	kBoardSideS16,
 };
 
 enum EShapeType {
@@ -377,6 +383,7 @@ class Board {
 	virtual SharedVector<PcbArc> &arcs()                               = 0;
 	virtual std::vector<std::pair<Point, Point>> &OutlineSegments() = 0;
 	virtual std::vector<EBoardSide> &AllSide() = 0;
+	virtual const BRDFileBase& GetBRDFile() const = 0;
 
 	EBoardType BoardType() {
 		return kBoardTypeUnknown;

@@ -41,37 +41,37 @@ struct LayerMapper {
 	int max = -1;
 	static BRDPartMountingSide castSide(PCB_LAYER_ID id) {
 		switch (id) {
-			case SILKSCREEN: return BRDPartMountingSide::Top;
 			case Board: return BRDPartMountingSide::Both;
 			case Bottom: return BRDPartMountingSide::Bottom;
-			case Board3: return BRDPartMountingSide::Top;
+			case SILKSCREEN:
+			case PART_OUTLINES:
+			case Board3:
 			case TestPad: return BRDPartMountingSide::Top;
 			// todo: both
-			default: return (BRDPartMountingSide)id;
+			default: return (BRDPartMountingSide)(id + (int)BRDPartMountingSide::Top);
 		}
 	}
 
 	BRDPartMountingSide toSide(PCB_LAYER_ID id) {
 		auto side = castSide(id);
-		if (side == (BRDPartMountingSide)max) return BRDPartMountingSide::Bottom;
 		return side;
 	}
 
 	static BRDPinSide castPinSide(PCB_LAYER_ID id) {
 		switch (id) {
-			case SILKSCREEN: return BRDPinSide::Top;
 			case Board: return BRDPinSide::Both;
 			case Bottom: return BRDPinSide::Bottom;
-			case Board3: return BRDPinSide::Top;
+			case SILKSCREEN:
+			case PART_OUTLINES:
+			case Board3:
 			case TestPad: return BRDPinSide::Top;
 			// todo: both
-			default: return (BRDPinSide)id;
+			default: return (BRDPinSide)(id + (int)BRDPinSide::Top);
 		}
 	}
 
 	BRDPinSide toPinSide(PCB_LAYER_ID id) {
 		auto side = castPinSide(id);
-		if (side == (BRDPinSide)max) return BRDPinSide::Bottom;
 		return side;
 	}
 };
@@ -383,6 +383,7 @@ XJsonFile::XJsonFile(std::vector<char> &b)
 	num_format = format.size();
 	num_nails  = nails.size();
 
+	boardSymmetry = true;
 	valid = num_parts > 0 || num_format > 0;
 }
 
