@@ -7,6 +7,9 @@ endif()
 if(ENABLE_GLES2)
 	add_definitions(-DENABLE_GLES2)
 endif()
+if(ENABLE_SQLITE3)
+	add_definitions(-DHAVE_SQLITE3)
+endif()
 
 # Platform-specific configuration
 if(WIN32)
@@ -227,9 +230,11 @@ target_include_directories(${PROJECT_NAME_LOWER} PRIVATE
 	${FONTCONFIG_INCLUDE_DIRS}
 )
 
+if(ENABLE_SQLITE3)
+	target_link_libraries(${PROJECT_NAME_LOWER} SQLite::SQLite3)
+endif()
 target_link_libraries(${PROJECT_NAME_LOWER}
 	imgui
-	SQLite::SQLite3
 	mpc
 	${GLAD_LIBRARIES}
 	${COCOA_LIBRARY}

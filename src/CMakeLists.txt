@@ -47,9 +47,12 @@ if(NOT ZLIB_FOUND)
 endif()
 
 ## SQLite3 ##
-find_package(SQLite3)
-if(NOT SQLITE3_FOUND)
-	add_subdirectory(sqlite3)
+option(ENABLE_SQLITE3 "Enable SQLite3 annotation database support." OFF)
+if(ENABLE_SQLITE3)
+	find_package(SQLite3)
+	if(NOT SQLITE3_FOUND)
+		add_subdirectory(sqlite3)
+	endif()
 endif()
 
 ## glad ##

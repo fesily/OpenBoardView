@@ -224,6 +224,7 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 			} else {
 				pin->board_side = kBoardSideBoth;
 			}
+			all_side.emplace(pin->board_side);
 
 			if (!brd_pin.diode_vale.empty()) {
 				pin->diode_value = std::string(brd_pin.diode_vale);
@@ -333,9 +334,49 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 	sort(begin(components_), end(components_), [](const std::shared_ptr<Component> &lhs, const std::shared_ptr<Component> &rhs) {
 		return lhs->name < rhs->name;
 	});
-
+	if (all_side.empty()) {
+		all_side.emplace(kBoardSideTop);
+		all_side.emplace(kBoardSideBottom);
+	}
 	std::move(all_side.begin(), all_side.end(), std::back_inserter(all_side_));
 	std::sort(all_side_.begin(), all_side_.end());
+	if (all_side_.size() == 2 && all_side_[0] == kBoardSideBoth) {
+		return;
+	}
+	auto hasBoth = std::find(all_side_.begin(), all_side_.end(), kBoardSideBoth) != all_side_.end();
+	auto side_size = hasBoth ? all_side_.size() - 1 : all_side_.size();
+	if (side_size % 2 == 0 && std::find(all_side_.begin(), all_side_.end(), kBoardSideBottom) != all_side_.end()) {
+		// maybe not exsit bottom S(N) layer, so create a new one for it, and put it after the max layer
+		all_side_.push_back((EBoardSide)(all_side_.back() + 1));
+	}
+	// fix all max layer to bottom
+	auto max_layer = all_side_.back();
+	for (auto& net: nets_) {
+		if (net->board_side == max_layer) {
+			net->board_side = kBoardSideBottom;
+		}
+	}
+	for (auto& comp : components_) {
+		if (comp->board_side == max_layer) {
+			comp->board_side = kBoardSideBottom;
+		}
+	}
+	for (auto& pin : pins_) {
+		if (pin->board_side == max_layer) {
+			pin->board_side = kBoardSideBottom;
+		}
+	}
+	for (auto& track : tracks_) {
+		if (track->board_side == max_layer) {
+			track->board_side = kBoardSideBottom;
+		}
+	}
+	for (auto& via : vias_) {
+		if (via->board_side == max_layer) {
+			via->board_side = kBoardSideBottom;
+		}
+	}
+
 }
 
 BRDBoard::~BRDBoard() {}

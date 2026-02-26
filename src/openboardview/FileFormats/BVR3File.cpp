@@ -30,7 +30,7 @@ static T readSide(const char* side) {
 	else{
 		char* p = (char*)side;
 		int side_p = strtol(side, &p, 10);
-		return (T)side_p;
+		return (T)(side_p + static_cast<int>(T::Top) - 1);
 	}
 }
 
@@ -299,6 +299,8 @@ BVR3File::BVR3File(std::vector<char> &buf) {
 		} else if (!strncmp(line, "BVRAW_SCALE ", 12)) {
 			p += 12;
 			scale = READ_DOUBLE();
+		} else if (!strncmp(line, "BOARD_SYMMETRY", 14)) {
+			boardSymmetry = true;
 		} else if (!strncmp(line, "OUTLINE_SEGMENTED ", 18)) {
 			p += 18;
 			while (p[0]) {

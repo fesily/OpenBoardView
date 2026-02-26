@@ -1,4 +1,5 @@
 #include "utils.h"
+#include "platform.h"
 #include <SDL.h>
 #include <algorithm>
 #include <cctype>
@@ -50,6 +51,24 @@ std::vector<char> file_as_buffer_native(const filesystem::path &filepath, std::s
 
 	return data;
 }
+
+#ifndef __ANDROID__
+std::string file_read_text(const std::string &path) {
+	if (!filesystem::exists(path)) return {};
+	std::ifstream fin(path);
+	if (!fin) return {};
+	std::ostringstream ss;
+	ss << fin.rdbuf();
+	return ss.str();
+}
+
+bool file_write_text(const std::string &path, const std::string &content) {
+	std::ofstream fout(path, std::ios::trunc | std::ios::out);
+	if (!fout) return false;
+	fout << content;
+	return fout.good();
+}
+#endif // __ANDROID__
 
 // Extract extension from filename and check against given fileext
 // fileext must be lowercase

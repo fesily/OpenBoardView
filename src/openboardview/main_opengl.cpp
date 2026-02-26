@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <cmath>
 #include <string>
+#include <unordered_map>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <thread>
@@ -406,6 +407,18 @@ int main(int argc, char **argv) {
 
 	sleepout = 30;
 	float angleacc = 0.0;
+#if ANDROID
+	// ── 3-finger tap detection state ─────────────────────────────────────────
+	struct FingerState {
+		float x0, y0;   // normalized position when first pressed
+		bool  moved = false;
+	};
+	std::unordered_map<SDL_FingerID, FingerState> activeFingers;
+	int     peakFingerCount   = 0;
+	ImVec2  threeTapCentroid  = {0.f, 0.f};
+	Uint32  threeTapDownTime  = 0;
+	bool    threeTapArmed     = false;
+#endif
 	while (!done) {
 
 		SDL_Event event;
@@ -465,6 +478,59 @@ int main(int argc, char **argv) {
 					app.Zoom(event.mgesture.x * w, event.mgesture.y * h, event.mgesture.dDist * app.config.zoomFactor * 10);
 				}
 			}
+
+#if ANDROID
+			// ── 3-finger tap → open annotation popup ────────────────────────
+			if (event.type == SDL_FINGERDOWN) {
+				FingerState fs{event.tfinger.x, event.tfinger.y, false};
+				activeFingers[event.tfinger.fingerId] = fs;
+				int count = (int)activeFingers.size();
+				if (count > peakFingerCount) peakFingerCount = count;
+				if (count == 3) {
+					// Record centroid and arm the tap detector
+					float cx = 0.f, cy = 0.f;
+					for (auto &[id, f] : activeFingers) { cx += f.x0; cy += f.y0; }
+					cx /= 3.f; cy /= 3.f;
+					int w, h;
+					SDL_GetWindowSize(window, &w, &h);
+					threeTapCentroid = {cx * w, cy * h};
+					threeTapDownTime = SDL_GetTicks();
+					threeTapArmed    = true;
+				}
+			} else if (event.type == SDL_FINGERMOTION) {
+				auto it = activeFingers.find(event.tfinger.fingerId);
+				if (it != activeFingers.end()) {
+					// Disarm if any finger moves more than ~1% screen width
+					if (fabs(event.tfinger.dx) > 0.01f || fabs(event.tfinger.dy) > 0.01f) {
+						it->second.moved = true;
+						threeTapArmed    = false;
+					}
+				}
+			} else if (event.type == SDL_FINGERUP) {
+				auto it = activeFingers.find(event.tfinger.fingerId);
+				if (it != activeFingers.end()) {
+					if (it->second.moved) threeTapArmed = false;
+					activeFingers.erase(it);
+				}
+				if (activeFingers.empty()) {
+					// All fingers lifted – check if it was a clean 3-finger tap
+					if (threeTapArmed && peakFingerCount == 3 && (SDL_GetTicks() - threeTapDownTime) < 600) {
+						bool hasSelection = app.m_pinSelected || !app.m_partHighlighted.empty();
+						if (hasSelection && app.m_file && app.m_board) {
+							app.config.showAnnotations  = true;
+							app.m_annotation_clicked_id = -1;
+							app.m_annotationedit_retain = false;
+							app.m_annotationnew_retain  = false;
+							app.m_showContextMenu       = true;
+							app.m_showContextMenuPos    = threeTapCentroid;
+							app.m_needsRedraw           = true;
+						}
+					}
+					peakFingerCount = 0;
+					threeTapArmed   = false;
+				}
+			}
+#endif
 
 			if (event.type == SDL_QUIT) done = true;
 		}

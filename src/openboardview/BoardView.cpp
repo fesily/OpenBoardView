@@ -214,6 +214,11 @@ void ReloadPinInfos(Annotations &m_annotations, Board *m_board) {
 	}
 }
 
+EBoardSide BoardSideBottom2Layer(const std::vector<EBoardSide>& allside) {
+	auto max = std::max_element(allside.begin(), allside.end());
+	return *max;
+}
+
 int BoardView::LoadFile(const filesystem::path &filepath) {
 	m_lastFileOpenWasInvalid = true;
 	m_validBoard             = false;
@@ -314,7 +319,10 @@ int BoardView::LoadFile(const filesystem::path &filepath) {
 				m_error_msg.clear();
 				m_showSides.clear();
 				m_showBoardSymmetry = m_board->GetBRDFile().boardSymmetry;
-				m_showPcbSide = m_showBoardSymmetry;
+				m_multiSelectPcbSide = !m_showBoardSymmetry;
+				auto& allside = m_board->AllSide();
+				m_showPcbSide = m_showBoardSymmetry || allside.size() >= 3;
+				m_max_side = BoardSideBottom2Layer(allside);
 			}
 		}
 	} else {
@@ -733,6 +741,8 @@ void BoardView::ContextMenu(void) {
 					static char ohmBlackNew[128];
 					static char partTypeNew[128];
 					static char netNameNew[128];
+					static char netNoteNew[512];
+					static char pinNoteNew[512];
 					static PinVoltageFlag voltageFlagNew;
 					static bool pinMode;
 					static bool inferValueMode;
@@ -756,6 +766,8 @@ void BoardView::ContextMenu(void) {
 						memset(ohmBlackNew, 0, sizeof (ohmBlackNew));
 						memset(partTypeNew, 0, sizeof (partTypeNew));
 						memset(netNameNew, 0, sizeof (netNameNew));
+						memset(netNoteNew, 0, sizeof(netNoteNew));
+						memset(pinNoteNew, 0, sizeof(pinNoteNew));
 						voltageFlagNew = PinVoltageFlag::unknown;
 						inferValueMode = false;
 						partAngleNew   = PartAngle::_0;
@@ -830,6 +842,22 @@ void BoardView::ContextMenu(void) {
 											netNameNew,
 											sizeof(netNameNew));
 						}
+						ImGui::Separator();
+						ImGui::Text("Pin Note (bound to %s[%s]):", selection->component->name.c_str(), selection->name.c_str());
+						ImGui::InputTextMultiline("##pinNoteNew",
+							                      pinNoteNew,
+							                      sizeof(pinNoteNew),
+							                      ImVec2(DPI(600), ImGui::GetTextLineHeight() * 3),
+							                      0, NULL, nullptr);
+					}
+					if (!net.empty()) {
+						ImGui::Separator();
+						ImGui::Text("Net Note (bound to net %s):", net.c_str());
+						ImGui::InputTextMultiline("##netNoteNew",
+							                      netNoteNew,
+							                      sizeof(netNoteNew),
+							                      ImVec2(DPI(600), ImGui::GetTextLineHeight() * 3),
+							                      0, NULL, nullptr);
 					}
 
 
@@ -851,6 +879,12 @@ void BoardView::ContextMenu(void) {
 								if (selection->net->show_name.empty())
 									selection->net->show_name = net;
 							}
+							// Pin-bound annotation
+							if (!std::string_view{pinNoteNew}.empty()) {
+								m_annotations.NewPinAnnotation(
+									selection->component->name.c_str(),
+									selection->name.c_str()).note = pinNoteNew;
+							}
 						}
 						if (selection_component) {
 							auto& partInfo = m_annotations.NewPartInfo(selection_component->name.c_str());;
@@ -861,9 +895,13 @@ void BoardView::ContextMenu(void) {
 								RotatePart(partAngleNew, selection_component);
 							}
 						}
+						// Net-bound annotation
+						if (!net.empty() && !std::string_view{netNoteNew}.empty()) {
+							m_annotations.NewNetAnnotation(net.c_str()).note = netNoteNew;
+						}
 						m_annotations.SavePinInfos();
 
-						if (!std::string_view {contextbufnew}.empty()) {
+						if (!std::string_view{contextbufnew}.empty()) {
 							m_annotations.Add(m_current_side == kBoardSideBottom, tx, ty, net.c_str(), partn.c_str(), pin.c_str(), contextbufnew);
 							m_annotations.GenerateList();
 						}
@@ -1197,7 +1235,7 @@ void BoardView::Update() {
 		ContextMenu();
 
 		if (ImGui::BeginMenu("File")) {
-            if (has_export_folder && ImGui::MenuItem("Export Folder", keybindings.getKeyNames("ExportFolder").c_str())) {
+            if (has_export_folder && ImGui::MenuItem("Select Working Folder", keybindings.getKeyNames("ExportFolder").c_str())) {
                 export_folder = true;
             }
 			if (ImGui::MenuItem("Open", keybindings.getKeyNames("Open").c_str())) {
@@ -1495,7 +1533,7 @@ void BoardView::Update() {
 	}
 #if ANDROID
     if (has_export_folder && export_folder) {
-        export_folder_to_private_folder();
+        select_working_folder();
     }
 #endif
 
@@ -2011,53 +2049,128 @@ void BoardView::ShowPartList(bool *p_open) {
 	partList.Draw("Part List", p_open, m_board);
 }
 
+std::string_view BoardSideName(BoardView* self, EBoardSide side) {
+retry:
+	switch (side) {
+		case kBoardSideBoth: return "Both";
+		case kBoardSideBottom: side = self->m_max_side; goto retry;
+		//case kBoardSideTop: return "Top";
+		case kBoardSideS1: return "1";
+		case kBoardSideS2: return "2";
+		case kBoardSideS3: return "3";
+		case kBoardSideS4: return "4";
+		case kBoardSideS5: return "5";
+		case kBoardSideS6: return "6";
+		case kBoardSideS7: return "7";
+		case kBoardSideS8: return "8";
+		case kBoardSideS9: return "9";
+		case kBoardSideS10: return "10";
+		case kBoardSideS11: return "11";
+		case kBoardSideS12: return "12";
+		case kBoardSideS13: return "13";
+		case kBoardSideS14: return "14";
+		case kBoardSideS15: return "15";
+		case kBoardSideS16: return "16";				
+		default: return "Unknown";
+	}
+}
+
+EBoardSide getSysmmetrySide(BoardView* self, EBoardSide side) {
+	const auto sz = self->m_sideNames.size();
+	if (side == kBoardSideBoth)
+		return side;
+	if (side == kBoardSideBottom)
+		side = self->m_max_side;
+
+	// maped the side to a 0 based index, with the middle side (or the one just after the middle) mapped to 0, and then mirror around that
+	auto max = self->m_max_side - kBoardSideS1 + 1;
+	auto current = int(side) - 1;
+	auto middle = max / 2;
+	auto mapped_zero = middle + 1;
+	if (current <= middle) {
+		current = (std::abs(current - mapped_zero) + middle);
+	} else {
+		current = (-(current - mapped_zero) + middle);
+	}
+	return (EBoardSide)(current + kBoardSideS1 - 1);
+};
+
 
 void BoardView::ShowPcbSide(void) {
 	if (!m_board) return;
 
-	static ImVec2 window_pos = ImVec2(100, 100); 
+	static ImVec2 window_pos; 
+
+	// get menu bar height and status bar height to position the window in the top left corner of the board view area
+	float menu_bar_height = m_menu_height;
+	window_pos.y = menu_bar_height + DPI(30);
+	window_pos.x = DPI(30);
 
     ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always); 
-    ImGui::SetNextWindowSize(ImVec2(70, 300), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(0, 0), ImGuiCond_Always);
 
     ImGui::Begin("PcbSide", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse);
+
+	auto symmetry_side = getSysmmetrySide(this, m_current_side);
 
 	if (m_sideNames.size() != m_board->AllSide().size()) {
 		m_sideNames.clear();
 		for (auto side : m_board->AllSide()) {
-			m_sideNames.emplace_back(std::to_string(int(side)), side);
+			m_sideNames[side] = BoardSideName(this, side);
 			bool &val = m_showSides[side];
-			if (m_current_side == side) {
+			if (m_current_side == side || (m_showBoardSymmetry && symmetry_side == side)) {
 				val = true;
 			}
 		}
+		m_sideNames[kBoardSideBottom] = BoardSideName(this, m_max_side);
 	}
-	auto getSysmmetrySide = [this](EBoardSide side)->EBoardSide {
-		auto maxside = m_sideNames.back().second;
-		auto index = maxside - m_current_side;
-		return (EBoardSide)index;
-	};
-	auto m_current_side2 = getSysmmetrySide(m_current_side);
+
 	
-	ImGui::Checkbox("multi select", &m_multiSelectPcbSide);
-	for (auto [name, side] : m_sideNames) {
+	if (ImGui::Checkbox("M", &m_multiSelectPcbSide)) {
+		m_showBoardSymmetry = m_multiSelectPcbSide ? false : m_board->GetBRDFile().boardSymmetry;
+	}
+	
+	m_showSides[kBoardSideBoth] = true;
+	m_showSides[kBoardSideBottom] = false;
+	for (const auto &[side, name] : m_sideNames) {
+		if (side == kBoardSideBottom || side == kBoardSideBoth) // show by S(N) layer, hide the old bottom layer
+			continue;
 		if (m_multiSelectPcbSide) {
 			bool &val = m_showSides[side];
-			ImGui::Selectable(name.c_str(), &val, ImGuiSelectableFlags_SpanAllColumns);
-		}
-		else {
-			bool &val = m_showSides[side];
-			auto iter = m_showSides.find(side);
-			val == m_current_side == side;
-			if (m_showBoardSymmetry) {
-				val == m_current_side2 == side;
+			if (ImGui::Selectable(name.c_str(), &val, ImGuiSelectableFlags_SpanAllColumns)) {
+				m_needsRedraw = true;
 			}
-			val = ImGui::RadioButton(name.c_str(), val);
+		} else {
+			bool &val = m_showSides[side];
+			if (ImGui::Checkbox(name.c_str(), &val)) {
+				if (val) {
+					m_current_side = side;
+				}
+				if (m_showBoardSymmetry) {
+					m_showSides[getSysmmetrySide(this, side)] = val;
+				}
+				m_needsRedraw = true;
+			}
 		}
 	}
 
-	if (m_multiSelectPcbSide) {
+	if (m_showSides[m_max_side]) {
+		m_showSides[kBoardSideBottom] = true;
+	}
 
+	if (m_showSides[kBoardSideBottom]) {
+		m_showSides[m_max_side] = true;
+	}
+	
+	if (m_multiSelectPcbSide || m_showBoardSymmetry) {
+		auto current_side = kBoardSideMax;
+		// min show side for current side, if multi select or symmetry is on, otherwise just use the current side
+		for (auto [side, show] : m_showSides) {
+			if (side < kBoardSideS1) continue;
+			if (!show) continue;
+			current_side = std::min(current_side, side);
+		}
+		m_current_side = current_side;
 	}
 
     ImGui::End();
@@ -3479,7 +3592,7 @@ inline void BoardView::DrawVies(ImDrawList *draw) {
 			omask = m_colors.orMaskPins;
 		}
 	}
-	draw->ChannelsSetCurrent(kChannelPolylines);
+	draw->ChannelsSetCurrent(kChannelPins);
 
 	const auto& vias = m_board->Vias();
 	for (const auto &via : vias) {
@@ -3497,10 +3610,10 @@ inline void BoardView::DrawVies(ImDrawList *draw) {
 			const auto offset = radius * 0.5;
 			const auto leftPos = ImVec2(pos.x - offset, pos.y - offset);
 			const auto rightPos = ImVec2(pos.x + 0.5f, pos.y - offset);
-			auto text = std::to_string(via->board_side);
-			auto text1 = std::to_string(via->target_side);
+			auto text = BoardSideName(this, via->board_side);
+			auto text1 = BoardSideName(this, via->target_side);
 			ImFont *font = ImGui::GetIO().Fonts->Fonts[0]; // Default font
-			ImVec2 text_size_normalized = font->CalcTextSizeA(1.0f, FLT_MAX, 0.0f, text.c_str());
+			ImVec2 text_size_normalized = font->CalcTextSizeA(1.0f, FLT_MAX, 0.0f, text.data());
 
 			float maxfontwidth = radius * 1/ text_size_normalized.x; // Fit horizontally with 6.75% overflow (should still avoid colliding with neighbours)
 			float maxfontheight = radius * 1/ text_size_normalized.y; // Fit vertically with 25% top/bottom padding
@@ -3511,8 +3624,8 @@ inline void BoardView::DrawVies(ImDrawList *draw) {
 
             if (maxfontsize > 1.0) {
                 draw->ChannelsSetCurrent(kChannelText);
-                draw->AddText(font, maxfontsize, leftPos, 0xFFFFFFFF, text.c_str());
-                draw->AddText(font, maxfontsize, rightPos, 0xFFFFFFFF, text1.c_str());
+                draw->AddText(font, maxfontsize, leftPos, 0xFFFFFFFF, text.data());
+                draw->AddText(font, maxfontsize, rightPos, 0xFFFFFFFF, text1.data());
                 draw->ChannelsSetCurrent(kChannelPins);
             }
 		}
@@ -3532,6 +3645,7 @@ void BoardView::DrawPartTooltips(ImDrawList *draw) {
 	for (auto &pin : m_board->Pins()) {
 
 		if (pin->type == Pin::kPinTypeTestPad && !pin->net->is_ground) {
+			if (!BoardElementIsVisible(pin)) continue;
 			float dx   = pin->position.x - pos.x;
 			float dy   = pin->position.y - pos.y;
 			float dist = dx * dx + dy * dy;
@@ -3715,6 +3829,64 @@ inline void BoardView::DrawAnnotations(ImDrawList *draw) {
 			draw->AddLine(s, a, m_colors.annotationStalkColor);
 		}
 	}
+
+	// ── Pin-bound annotations ─────────────────────────────────────────────────
+	if (m_board) {
+		ImVec2 mp = ImGui::GetMousePos();
+		const float hover_r2 = DPIF(6) * DPIF(6);
+
+		for (auto &part_entry : m_annotations.pinAnnotations) {
+			for (auto &pin_entry : part_entry.second) {
+				const auto &pa = pin_entry.second;
+				if (pa.note.empty()) continue;
+				for (auto &pin : m_board->Pins()) {
+					if (pin->component->name != pa.partName || pin->name != pa.pinName) continue;
+					if (!BoardElementIsVisible(pin->component)) break;
+					ImVec2 s = CoordToScreen(pin->position.x, pin->position.y);
+					// Diamond marker (4-point polygon)
+					float r = DPIF(4);
+					ImVec2 pts[4] = {{s.x, s.y - r}, {s.x + r, s.y}, {s.x, s.y + r}, {s.x - r, s.y}};
+					draw->AddConvexPolyFilled(pts, 4, m_colors.annotationBoxColor);
+					draw->AddPolyline(pts, 4, m_colors.annotationStalkColor, ImDrawFlags_Closed, 1.0f);
+					// Tooltip on hover
+					float dx = mp.x - s.x, dy = mp.y - s.y;
+					if (ImGui::IsWindowHovered() && dx * dx + dy * dy < hover_r2) {
+						ImGui::PushStyleColor(ImGuiCol_Text, m_colors.annotationPopupTextColor);
+						ImGui::PushStyleColor(ImGuiCol_PopupBg, m_colors.annotationPopupBackgroundColor);
+						ImGui::BeginTooltip();
+						ImGui::Text("[Pin] %s[%s]\n%s", pa.partName.c_str(), pa.pinName.c_str(), pa.note.c_str());
+						ImGui::EndTooltip();
+						ImGui::PopStyleColor(2);
+					}
+					break;
+				}
+			}
+		}
+
+		// ── Net-bound annotations ─────────────────────────────────────────────
+		for (auto &net_entry : m_annotations.netAnnotations) {
+			const auto &na = net_entry.second;
+			if (na.note.empty()) continue;
+			for (auto &pin : m_board->Pins()) {
+				if (!pin->net || pin->net->name != na.net) continue;
+				if (!BoardElementIsVisible(pin->component)) continue;
+				ImVec2 s = CoordToScreen(pin->position.x, pin->position.y);
+				// Ring marker
+				draw->AddCircle(s, DPIF(5), m_colors.annotationStalkColor, 12, 1.5f);
+				draw->AddCircleFilled(s, DPIF(2), m_colors.annotationBoxColor, 8);
+				// Tooltip on hover
+				float dx = mp.x - s.x, dy = mp.y - s.y;
+				if (ImGui::IsWindowHovered() && dx * dx + dy * dy < hover_r2) {
+					ImGui::PushStyleColor(ImGuiCol_Text, m_colors.annotationPopupTextColor);
+					ImGui::PushStyleColor(ImGuiCol_PopupBg, m_colors.annotationPopupBackgroundColor);
+					ImGui::BeginTooltip();
+					ImGui::Text("[Net] %s\n%s", na.net.c_str(), na.note.c_str());
+					ImGui::EndTooltip();
+					ImGui::PopStyleColor(2);
+				}
+			}
+		}
+	}
 }
 
 bool BoardView::HighlightedPinIsHovered(void) {
@@ -3834,8 +4006,6 @@ void BoardView::DrawBoard() {
 	//	DrawSelectedPins(draw);
 	DrawPins(draw);
 	DrawVies(draw);
-	OutlineGenFillDraw(draw, config.boardFillSpacing, 1);
-	DrawOutline(draw);
 	// DrawPinTooltips(draw);
 	DrawPartTooltips(draw);
 	DrawAnnotations(draw);
@@ -4113,28 +4283,24 @@ void BoardView::SetTarget(float x, float y) {
 inline bool BoardView::BoardElementIsVisible(const std::shared_ptr<BoardElement> be) {
 	if (!be) return true; // no element? => no board side info
 
-	if (m_showSides[be->board_side]) return true;
-
 	if (be->board_side == m_current_side) return true;
-
-	bool showSideSymmetry = m_showBoardSymmetry && m_track_mode;
-	if (showSideSymmetry) {
-		const auto sz = m_board->AllSide().size();
-		if (sz + 1 - be->board_side == m_current_side)
-			return true;
-	}
 
 	if (be->board_side == kBoardSideBoth) return true;
 
+	if (m_showSides[be->board_side]) return true;
+
 	if (auto via = std::dynamic_pointer_cast<Via>(be); via != nullptr) {
-		auto minLayer = std::min(via->board_side, via->target_side);
-		auto maxLayer = std::max(via->board_side, via->target_side);
-		if (m_current_side >= minLayer && m_current_side <= maxLayer) return true;
-		if (showSideSymmetry) {
-			const auto sz = m_board->AllSide().size();
-			auto minLayer1 = EBoardSide(sz + 1 - maxLayer);
-			auto maxLayer1 = EBoardSide(sz + 1 - minLayer);
-			if (m_current_side >= minLayer1 && m_current_side <= maxLayer1) return true;
+		auto board_side = via->board_side;
+		if (board_side == kBoardSideBottom)
+			board_side = m_max_side;
+		auto minLayer = std::min(board_side, via->target_side);
+		auto maxLayer = std::max(board_side, via->target_side);
+		if (m_current_side >= minLayer && m_current_side <= maxLayer) 
+			return true;
+		if (m_showBoardSymmetry) {
+			auto sym_side = getSysmmetrySide(this, m_current_side);
+			if (sym_side >= minLayer && sym_side <= maxLayer)
+				return true;
 		}
 	}
 

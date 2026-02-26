@@ -150,6 +150,7 @@ struct BoardView {
 	float m_lastHeight;
 	int m_rotation; // set to 0 for original orientation [0-4]
 	EBoardSide m_current_side;
+	EBoardSide m_max_side;
 	bool m_track_mode = false;
 	int m_boardWidth; // board size in what coordinates? thou?
 	int m_boardHeight;
@@ -192,7 +193,7 @@ struct BoardView {
 	bool m_validBoard = false;
 	bool m_wantsQuit;
 	std::map<EBoardSide, bool> m_showSides; // which sides to show
-	std::vector<std::pair<std::string, EBoardSide>> m_sideNames;
+	std::map<EBoardSide, std::string> m_sideNames;
 
 	std::string m_error_msg;
 

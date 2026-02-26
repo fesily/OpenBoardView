@@ -6,14 +6,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
-#include <fstream>
 #include <sstream>
 #include <concepts>
-#include <filesystem>
 #define RYML_SINGLE_HDR_DEFINE_NOW 1
 #include "../rapidyaml.hpp"
 
 #include "annotations.h"
+#include "platform.h"
 
 int Annotations::SetFilename(const std::string &f) {
 	filename = f;
@@ -32,7 +31,7 @@ static int sqlCallback(void *NotUsed, int argc, char **argv, char **azColName) {
 */
 
 int Annotations::Init(void) {
-
+#ifdef HAVE_SQLITE3
 	char *zErrMsg = 0;
 	int rc;
 	//	char sql_table_test[] = "SELECT name FROM sqlite_master WHERE type='table' AND name='annotations'";
@@ -60,6 +59,9 @@ int Annotations::Init(void) {
 	}
 
 	return 0;
+#else
+	return 1;
+#endif
 }
 namespace c4::yml {
 	void write(c4::yml::NodeRef *node, const PinInfo &pi) {
@@ -103,6 +105,26 @@ namespace c4::yml {
 		if (node.has_child("showname")) node["showname"] >> net->showname;
 		return true;
 	}
+
+	void write(c4::yml::NodeRef *node, const NetAnnotation &na) {
+		(*node) |= c4::yml::MAP;
+		if (!na.note.empty()) node->append_child() << key("note") << na.note;
+	}
+
+	bool read(const c4::yml::ConstNodeRef& node, NetAnnotation* na) {
+		if (node.has_child("note")) node["note"] >> na->note;
+		return true;
+	}
+
+	void write(c4::yml::NodeRef *node, const PinAnnotation &pa) {
+		(*node) |= c4::yml::MAP;
+		if (!pa.note.empty()) node->append_child() << key("note") << pa.note;
+	}
+
+	bool read(const c4::yml::ConstNodeRef& node, PinAnnotation* pa) {
+		if (node.has_child("note")) node["note"] >> pa->note;
+		return true;
+	}
 }
 
 static void serialize(const Annotations& ann, const std::string& filename) {
@@ -114,22 +136,26 @@ static void serialize(const Annotations& ann, const std::string& filename) {
 		root.append_child() << c4::yml::key("PartInfos") << ann.partInfos;
 	if (!ann.netInfos.empty())
 		root.append_child() << c4::yml::key("NetInfos") << ann.netInfos;
-    std::ofstream fout(filename, std::ios_base::trunc|std::ios_base::out);
-    fout << tree;
+	if (!ann.netAnnotations.empty())
+		root.append_child() << c4::yml::key("NetAnnotations") << ann.netAnnotations;
+	if (!ann.pinAnnotations.empty())
+		root.append_child() << c4::yml::key("PinAnnotations") << ann.pinAnnotations;
+    std::ostringstream oss;
+    oss << tree;
+    file_write_text(filename, oss.str());
 }
 
 static void deserialize(Annotations& ann, const std::string& filename) {
-	if (!std::filesystem::exists(filename)) return;
-    std::ifstream fin(filename);
-    std::stringstream buffer;
-    buffer << fin.rdbuf();
-	auto buf = buffer.str();
+	auto buf = file_read_text(filename);
+	if (buf.empty()) return;
     auto tree = ryml::parse_in_place(ryml::substr{(char*)buf.data(), buf.size()});
     auto root = tree.rootref();
 
-	auto version = root["Version"];
-	auto partInfos = root["PartInfos"];
-	auto netInfos = root["NetInfos"];
+	auto version        = root["Version"];
+	auto partInfos      = root["PartInfos"];
+	auto netInfos       = root["NetInfos"];
+	auto netAnnotations = root["NetAnnotations"];
+	auto pinAnnotations = root["PinAnnotations"];
 	if (partInfos.readable() && !partInfos.empty()) {
 		for (auto child1 : partInfos.children()) {
 			std::string partName = {child1.key().str, child1.key().size()};
@@ -153,9 +179,34 @@ static void deserialize(Annotations& ann, const std::string& filename) {
 			ann.netInfos[netName] = netInfo;
 		}
 	}
+
+	if (netAnnotations.readable() && !netAnnotations.empty()) {
+		for (auto child : netAnnotations.children()) {
+			std::string netName = {child.key().str, child.key().size()};
+			NetAnnotation na;
+			child >> na;
+			na.net = netName;
+			ann.netAnnotations[netName] = na;
+		}
+	}
+
+	if (pinAnnotations.readable() && !pinAnnotations.empty()) {
+		for (auto child1 : pinAnnotations.children()) {
+			std::string partName = {child1.key().str, child1.key().size()};
+			for (auto child2 : child1.children()) {
+				std::string pinName = {child2.key().str, child2.key().size()};
+				PinAnnotation pa;
+				child2 >> pa;
+				pa.partName = partName;
+				pa.pinName  = pinName;
+				ann.pinAnnotations[partName][pinName] = pa;
+			}
+		}
+	}
 }
 
 int Annotations::Load(void) {
+#ifdef HAVE_SQLITE3
 	std::string sqlfn                        = filename;
 	auto pos                                 = sqlfn.rfind('.');
 	if (pos != std::string::npos) sqlfn[pos] = '_';
@@ -170,19 +221,22 @@ int Annotations::Load(void) {
 		Init();
 		GenerateList();
 	}
+#endif
 	return 0;
 }
 
 int Annotations::Close(void) {
+#ifdef HAVE_SQLITE3
 	if (sqldb) {
 		sqlite3_close(sqldb);
 		sqldb = NULL;
 	}
-
+#endif
 	return 0;
 }
 
 void Annotations::GenerateList(void) {
+#ifdef HAVE_SQLITE3
 	sqlite3_stmt *stmt;
 	char sql[] = "SELECT id,side,posx,posy,net,part,pin,note from annotations where visible=1;";
 	int rc;
@@ -237,9 +291,11 @@ void Annotations::GenerateList(void) {
 		// if you return/throw here, don't forget the finalize
 	}
 	sqlite3_finalize(stmt);
+#endif
 }
 
 void Annotations::Add(int side, double x, double y, const char *net, const char *part, const char *pin, const char *note) {
+#ifdef HAVE_SQLITE3
 	char sql[10240];
 	char *zErrMsg = 0;
 	int r;
@@ -263,9 +319,11 @@ void Annotations::Add(int side, double x, double y, const char *net, const char 
 	} else {
 		if (debug) fprintf(stdout, "Records created successfully\n");
 	}
+#endif
 }
 
 void Annotations::Remove(int id) {
+#ifdef HAVE_SQLITE3
 	char sql[1024];
 	char *zErrMsg = 0;
 	int r;
@@ -278,9 +336,11 @@ void Annotations::Remove(int id) {
 	} else {
 		if (debug) fprintf(stdout, "Records created successfully\n");
 	}
+#endif
 }
 
 void Annotations::Update(int id, char *note) {
+#ifdef HAVE_SQLITE3
 	char sql[10240];
 	char *zErrMsg = 0;
 	int r;
@@ -293,6 +353,7 @@ void Annotations::Update(int id, char *note) {
 	} else {
 		if (debug) fprintf(stdout, "Records created successfully\n");
 	}
+#endif
 }
 
 PartInfo& Annotations::NewPartInfo(const char* partName) {
@@ -326,5 +387,32 @@ void Annotations::SavePinInfos() {
 void Annotations::RefreshPinInfos() {
 	partInfos.clear();
 	netInfos.clear();
+	netAnnotations.clear();
+	pinAnnotations.clear();
 	deserialize(*this, filename + ".yaml");
+}
+
+NetAnnotation& Annotations::NewNetAnnotation(const char* netName) {
+	auto& a = netAnnotations[netName];
+	a.net   = netName;
+	return a;
+}
+
+PinAnnotation& Annotations::NewPinAnnotation(const char* partName, const char* pinName) {
+	auto& a    = pinAnnotations[partName][pinName];
+	a.partName = partName;
+	a.pinName  = pinName;
+	return a;
+}
+
+void Annotations::RemoveNetAnnotation(const std::string& netName) {
+	netAnnotations.erase(netName);
+}
+
+void Annotations::RemovePinAnnotation(const std::string& partName, const std::string& pinName) {
+	auto it = pinAnnotations.find(partName);
+	if (it != pinAnnotations.end()) {
+		it->second.erase(pinName);
+		if (it->second.empty()) pinAnnotations.erase(it);
+	}
 }

@@ -6,7 +6,10 @@
             "displayName": "Ninja Multi-Config",
             "description": "Configure with vcpkg toolchain and generate Ninja project files for all configurations",
             "binaryDir": "${sourceDir}/build/${presetName}",
-            "generator": "Ninja Multi-Config"
+            "generator": "Ninja Multi-Config",
+            "environment": {
+                "CMAKE_POLICY_VERSION_MINIMUM": "3.5"
+            }
         }
     ],
     "buildPresets": [

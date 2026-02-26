@@ -1,4 +1,6 @@
+#ifdef HAVE_SQLITE3
 #include "sqlite3.h"
+#endif
 #include <list>
 #include <map>
 #ifndef __ANNOTATIONS
@@ -60,13 +62,36 @@ struct NetInfo {
 	}
 };
 
+// ── New annotation types ──────────────────────────────────────────────────────
+
+// Annotation bound to a net: shown at every pin that belongs to the net.
+struct NetAnnotation {
+	std::string net;  // key
+	std::string note;
+	explicit operator bool() const { return !note.empty(); }
+};
+
+// Annotation bound to a specific pin of a specific part.
+struct PinAnnotation {
+	std::string partName;  // key (level 1)
+	std::string pinName;   // key (level 2)
+	std::string note;
+	explicit operator bool() const { return !note.empty(); }
+};
+
 struct Annotations {
 	std::string filename;
-	sqlite3 *sqldb;
+#ifdef HAVE_SQLITE3
+	sqlite3 *sqldb = nullptr;
+#endif
 	bool debug = false;
 	std::vector<Annotation> annotations;
 	std::map<std::string, PartInfo> partInfos;
 	std::map<std::string, NetInfo> netInfos;
+
+	// New annotation maps (persisted in YAML alongside partInfos/netInfos)
+	std::map<std::string, NetAnnotation> netAnnotations;                          // net name → annotation
+	std::map<std::string, std::map<std::string, PinAnnotation>> pinAnnotations;   // partName → pinName → annotation
 
 	int Init(void);
 
@@ -83,6 +108,12 @@ struct Annotations {
 	NetInfo& NewNetInfo(const char* netName);
 	void SavePinInfos();
 	void RefreshPinInfos();
+
+	// New annotation CRUD
+	NetAnnotation& NewNetAnnotation(const char* netName);
+	PinAnnotation& NewPinAnnotation(const char* partName, const char* pinName);
+	void RemoveNetAnnotation(const std::string& netName);
+	void RemovePinAnnotation(const std::string& partName, const std::string& pinName);
 };
 
 #endif

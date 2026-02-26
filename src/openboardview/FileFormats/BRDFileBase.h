@@ -48,7 +48,7 @@ struct BRDPoint {
 	}
 };
 
-enum class BRDPartMountingSide { Both, Bottom, Top, S1, S2, S3, S4, S5, S6, S7, S8 ,S9, S10, S11, S12, S13, S14, S15, S16 };
+enum class BRDPartMountingSide { Both, Bottom, Top, S1 = Top, S2, S3, S4, S5, S6, S7, S8 ,S9, S10, S11, S12, S13, S14, S15, S16 };
 enum class BRDPartType { SMD, ThroughHole };
 
 struct BRDPart {
@@ -62,7 +62,7 @@ struct BRDPart {
 	std::vector<BRDPoint> format;
 };
 
-enum class BRDPinSide { Both, Bottom, Top, S1, S2, S3, S4, S5, S6, S7, S8 ,S9, S10, S11, S12, S13, S14, S15, S16 };
+enum class BRDPinSide { Both, Bottom, Top, S1 = Top, S2, S3, S4, S5, S6, S7, S8 ,S9, S10, S11, S12, S13, S14, S15, S16 };
 enum class BPDPinShape { Fold, Circle, Rect };
 
 struct BRDPin {

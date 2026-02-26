@@ -27,7 +27,12 @@
 // Shows a file dialog (should hang the current thread) and returns the utf8
 // filename picked by the user.
 const filesystem::path show_file_picker(bool filterBoards = false);
-void export_folder_to_private_folder();
+void select_working_folder();
+
+// Platform-aware text file IO.
+// On Android, 'path' may be a content:// SAF URI.
+std::string file_read_text(const std::string &path);
+bool        file_write_text(const std::string &path, const std::string &content);
 
 const std::string get_font_path(const std::string &name);
 std::vector<char> load_font(const std::string &name);

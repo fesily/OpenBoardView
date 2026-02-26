@@ -61,9 +61,10 @@ public:
 	uint32_t orMaskOutline = 0x00000000;
 
     uint32_t viaColor = 0xFFC7C7C7;
-    std::array<uint32_t, 2> layerColor[11] = {
-            {0xFFFFFFFF, 0xFFFFFFFF},
-            {0xFFFF0000, 0xFFFF8080},
+    std::array<uint32_t, 2> layerColor[18] = {
+            {0xFFFFFFFF, 0xFFFFFFFF}, // both
+            {0xFF808000, 0xFFC0C080}, // bottom
+            {0xFFFF0000, 0xFFFF8080}, // top
             {0xFF00FF00, 0xFF80FF80},
             {0xFF0000FF, 0xFF8080FF},
             {0xFFFFFF00, 0xFFFFFF80},
@@ -72,7 +73,13 @@ public:
             {0xFF800000, 0xFFC08080},
             {0xFF008000, 0xFF80C080},
             {0xFF000080, 0xFF8080C0},
-            {0xFF808000, 0xFFC0C080},
+			{0xFF800080, 0xFFC080C0},
+			{0xFF008080, 0xFF80C0C0},
+			{0xFF808080, 0xFFC0C0C0},
+			{0xFF400000, 0xFFC04040},
+			{0xFF004000, 0xFF80C040},
+			{0xFF000040, 0xFF8080C0},
+			{0xFF400040, 0xFFC040C0},
     };
     uint32_t defaultBoardSelectColor = 0xFF00FFFF;
 

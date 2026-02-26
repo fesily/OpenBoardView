@@ -40,7 +40,7 @@ enum EBoardSide {
 	kBoardSideBoth,
 	kBoardSideBottom,
 	kBoardSideTop,
-	kBoardSideS1,
+	kBoardSideS1 = kBoardSideTop,
 	kBoardSideS2,
 	kBoardSideS3,
 	kBoardSideS4,
@@ -56,6 +56,7 @@ enum EBoardSide {
 	kBoardSideS14,
 	kBoardSideS15,
 	kBoardSideS16,
+	kBoardSideMax,
 };
 
 enum EShapeType {
