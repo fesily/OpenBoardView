@@ -29,11 +29,12 @@ struct PinInfo {
     std::string voltage;
     std::string ohm;
     std::string ohm_black;
+	std::string note;
 	PinVoltageFlag voltage_flag = PinVoltageFlag::unknown;
 
 	explicit operator bool() const {
 		return !(diode.empty() && voltage.empty() && ohm.empty() && ohm_black.empty() &&
-		        voltage_flag == PinVoltageFlag::unknown);
+		        note.empty() && voltage_flag == PinVoltageFlag::unknown);
 	}
 };
 
@@ -57,26 +58,10 @@ struct PartInfo {
 struct NetInfo {
 	std::string name;
 	std::string showname;
+	std::string note;
 	explicit operator bool() const {
-		return !showname.empty();
+		return !(showname.empty() && note.empty());
 	}
-};
-
-// ── New annotation types ──────────────────────────────────────────────────────
-
-// Annotation bound to a net: shown at every pin that belongs to the net.
-struct NetAnnotation {
-	std::string net;  // key
-	std::string note;
-	explicit operator bool() const { return !note.empty(); }
-};
-
-// Annotation bound to a specific pin of a specific part.
-struct PinAnnotation {
-	std::string partName;  // key (level 1)
-	std::string pinName;   // key (level 2)
-	std::string note;
-	explicit operator bool() const { return !note.empty(); }
 };
 
 struct Annotations {
@@ -88,10 +73,6 @@ struct Annotations {
 	std::vector<Annotation> annotations;
 	std::map<std::string, PartInfo> partInfos;
 	std::map<std::string, NetInfo> netInfos;
-
-	// New annotation maps (persisted in YAML alongside partInfos/netInfos)
-	std::map<std::string, NetAnnotation> netAnnotations;                          // net name → annotation
-	std::map<std::string, std::map<std::string, PinAnnotation>> pinAnnotations;   // partName → pinName → annotation
 
 	int Init(void);
 
@@ -108,12 +89,6 @@ struct Annotations {
 	NetInfo& NewNetInfo(const char* netName);
 	void SavePinInfos();
 	void RefreshPinInfos();
-
-	// New annotation CRUD
-	NetAnnotation& NewNetAnnotation(const char* netName);
-	PinAnnotation& NewPinAnnotation(const char* partName, const char* pinName);
-	void RemoveNetAnnotation(const std::string& netName);
-	void RemovePinAnnotation(const std::string& partName, const std::string& pinName);
 };
 
 #endif

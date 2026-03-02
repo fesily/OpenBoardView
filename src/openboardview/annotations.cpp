@@ -70,6 +70,7 @@ namespace c4::yml {
 		if (!pi.voltage.empty()) node->append_child() << key("voltage") << pi.voltage;
 		if (!pi.ohm.empty()) node->append_child() << key("ohm") << pi.ohm;
 		if (!pi.ohm_black.empty()) node->append_child() << key("ohm_black") << pi.ohm_black;
+		if (!pi.note.empty()) node->append_child() << key("note") << pi.note;
 		if (pi.voltage_flag != PinVoltageFlag::unknown) node->append_child() << key("voltage_flag") << pi.voltage_flag;
 	}
 
@@ -78,6 +79,7 @@ namespace c4::yml {
 		if (node.has_child("voltage")) node["voltage"] >> pi->voltage;
 		if (node.has_child("ohm")) node["ohm"] >> pi->ohm;
 		if (node.has_child("ohm_black")) node["ohm_black"] >> pi->ohm_black;
+		if (node.has_child("note")) node["note"] >> pi->note;
 		if (node.has_child("voltage_flag")) node["voltage_flag"] >> pi->voltage_flag;
 		return true;
 	}
@@ -99,30 +101,12 @@ namespace c4::yml {
 	void write(c4::yml::NodeRef *node, const NetInfo &net) {
 		(*node) |= c4::yml::MAP;
 		if (!net.showname.empty()) node->append_child() << key("showname") << net.showname;
+		if (!net.note.empty()) node->append_child() << key("note") << net.note;
 	}
 
 	bool read(const c4::yml::ConstNodeRef& node, NetInfo* net) {
 		if (node.has_child("showname")) node["showname"] >> net->showname;
-		return true;
-	}
-
-	void write(c4::yml::NodeRef *node, const NetAnnotation &na) {
-		(*node) |= c4::yml::MAP;
-		if (!na.note.empty()) node->append_child() << key("note") << na.note;
-	}
-
-	bool read(const c4::yml::ConstNodeRef& node, NetAnnotation* na) {
-		if (node.has_child("note")) node["note"] >> na->note;
-		return true;
-	}
-
-	void write(c4::yml::NodeRef *node, const PinAnnotation &pa) {
-		(*node) |= c4::yml::MAP;
-		if (!pa.note.empty()) node->append_child() << key("note") << pa.note;
-	}
-
-	bool read(const c4::yml::ConstNodeRef& node, PinAnnotation* pa) {
-		if (node.has_child("note")) node["note"] >> pa->note;
+		if (node.has_child("note")) node["note"] >> net->note;
 		return true;
 	}
 }
@@ -136,10 +120,6 @@ static void serialize(const Annotations& ann, const std::string& filename) {
 		root.append_child() << c4::yml::key("PartInfos") << ann.partInfos;
 	if (!ann.netInfos.empty())
 		root.append_child() << c4::yml::key("NetInfos") << ann.netInfos;
-	if (!ann.netAnnotations.empty())
-		root.append_child() << c4::yml::key("NetAnnotations") << ann.netAnnotations;
-	if (!ann.pinAnnotations.empty())
-		root.append_child() << c4::yml::key("PinAnnotations") << ann.pinAnnotations;
     std::ostringstream oss;
     oss << tree;
     file_write_text(filename, oss.str());
@@ -154,8 +134,6 @@ static void deserialize(Annotations& ann, const std::string& filename) {
 	auto version        = root["Version"];
 	auto partInfos      = root["PartInfos"];
 	auto netInfos       = root["NetInfos"];
-	auto netAnnotations = root["NetAnnotations"];
-	auto pinAnnotations = root["PinAnnotations"];
 	if (partInfos.readable() && !partInfos.empty()) {
 		for (auto child1 : partInfos.children()) {
 			std::string partName = {child1.key().str, child1.key().size()};
@@ -180,29 +158,6 @@ static void deserialize(Annotations& ann, const std::string& filename) {
 		}
 	}
 
-	if (netAnnotations.readable() && !netAnnotations.empty()) {
-		for (auto child : netAnnotations.children()) {
-			std::string netName = {child.key().str, child.key().size()};
-			NetAnnotation na;
-			child >> na;
-			na.net = netName;
-			ann.netAnnotations[netName] = na;
-		}
-	}
-
-	if (pinAnnotations.readable() && !pinAnnotations.empty()) {
-		for (auto child1 : pinAnnotations.children()) {
-			std::string partName = {child1.key().str, child1.key().size()};
-			for (auto child2 : child1.children()) {
-				std::string pinName = {child2.key().str, child2.key().size()};
-				PinAnnotation pa;
-				child2 >> pa;
-				pa.partName = partName;
-				pa.pinName  = pinName;
-				ann.pinAnnotations[partName][pinName] = pa;
-			}
-		}
-	}
 }
 
 int Annotations::Load(void) {
@@ -387,32 +342,5 @@ void Annotations::SavePinInfos() {
 void Annotations::RefreshPinInfos() {
 	partInfos.clear();
 	netInfos.clear();
-	netAnnotations.clear();
-	pinAnnotations.clear();
 	deserialize(*this, filename + ".yaml");
-}
-
-NetAnnotation& Annotations::NewNetAnnotation(const char* netName) {
-	auto& a = netAnnotations[netName];
-	a.net   = netName;
-	return a;
-}
-
-PinAnnotation& Annotations::NewPinAnnotation(const char* partName, const char* pinName) {
-	auto& a    = pinAnnotations[partName][pinName];
-	a.partName = partName;
-	a.pinName  = pinName;
-	return a;
-}
-
-void Annotations::RemoveNetAnnotation(const std::string& netName) {
-	netAnnotations.erase(netName);
-}
-
-void Annotations::RemovePinAnnotation(const std::string& partName, const std::string& pinName) {
-	auto it = pinAnnotations.find(partName);
-	if (it != pinAnnotations.end()) {
-		it->second.erase(pinName);
-		if (it->second.empty()) pinAnnotations.erase(it);
-	}
 }

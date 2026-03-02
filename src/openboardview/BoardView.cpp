@@ -201,6 +201,7 @@ void ReloadPinInfos(Annotations &m_annotations, Board *m_board) {
 			if (pinInfo.ohm.size() > 0) pin->ohm_value = pinInfo.ohm;
 			if (pinInfo.ohm_black.size() > 0) pin->ohm_black_value = pinInfo.ohm_black;
 			if (pinInfo.voltage_flag != PinVoltageFlag::unknown) pin->voltage_flag = pinInfo.voltage_flag;
+			pin->note = pinInfo.note;
 		}
 		part->angle = partInfo.angle;
 //		if (part->angle != PartAngle::_0)
@@ -210,6 +211,7 @@ void ReloadPinInfos(Annotations &m_annotations, Board *m_board) {
 		if (m_annotations.netInfos.contains(net->name)) {
 			auto& netinfo = m_annotations.netInfos[net->name];
 			net->show_name = netinfo.showname;
+			net->note = netinfo.note;
 		}
 	}
 }
@@ -747,13 +749,22 @@ void BoardView::ContextMenu(void) {
 					static bool pinMode;
 					static bool inferValueMode;
 					static PartAngle partAngleNew;
-					auto init_fun = [](Pin* selection) {
+					auto init_fun = [this, selection_component](Pin* selection) {
 						memcpy(diodeNew, selection->diode_value.c_str(), std::min<size_t >(sizeof(diodeNew), selection->diode_value.size()));
 						memcpy(voltageNew, selection->voltage_value.c_str(), std::min<size_t>(sizeof(diodeNew), selection->voltage_value.size()));
 						memcpy(ohmNew, selection->ohm_value.c_str(), std::min<size_t>(sizeof(ohmNew), selection->ohm_value.size()));
 						memcpy(ohmBlackNew, selection->ohm_black_value.c_str(), std::min<size_t>(sizeof(ohmBlackNew), selection->ohm_black_value.size()));
 						voltageFlagNew = selection->voltage_flag;
 						memcpy(netNameNew, selection->net->show_name.c_str(), std::min<size_t>(sizeof(netNameNew), selection->net->show_name.size()));
+						auto partIt = m_annotations.partInfos.find(selection_component->name);
+						if (!selection->note.empty()) {
+							auto &note = selection->note;
+							memcpy(pinNoteNew, note.c_str(), std::min<size_t>(sizeof(pinNoteNew), note.size()));
+						}
+						if (!selection->net->note.empty()) {
+							auto &note = selection->net->note;
+							memcpy(netNoteNew, note.c_str(), std::min<size_t>(sizeof(netNoteNew), note.size()));
+						}
 					};
 					if (m_annotationnew_retain == false) {
 						contextbufnew[0]        = 0;
@@ -879,12 +890,7 @@ void BoardView::ContextMenu(void) {
 								if (selection->net->show_name.empty())
 									selection->net->show_name = net;
 							}
-							// Pin-bound annotation
-							if (!std::string_view{pinNoteNew}.empty()) {
-								m_annotations.NewPinAnnotation(
-									selection->component->name.c_str(),
-									selection->name.c_str()).note = pinNoteNew;
-							}
+							pinInfo.note = selection->note = pinNoteNew;
 						}
 						if (selection_component) {
 							auto& partInfo = m_annotations.NewPartInfo(selection_component->name.c_str());;
@@ -896,8 +902,8 @@ void BoardView::ContextMenu(void) {
 							}
 						}
 						// Net-bound annotation
-						if (!net.empty() && !std::string_view{netNoteNew}.empty()) {
-							m_annotations.NewNetAnnotation(net.c_str()).note = netNoteNew;
+						if (!net.empty()) {
+							m_annotations.NewNetInfo(net.c_str()).note = selection->net->note = netNoteNew;
 						}
 						m_annotations.SavePinInfos();
 
@@ -1576,17 +1582,43 @@ void BoardView::Update() {
 	ImGui::Begin("status", nullptr, flags | ImGuiWindowFlags_NoFocusOnAppearing);
 	if (m_file && m_board && m_pinSelected) {
 		auto pin = m_pinSelected;
-		ImGui::Text("Part: %s   Pin: %s   Net: %s(%s)   Probe: %d   (%s.) Voltage: %s  Ohm: %s OhmBlack: %s",
-		            pin->component->name.c_str(),
-		            pin->show_name.c_str(),
-		            pin->net->show_name.c_str(),
-		            pin->net->name.c_str(),
-		            pin->net->number,
-		            pin->component->mount_type_str().c_str(),
-		            pin->voltage_value.c_str(),
-		            pin->ohm_value.c_str(),
-		            pin->ohm_black_value.c_str()
-					);
+		std::string statusLine;
+		auto appendItem = [&statusLine](const char *label, const std::string &value) {
+			if (value.empty()) return;
+			if (!statusLine.empty()) statusLine += "   ";
+			statusLine += label;
+			statusLine += value;
+		};
+		auto appendRawItem = [&statusLine](const std::string &value) {
+			if (value.empty()) return;
+			if (!statusLine.empty()) statusLine += "   ";
+			statusLine += value;
+		};
+		if (pin->component) {
+			appendItem("Part: ", pin->component->name);
+			appendRawItem("(" + pin->component->mount_type_str() + ".)");
+		}
+		appendItem("Pin: ", pin->show_name);
+		if (pin->net) {
+			std::string netText;
+			if (!pin->net->show_name.empty() || !pin->net->name.empty()) {
+				netText = pin->net->show_name;
+				if (!pin->net->name.empty()) {
+					if (!netText.empty()) netText += "(" + pin->net->name + ")";
+					else netText = pin->net->name;
+				}
+			}
+			appendItem("Net: ", netText);
+			appendRawItem("Probe: " + std::to_string(pin->net->number));
+			appendItem("NetNote: ", pin->net->note);
+		}
+		appendItem("Voltage: ", pin->voltage_value);
+		appendItem("Ohm: ", pin->ohm_value);
+		appendItem("OhmBlack: ", pin->ohm_black_value);
+		appendItem("PinNote: ", pin->note);
+
+		if (statusLine.empty()) statusLine = " ";
+		ImGui::TextEx(statusLine.c_str());
 	} else {
 		ImVec2 spos = ImGui::GetMousePos();
 		ImVec2 pos  = ScreenToCoord(spos.x, spos.y);
@@ -3827,64 +3859,6 @@ inline void BoardView::DrawAnnotations(ImDrawList *draw) {
 			draw->AddRectFilled(a, b, m_colors.annotationBoxColor);
 			draw->AddRect(a, b, m_colors.annotationStalkColor);
 			draw->AddLine(s, a, m_colors.annotationStalkColor);
-		}
-	}
-
-	// ── Pin-bound annotations ─────────────────────────────────────────────────
-	if (m_board) {
-		ImVec2 mp = ImGui::GetMousePos();
-		const float hover_r2 = DPIF(6) * DPIF(6);
-
-		for (auto &part_entry : m_annotations.pinAnnotations) {
-			for (auto &pin_entry : part_entry.second) {
-				const auto &pa = pin_entry.second;
-				if (pa.note.empty()) continue;
-				for (auto &pin : m_board->Pins()) {
-					if (pin->component->name != pa.partName || pin->name != pa.pinName) continue;
-					if (!BoardElementIsVisible(pin->component)) break;
-					ImVec2 s = CoordToScreen(pin->position.x, pin->position.y);
-					// Diamond marker (4-point polygon)
-					float r = DPIF(4);
-					ImVec2 pts[4] = {{s.x, s.y - r}, {s.x + r, s.y}, {s.x, s.y + r}, {s.x - r, s.y}};
-					draw->AddConvexPolyFilled(pts, 4, m_colors.annotationBoxColor);
-					draw->AddPolyline(pts, 4, m_colors.annotationStalkColor, ImDrawFlags_Closed, 1.0f);
-					// Tooltip on hover
-					float dx = mp.x - s.x, dy = mp.y - s.y;
-					if (ImGui::IsWindowHovered() && dx * dx + dy * dy < hover_r2) {
-						ImGui::PushStyleColor(ImGuiCol_Text, m_colors.annotationPopupTextColor);
-						ImGui::PushStyleColor(ImGuiCol_PopupBg, m_colors.annotationPopupBackgroundColor);
-						ImGui::BeginTooltip();
-						ImGui::Text("[Pin] %s[%s]\n%s", pa.partName.c_str(), pa.pinName.c_str(), pa.note.c_str());
-						ImGui::EndTooltip();
-						ImGui::PopStyleColor(2);
-					}
-					break;
-				}
-			}
-		}
-
-		// ── Net-bound annotations ─────────────────────────────────────────────
-		for (auto &net_entry : m_annotations.netAnnotations) {
-			const auto &na = net_entry.second;
-			if (na.note.empty()) continue;
-			for (auto &pin : m_board->Pins()) {
-				if (!pin->net || pin->net->name != na.net) continue;
-				if (!BoardElementIsVisible(pin->component)) continue;
-				ImVec2 s = CoordToScreen(pin->position.x, pin->position.y);
-				// Ring marker
-				draw->AddCircle(s, DPIF(5), m_colors.annotationStalkColor, 12, 1.5f);
-				draw->AddCircleFilled(s, DPIF(2), m_colors.annotationBoxColor, 8);
-				// Tooltip on hover
-				float dx = mp.x - s.x, dy = mp.y - s.y;
-				if (ImGui::IsWindowHovered() && dx * dx + dy * dy < hover_r2) {
-					ImGui::PushStyleColor(ImGuiCol_Text, m_colors.annotationPopupTextColor);
-					ImGui::PushStyleColor(ImGuiCol_PopupBg, m_colors.annotationPopupBackgroundColor);
-					ImGui::BeginTooltip();
-					ImGui::Text("[Net] %s\n%s", na.net.c_str(), na.note.c_str());
-					ImGui::EndTooltip();
-					ImGui::PopStyleColor(2);
-				}
-			}
 		}
 	}
 }

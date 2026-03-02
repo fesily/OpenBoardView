@@ -128,6 +128,7 @@ struct Net : BoardElement {
 	std::string name;
 	std::string show_name;
 	std::string diode;
+	std::string note;
 	bool is_ground;
 
 	SharedVector<Pin> pins;
@@ -259,6 +260,8 @@ struct Pin : BoardElement {
     std::string ohm_value;
 
     std::string ohm_black_value;
+
+	std::string note;
 
 	PinVoltageFlag voltage_flag = PinVoltageFlag::unknown;
 
