@@ -25,6 +25,7 @@ enum class PinVoltageFlag {
 struct PinInfo {
 	std::string partName;
     std::string pinName;
+	std::string show_name;
     std::string diode;
     std::string voltage;
     std::string ohm;
@@ -33,7 +34,7 @@ struct PinInfo {
 	PinVoltageFlag voltage_flag = PinVoltageFlag::unknown;
 
 	explicit operator bool() const {
-		return !(diode.empty() && voltage.empty() && ohm.empty() && ohm_black.empty() &&
+		return !(show_name.empty() && diode.empty() && voltage.empty() && ohm.empty() && ohm_black.empty() &&
 		        note.empty() && voltage_flag == PinVoltageFlag::unknown);
 	}
 };

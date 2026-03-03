@@ -66,6 +66,7 @@ int Annotations::Init(void) {
 namespace c4::yml {
 	void write(c4::yml::NodeRef *node, const PinInfo &pi) {
 		(*node) |= c4::yml::MAP;
+		if (!pi.show_name.empty()) node->append_child() << key("show_name") << pi.show_name;
 		if (!pi.diode.empty()) node->append_child() << key("diode") << pi.diode;
 		if (!pi.voltage.empty()) node->append_child() << key("voltage") << pi.voltage;
 		if (!pi.ohm.empty()) node->append_child() << key("ohm") << pi.ohm;
@@ -75,6 +76,7 @@ namespace c4::yml {
 	}
 
 	bool read(const c4::yml::ConstNodeRef& node, PinInfo* pi) {
+		if (node.has_child("show_name")) node["show_name"] >> pi->show_name;
 		if (node.has_child("diode")) node["diode"] >> pi->diode;
 		if (node.has_child("voltage")) node["voltage"] >> pi->voltage;
 		if (node.has_child("ohm")) node["ohm"] >> pi->ohm;
@@ -336,6 +338,7 @@ void Annotations::SavePinInfos() {
 		std::erase_if(part_info.pins, [](auto &p) { return !p.second; });
 	}
 	std::erase_if(partInfos, [](auto &p) { return !p.second; });
+	std::erase_if(netInfos, [](auto &n) { return !n.second; });
 	serialize(*this, filename  + ".yaml");
 }
 

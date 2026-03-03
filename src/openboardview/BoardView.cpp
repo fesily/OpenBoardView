@@ -202,6 +202,7 @@ void ReloadPinInfos(Annotations &m_annotations, Board *m_board) {
 			if (pinInfo.ohm_black.size() > 0) pin->ohm_black_value = pinInfo.ohm_black;
 			if (pinInfo.voltage_flag != PinVoltageFlag::unknown) pin->voltage_flag = pinInfo.voltage_flag;
 			pin->note = pinInfo.note;
+			pin->show_name = pinInfo.show_name;
 		}
 		part->angle = partInfo.angle;
 //		if (part->angle != PartAngle::_0)
@@ -243,6 +244,8 @@ int BoardView::LoadFile(const filesystem::path &filepath) {
 		m_validBoard = false;
 		m_error_msg.clear();
 		pdfBridge.CloseDocument();
+		m_sideNames.clear();
+		m_showSides.clear();
 
 		SetLastFileOpenName(filepath.string());
 		std::vector<char> buffer = file_as_buffer(filepath, m_error_msg);
@@ -743,6 +746,7 @@ void BoardView::ContextMenu(void) {
 					static char ohmBlackNew[128];
 					static char partTypeNew[128];
 					static char netNameNew[128];
+					static char pinShowNameNew[128];
 					static char netNoteNew[512];
 					static char pinNoteNew[512];
 					static PinVoltageFlag voltageFlagNew;
@@ -757,6 +761,12 @@ void BoardView::ContextMenu(void) {
 						voltageFlagNew = selection->voltage_flag;
 						memcpy(netNameNew, selection->net->show_name.c_str(), std::min<size_t>(sizeof(netNameNew), selection->net->show_name.size()));
 						auto partIt = m_annotations.partInfos.find(selection_component->name);
+						if (selection->show_name.empty()) {
+							memcpy(pinShowNameNew, selection->name.c_str(), std::min<size_t>(sizeof(pinShowNameNew), selection->name.size()));
+						} else {
+							auto &showName = selection->show_name;
+							memcpy(pinShowNameNew, showName.c_str(), std::min<size_t>(sizeof(pinShowNameNew), showName.size()));
+						}
 						if (!selection->note.empty()) {
 							auto &note = selection->note;
 							memcpy(pinNoteNew, note.c_str(), std::min<size_t>(sizeof(pinNoteNew), note.size()));
@@ -777,6 +787,7 @@ void BoardView::ContextMenu(void) {
 						memset(ohmBlackNew, 0, sizeof (ohmBlackNew));
 						memset(partTypeNew, 0, sizeof (partTypeNew));
 						memset(netNameNew, 0, sizeof (netNameNew));
+						memset(pinShowNameNew, 0, sizeof(pinShowNameNew));
 						memset(netNoteNew, 0, sizeof(netNoteNew));
 						memset(pinNoteNew, 0, sizeof(pinNoteNew));
 						voltageFlagNew = PinVoltageFlag::unknown;
@@ -853,6 +864,9 @@ void BoardView::ContextMenu(void) {
 											netNameNew,
 											sizeof(netNameNew));
 						}
+						ImGui::InputText("pinShowName##pinShowNameNew",
+										 pinShowNameNew,
+										 sizeof(pinShowNameNew));
 						ImGui::Separator();
 						ImGui::Text("Pin Note (bound to %s[%s]):", selection->component->name.c_str(), selection->name.c_str());
 						ImGui::InputTextMultiline("##pinNoteNew",
@@ -890,6 +904,7 @@ void BoardView::ContextMenu(void) {
 								if (selection->net->show_name.empty())
 									selection->net->show_name = net;
 							}
+							pinInfo.show_name = selection->show_name = pinShowNameNew;
 							pinInfo.note = selection->note = pinNoteNew;
 						}
 						if (selection_component) {
