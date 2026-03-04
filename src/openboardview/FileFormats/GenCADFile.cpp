@@ -343,7 +343,7 @@ void GenCADFile::fill_signals_cache() {
 
 const char *GenCADFile::get_signal_name_for_component_pin(const char *component_name, mpc_ast_t *pin_ast) {
 	char *pin_name = get_nonquoted_or_quoted_string_child(pin_ast, "shape_pin_name");
-	if (!pin_name) return nullptr;
+	if (!pin_name) return "";
 
 	ComponentPin key{component_name, pin_name};
 
@@ -351,7 +351,7 @@ const char *GenCADFile::get_signal_name_for_component_pin(const char *component_
 	if (found_pin != m_signals_cache.end()) {
 		return found_pin->second.c_str();
 	}
-	return nullptr;
+	return "";
 }
 
 bool GenCADFile::parse_dimension_units(mpc_ast_t *header_ast) {
