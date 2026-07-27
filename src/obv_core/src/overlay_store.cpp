@@ -599,6 +599,24 @@ bool SavePartNetYaml(const filesystem::path &boardPath, const Annotations &ann, 
 		err = "board path is empty";
 		return false;
 	}
+
+	// Annotations::SavePinInfos -> serialize ignores file_write_text's bool return
+	// (desktop always voids the write result). Detect failure here via create /
+	// mtime / size change, then re-read for Version 0.0.2.
+	const auto yamlPath = boardPath.string() + ".yaml";
+	const filesystem::path yamlFs(yamlPath);
+	std::error_code ec;
+	const bool existed = filesystem::exists(yamlFs, ec) && !ec;
+	uintmax_t sizeBefore = 0;
+	filesystem::file_time_type mtimeBefore{};
+	bool haveMtimeBefore = false;
+	if (existed) {
+		sizeBefore = filesystem::file_size(yamlFs, ec);
+		if (ec) sizeBefore = 0;
+		mtimeBefore = filesystem::last_write_time(yamlFs, ec);
+		haveMtimeBefore = !ec;
+	}
+
 	// SavePinInfos is non-const (prunes empty map entries). Copy only YAML-relevant
 	// fields so we never share/close the caller's sqlite handle.
 	Annotations copy;
@@ -607,10 +625,29 @@ bool SavePartNetYaml(const filesystem::path &boardPath, const Annotations &ann, 
 	copy.netInfos = ann.netInfos;
 	copy.SavePinInfos();
 
-	const auto yamlPath = boardPath.string() + ".yaml";
-	if (!filesystem::exists(yamlPath)) {
-		// SavePinInfos always calls serialize -> file_write_text; empty maps still write Version.
+	if (!filesystem::exists(yamlFs, ec) || ec) {
 		err = "failed to write " + yamlPath;
+		return false;
+	}
+
+	const uintmax_t sizeAfter = filesystem::file_size(yamlFs, ec);
+	if (ec) {
+		err = "failed to stat " + yamlPath;
+		return false;
+	}
+	const auto mtimeAfter = filesystem::last_write_time(yamlFs, ec);
+	const bool mtimeChanged = haveMtimeBefore && !ec && (mtimeAfter != mtimeBefore);
+	const bool sizeChanged = sizeAfter != sizeBefore;
+	const bool newlyCreated = !existed;
+	if (!newlyCreated && !mtimeChanged && !sizeChanged) {
+		err = "failed to write " + yamlPath + " (file unchanged after SavePinInfos)";
+		return false;
+	}
+
+	// Content check: serialize always emits Version 0.0.2 even for empty maps.
+	const std::string content = file_read_text(yamlPath);
+	if (content.find("0.0.2") == std::string::npos) {
+		err = "failed to write " + yamlPath + " (missing Version 0.0.2)";
 		return false;
 	}
 	return true;

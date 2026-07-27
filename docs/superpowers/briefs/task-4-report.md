@@ -101,3 +101,16 @@ cmake --build build-core-only --target obv_core_tests -j 8
 2. **`annotations.h` lacks `<string>`/`<vector>` includes** — overlay_store.h includes them first as a workaround; long-term fix belongs on the desktop header.
 3. **Hand-rolled JSON parser** is intentionally minimal (overlay PUT shape only). Malformed deep nesting may yield generic error strings; sufficient for controlled API clients.
 4. **Empty yaml still written** with `Version: 0.0.2` only — matches desktop `serialize` when maps empty after prune.
+
+---
+
+## Fix: SavePartNetYaml success detection (`fix(core): verify overlay YAML write success`)
+
+**Finding:** `SavePartNetYaml` returned true when the yaml path merely existed after `SavePinInfos`, even if the write failed (e.g. read-only / existing file). Desktop `serialize` voids `file_write_text`'s bool; `SavePinInfos` cannot signal I/O failure.
+
+**Fix:** Before `SavePinInfos`, record existence + size + mtime. After save require:
+1. path exists,
+2. newly created **or** mtime changed **or** size changed,
+3. re-read content contains `0.0.2` (serialize always writes `Version: 0.0.2`).
+
+Header documents that `SavePinInfos` cannot signal write failure and that overlay_store verifies via create/mtime/size + Version re-read.
