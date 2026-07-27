@@ -83,3 +83,12 @@ local.properties
 
 # VS Code
 .vscode
+
+.superpowers/
+.worktrees/
+build-web/
+build-core-only/
+
+# Web (Vite)
+web/node_modules/
+web/dist/
