@@ -3,6 +3,7 @@
 **Status:** DONE  
 **Branch:** `merge_upsteam_my`  
 **Base:** `36aa93e` (Task 5 complete)  
+**Commit:** `7d5e9bc` — `feat(server): board upload list and JSON get`  
 **Date:** 2026-07-27
 
 ---
