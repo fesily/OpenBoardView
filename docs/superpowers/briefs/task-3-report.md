@@ -138,3 +138,23 @@ cmake --build build-core-only --target obv_core_tests -j 8
 # ok
 # exit:0
 ```
+
+---
+
+## Fix pass 2 — synthetic sides
+
+**Commit:** `fix(core): filter synthetic sides from board JSON`
+
+### 4. Filter synthetic max layer from `sides`
+- **Bug:** `appendSides` serialized every `AllSide()` entry. BRDBoard (≈337–350) appends a synthetic max layer (`all_side_.back()+1`) for desktop flip remapping when `side_size` is even and bottom is present; elements on that layer are rewritten to bottom, so the phantom entry (e.g. `s2` on two-sided boards) has no elements but still appeared in JSON as `["bottom","top","s2"]`.
+- **Fix / choice:** Export `AllSide()` but drop the final entry when `size >= 2`, `last == previous + 1`, and no component/pin/track/via/arc/net uses that side. Empty fallback remains `["top","bottom"]`. Documented in comment above `appendSides`. Prefer this over element-only collection so legitimate multi-side lists from parse stay intact when not synthetic.
+
+### Verification
+
+```text
+cmake --build build-core-only --target obv_core_tests -j 8
+./build-core-only/src/obv_core_tests/Debug/obv_core_tests.exe
+# skip export
+# ok
+# exit:0
+```

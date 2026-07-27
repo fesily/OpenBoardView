@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <limits>
 #include <unordered_map>
+#include <vector>
 
 namespace obv {
 namespace {
@@ -273,9 +274,42 @@ void appendBounds(std::ostringstream &os, const BoardBounds &b) {
 	os << '}';
 }
 
+// Public sides list for JSON. BRDBoard (see ~337-350) may append a synthetic
+// max layer (previous max + 1) when side_size is even and bottom is present;
+// that entry is only for desktop flip remapping and has no elements after the
+// max-layer→bottom rewrite. Drop it so two-sided boards export
+// ["bottom","top"] rather than ["bottom","top","s2"].
 void appendSides(std::ostringstream &os, Board &board) {
+	const auto &all = board.AllSide();
+	std::vector<EBoardSide> sides(all.begin(), all.end());
+	if (sides.size() >= 2) {
+		const EBoardSide last = sides.back();
+		const EBoardSide prev = sides[sides.size() - 2];
+		if (static_cast<int>(last) == static_cast<int>(prev) + 1) {
+			bool used = false;
+			auto mark = [&](EBoardSide s) {
+				if (s == last) used = true;
+			};
+			for (const auto &c : board.Components())
+				if (c) mark(c->board_side);
+			for (const auto &p : board.Pins())
+				if (p) mark(p->board_side);
+			for (const auto &t : board.Tracks())
+				if (t) mark(t->board_side);
+			for (const auto &v : board.Vias())
+				if (v) mark(v->board_side);
+			for (const auto &a : board.arcs())
+				if (a) mark(a->board_side);
+			for (const auto &n : board.Nets())
+				if (n) mark(n->board_side);
+			if (!used) sides.pop_back();
+		}
+	}
+	if (sides.empty()) {
+		sides.push_back(kBoardSideTop);
+		sides.push_back(kBoardSideBottom);
+	}
 	os << "\"sides\":[";
-	const auto &sides = board.AllSide();
 	for (size_t i = 0; i < sides.size(); ++i) {
 		if (i) os << ',';
 		appendEscaped(os, sideToString(sides[i]));
