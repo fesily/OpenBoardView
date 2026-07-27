@@ -8,7 +8,7 @@
 #include <cstring>
 #include <limits>
 
-#include <SDL.h>
+#include <cstdio>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -54,12 +54,12 @@ bool GenCADFile::parse_file(const std::vector<char> &buf) {
 
 			pads_ast = mpc_ast_get_child(ast, "pads|>");
 			if (!pads_ast) {
-				SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Failed to parse GenCAD file: the $PADS section was not parsed properly");
+				fprintf(stderr, "Failed to parse GenCAD file: the $PADS section was not parsed properly\n");
 			}
 
 			padstacks_ast = mpc_ast_get_child(ast, "padstacks|>");
 			if (!padstacks_ast) {
-				SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Failed to parse GenCAD file: the $PADSTACKS section was not parsed properly");
+				fprintf(stderr, "Failed to parse GenCAD file: the $PADSTACKS section was not parsed properly\n");
 			}
 
 			shapes_ast = mpc_ast_get_child(ast, "shapes|>");

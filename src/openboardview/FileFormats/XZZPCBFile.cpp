@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
 #include <iomanip>
 #include <list>
 #include <sstream>
@@ -217,7 +218,7 @@ void XZZPCBFile::process_block(std::vector<char> &block_buf, uint8_t block_type)
 			parse_test_pad_block(block_buf);
 			break;
 		default:
-			SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "XZZPCBFile: Unhandled block type: %x", block_type);
+			fprintf(stderr, "XZZPCBFile: Unhandled block type: %x\n", block_type);
 			break;
 	}
 }
@@ -412,7 +413,7 @@ void XZZPCBFile::parse_part_block(std::vector<char> &encrypted_buf) {
 			}
 			default:
 				if (sub_type_identifier != 0x00) {
-					SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "XZZPCBFile: Unknown sub block type: 0x%02X at %d in %s",
+					fprintf(stderr, "XZZPCBFile: Unknown sub block type: 0x%02X at %d in %s\n",
 							sub_type_identifier, current_pointer, part_name.c_str());
 				}
 				break;

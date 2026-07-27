@@ -2,7 +2,7 @@
 
 #include "FileFormats/BRDFile.h"
 
-#include "imgui/imgui.h"
+#include "obv_core/vec2.h"
 #include <algorithm>
 #include <functional>
 #include <map>
@@ -309,15 +309,15 @@ struct Component : BoardElement {
 
 	// Post calculated outlines
 	//
-	std::array<ImVec2, 4> outline;
-	std::array<ImVec2, 4> special_outline;
+	std::array<obv::Vec2, 4> outline;
+	std::array<obv::Vec2, 4> special_outline;
 	bool is_special_outline = false;
 	Point p1{0.0f, 0.0f}, p2{0.0f, 0.0f}; // for debugging
 
 	bool outline_done = false;
-	std::vector<ImVec2> hull;
-	ImVec2 omin, omax;
-	ImVec2 centerpoint;
+	std::vector<obv::Vec2> hull;
+	obv::Vec2 omin, omax;
+	obv::Vec2 centerpoint;
 	double expanse = 0.0f; // quick measure of distance between pins.
 
 	PartAngle angle = PartAngle::_0;

@@ -268,5 +268,12 @@ execute_process(
 add_library(mpc STATIC "mpc/mpc.c")
 
 
+
 ## OpenBoardView ##
 add_subdirectory(openboardview)
+
+## obv_core — GUI-free board core library ##
+option(ENABLE_OBV_CORE "Build shared board core library" ON)
+if(ENABLE_OBV_CORE)
+	add_subdirectory(obv_core)
+endif()

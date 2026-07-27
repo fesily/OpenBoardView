@@ -70,6 +70,7 @@ endif()
 
 include(FetchContent)
 
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 FetchContent_Declare(
     iguana
     GIT_REPOSITORY https://github.com/fesily/iguana.git
@@ -77,6 +78,7 @@ FetchContent_Declare(
 )
 
 FetchContent_MakeAvailable(iguana)
+unset(CMAKE_POLICY_VERSION_MINIMUM)
 
 set(SOURCES
 	annotations.cpp
@@ -220,6 +222,7 @@ target_include_directories(${PROJECT_NAME_LOWER} PRIVATE ${iguana_SOURCE_DIR})
 target_include_directories(${PROJECT_NAME_LOWER} PRIVATE
 	${CMAKE_CURRENT_SOURCE_DIR}
 	${CMAKE_CURRENT_SOURCE_DIR}/..
+	${CMAKE_CURRENT_SOURCE_DIR}/../obv_core/include
 	${CMAKE_CURRENT_BINARY_DIR} # for build-generated
 	${IMGUI_INCLUDE_DIRS}
 	${UTF8_INCLUDE_DIR}

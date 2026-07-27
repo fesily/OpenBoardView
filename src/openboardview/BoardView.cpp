@@ -39,6 +39,19 @@
 #include "imgui/imgui_internal.h" // For ImGui::FocusWindow()
 #include "imgui/misc/cpp/imgui_stdlib.h"
 
+namespace {
+inline obv::Vec2 ToObv(const ImVec2 &v) { return {v.x, v.y}; }
+inline std::array<obv::Vec2, 4> ToObv(const std::array<ImVec2, 4> &a) {
+	return {ToObv(a[0]), ToObv(a[1]), ToObv(a[2]), ToObv(a[3])};
+}
+inline std::vector<obv::Vec2> ToObv(const std::vector<ImVec2> &v) {
+	std::vector<obv::Vec2> out;
+	out.reserve(v.size());
+	for (const auto &p : v) out.push_back(ToObv(p));
+	return out;
+}
+} // namespace
+
 #include "NetList.h"
 #include "PartList.h"
 #include "vectorhulls.h"
@@ -3169,9 +3182,10 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 				}
 			}
 
-			part->omin        = ImVec2(min_x, min_y);
-			part->omax        = ImVec2(max_x, max_y);
-			part->centerpoint = ImVec2((max_x - min_x) / 2 + min_x, (max_y - min_y) / 2 + min_y);
+			part->omin        = obv::Vec2(static_cast<float>(min_x), static_cast<float>(min_y));
+			part->omax        = obv::Vec2(static_cast<float>(max_x), static_cast<float>(max_y));
+			part->centerpoint = obv::Vec2(static_cast<float>((max_x - min_x) / 2 + min_x),
+			                              static_cast<float>((max_y - min_y) / 2 + min_y));
 
 			distance = sqrt((max_x - min_x) * (max_x - min_x) + (max_y - min_y) * (max_y - min_y));
 
@@ -3283,7 +3297,7 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 			if ((pincount == 3) && (abs(aspect) > 0.5) &&
 			    ((strchr("DQZ", p0) || (strchr("DQZ", p1)) || strcmp(part->name.c_str(), "LED")))) {
 
-				part->outline = dbox;
+				part->outline = ToObv(dbox);
 				part->outline_done = true;
 
 				part->hull.clear();
@@ -3379,10 +3393,10 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 
 					// If we had a valid hull, then find the MBB for it
 					if (hull.size() > 0) {
-						part->hull = hull;
+						part->hull = ToObv(hull);
 
 						std::array<ImVec2, 4> bbox = VHMBBCalculate(hull, pin_radius);
-						part->outline = bbox;
+						part->outline = ToObv(bbox);
 						part->outline_done = true;
 
 						/*
@@ -3395,7 +3409,7 @@ inline void BoardView::DrawParts(ImDrawList *draw) {
 					// if it wasn't at an odd angle, or wasn't large, or wasn't a connector,
 					// just an ordinary
 					// type part, then this is where we'll likely end up
-					part->outline = dbox;
+					part->outline = ToObv(dbox);
 					part->outline_done = true;
 				}
 			}

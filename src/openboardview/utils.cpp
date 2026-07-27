@@ -1,8 +1,9 @@
 #include "utils.h"
 #include "platform.h"
-#include <SDL.h>
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -26,7 +27,7 @@ std::vector<char> file_as_buffer_native(const filesystem::path &filepath, std::s
 
 	if (!filesystem::is_regular_file(filepath)) {
 		error_msg = "Not a regular file";
-		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Error opening %s: %s", filepath.string().c_str(), error_msg.c_str());
+		fprintf(stderr, "Error opening %s: %s\n", filepath.string().c_str(), error_msg.c_str());
 		return data;
 	}
 
@@ -35,7 +36,7 @@ std::vector<char> file_as_buffer_native(const filesystem::path &filepath, std::s
 
 	if (!file.is_open()) {
 		error_msg = strerror(errno);
-		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Error opening %s: %s", filepath.string().c_str(), error_msg.c_str());
+		fprintf(stderr, "Error opening %s: %s\n", filepath.string().c_str(), error_msg.c_str());
 		return data;
 	}
 
@@ -97,7 +98,7 @@ filesystem::path lookup_file_insensitive(const filesystem::path &path, const std
 
 	if (ec) {
 		error_msg = "Error looking up '" + filename + "' in '" + path.string().c_str() + "': " + ec.message();
-		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Error looking up '%s' in '%s': %d - %s", filename.c_str(), path.string().c_str(), ec.value(), ec.message().c_str());
+		fprintf(stderr, "Error looking up '%s' in '%s': %d - %s\n", filename.c_str(), path.string().c_str(), ec.value(), ec.message().c_str());
 		return {};
 	}
 
