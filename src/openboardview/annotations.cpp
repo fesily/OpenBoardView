@@ -260,7 +260,7 @@ void Annotations::Add(int side, double x, double y, const char *net, const char 
 	sqlite3_snprintf(sizeof(sql),
 	                 sql,
 	                 "INSERT into annotations ( visible, side, posx, posy, net, part, pin, note ) \
-			values ( 1, %d, %0.0f, %0.0f, '%s', '%s', '%s', '%q' );",
+			values ( 1, %d, %0.0f, %0.0f, '%q', '%q', '%q', '%q' );",
 	                 side,
 	                 x,
 	                 y,

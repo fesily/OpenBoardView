@@ -54,7 +54,8 @@ if(NOT ZLIB_FOUND)
 endif()
 
 ## SQLite3 ##
-option(ENABLE_SQLITE3 "Enable SQLite3 annotation database support." OFF)
+## Default ON so freeform annotations work for desktop and obv_server (HAVE_SQLITE3).
+option(ENABLE_SQLITE3 "Enable SQLite3 annotation database support." ON)
 if(ENABLE_SQLITE3)
 	find_package(SQLite3)
 	if(NOT SQLITE3_FOUND)

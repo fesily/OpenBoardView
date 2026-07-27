@@ -102,3 +102,27 @@ GET  …/overlays → annotation id=2 note "after-restart" + partInfos/netInfos 
 2. **Annotation body parsers are hand-rolled** — sufficient for the fixed POST/PATCH shapes; PUT reuses `ApplyOverlayJson`.
 3. **Per-board mutex map never shrinks** — process-long entries; fine for LAN board counts.
 4. **C4819** avoided by keeping server comments ASCII-only.
+
+---
+
+## Critical fix follow-up (Task7Fix)
+
+**Commit:** `fix(server): sqlite annotations and SQL escape`
+
+### Fixes
+1. **`ENABLE_SQLITE3` default ON** in `src/CMakeLists.txt` so default server builds define `HAVE_SQLITE3` and freeform annotation routes no longer return 501. Bundled `src/sqlite3` still used when system SQLite is missing.
+2. **SQL escape at source** in `Annotations::Add`: `net`/`part`/`pin`/`note` all use `sqlite3_snprintf` `%q` (was `%s` for net/part/pin). `Update` already used `%q` for note; `Remove` only uses integer id.
+
+### Verification
+```text
+cmake -S . -B build-web -DENABLE_OBV_CORE=ON -DENABLE_OBV_SERVER=ON
+# ENABLE_SQLITE3:BOOL=ON; HAVE_SQLITE3 on obv_core
+cmake --build build-web --target obv_server -j 8 --config Release
+
+obv_server --host 127.0.0.1 --port 18084 --data tmp-data-t7fix
+POST board fake.bin → id ca3704aa…
+PUT overlays → 200
+POST annotations net="O'Brien" → 201 stored as O'Brien
+POST annotations net="x'); DROP TABLE annotations; --" → 201 literal string (table intact)
+PATCH/DELETE/GET → 200/204/200 as expected
+```
