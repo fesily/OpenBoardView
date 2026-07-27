@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <limits>
 #include <unordered_map>
+#include <set>
 #include <vector>
 
 namespace obv {
@@ -274,45 +275,54 @@ void appendBounds(std::ostringstream &os, const BoardBounds &b) {
 	os << '}';
 }
 
-// Public sides list for JSON. BRDBoard (see ~337-350) may append a synthetic
-// max layer (previous max + 1) when side_size is even and bottom is present;
-// that entry is only for desktop flip remapping and has no elements after the
-// max-layer→bottom rewrite. Drop it so two-sided boards export
-// ["bottom","top"] rather than ["bottom","top","s2"].
+// Public sides list for JSON: union of every side string the document
+// serializes on elements (component/pin/track/via board_side, via
+// target_side, arc board_side). Not AllSide() — that list can omit
+// arc-only layers and includes BRDBoard's synthetic max flip layer.
 void appendSides(std::ostringstream &os, Board &board) {
-	const auto &all = board.AllSide();
-	std::vector<EBoardSide> sides(all.begin(), all.end());
-	if (sides.size() >= 2) {
-		const EBoardSide last = sides.back();
-		const EBoardSide prev = sides[sides.size() - 2];
-		if (static_cast<int>(last) == static_cast<int>(prev) + 1) {
-			bool used = false;
-			auto mark = [&](EBoardSide s) {
-				if (s == last) used = true;
-			};
-			for (const auto &c : board.Components())
-				if (c) mark(c->board_side);
-			for (const auto &p : board.Pins())
-				if (p) mark(p->board_side);
-			for (const auto &t : board.Tracks())
-				if (t) mark(t->board_side);
-			for (const auto &v : board.Vias())
-				if (v) mark(v->board_side);
-			for (const auto &a : board.arcs())
-				if (a) mark(a->board_side);
-			for (const auto &n : board.Nets())
-				if (n) mark(n->board_side);
-			if (!used) sides.pop_back();
-		}
+	std::set<std::string> sideSet;
+	auto add = [&](EBoardSide s) { sideSet.insert(sideToString(s)); };
+	for (const auto &c : board.Components())
+		if (c) add(c->board_side);
+	for (const auto &p : board.Pins())
+		if (p) add(p->board_side);
+	for (const auto &t : board.Tracks())
+		if (t) add(t->board_side);
+	for (const auto &v : board.Vias()) {
+		if (!v) continue;
+		add(v->board_side);
+		add(v->target_side);
 	}
-	if (sides.empty()) {
-		sides.push_back(kBoardSideTop);
-		sides.push_back(kBoardSideBottom);
-	}
+	for (const auto &a : board.arcs())
+		if (a) add(a->board_side);
+
+	std::vector<std::string> sides(sideSet.begin(), sideSet.end());
+	// Deterministic order: both, bottom, top, then s2..sN by number.
+	std::sort(sides.begin(), sides.end(), [](const std::string &a, const std::string &b) {
+		auto rank = [](const std::string &s) -> int {
+			if (s == "both") return 0;
+			if (s == "bottom") return 1;
+			if (s == "top") return 2;
+			if (s.size() >= 2 && s[0] == 's') {
+				int n = 0;
+				for (size_t i = 1; i < s.size(); ++i) {
+					if (s[i] < '0' || s[i] > '9') return 1000;
+					n = n * 10 + (s[i] - '0');
+				}
+				return 100 + n;
+			}
+			return 2000;
+		};
+		const int ra = rank(a);
+		const int rb = rank(b);
+		if (ra != rb) return ra < rb;
+		return a < b;
+	});
+
 	os << "\"sides\":[";
 	for (size_t i = 0; i < sides.size(); ++i) {
 		if (i) os << ',';
-		appendEscaped(os, sideToString(sides[i]));
+		appendEscaped(os, sides[i]);
 	}
 	os << ']';
 }

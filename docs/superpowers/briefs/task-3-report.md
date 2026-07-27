@@ -158,3 +158,23 @@ cmake --build build-core-only --target obv_core_tests -j 8
 # ok
 # exit:0
 ```
+
+---
+
+## Fix pass 3 — element-driven sides
+
+**Commit:** `fix(core): derive board JSON sides from elements`
+
+### 5. Build `sides` from serialized element side fields
+- **Bugs:** (1) Synthetic-filter “used” scan ignored via `target_side`, so a side only referenced as a via target could be dropped. (2) `AllSide()` can omit arc-only layers, so arc sides never appeared in export.
+- **Fix:** Replace `AllSide()`-centric export (and the `pop last if prev+1` synthetic heuristic) with a set of side strings from every element the JSON serializes: components, pins, tracks, vias (`board_side` **and** `target_side`), arcs — each via `sideToString`. Sort deterministically: `both`, `bottom`, `top`, then `s2`… by number. No phantom BRDBoard synthetic max layer unless an element actually uses it. Empty set emits `[]` (no invented `top`/`bottom` fallback).
+
+### Verification
+
+```text
+cmake --build build-core-only --target obv_core_tests -j 8
+./build-core-only/src/obv_core_tests/Debug/obv_core_tests.exe
+# skip export
+# ok
+# exit:0
+```
