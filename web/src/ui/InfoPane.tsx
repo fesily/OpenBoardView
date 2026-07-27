@@ -32,6 +32,15 @@ function pinOverlayKey(pin: Pin): string {
   return pin.name || pin.number || pin.id;
 }
 
+/** Desktop PartAngle enum integers accepted by ApplyOverlayJson. */
+const PART_ANGLE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: '0', label: '0°' }, // PartAngle::_0
+  { value: '3', label: '90°' }, // PartAngle::_90
+  { value: '2', label: '180°' }, // PartAngle::_180
+  { value: '1', label: '270°' }, // PartAngle::_270
+  { value: '4', label: 'sorted' }, // PartAngle::sorted
+];
+
 function cloneOverlay(doc: OverlayDocument): OverlayDocument {
   return {
     annotations: doc.annotations.map((a) => ({ ...a })),
@@ -204,10 +213,10 @@ export default function InfoPane({
         delete partEntry.angle;
       } else {
         const ang = Number(partAngle);
-        if (ang === 0 || ang === 90 || ang === 180 || ang === 270) {
+        if (ang === 0 || ang === 1 || ang === 2 || ang === 3 || ang === 4) {
           partEntry.angle = ang;
         } else {
-          setPartMsg('Angle must be 0, 90, 180, or 270.');
+          setPartMsg('Angle must be a PartAngle enum 0–4.');
           setSavingPart(false);
           return;
         }
@@ -392,10 +401,11 @@ export default function InfoPane({
                   disabled={savingPart}
                 >
                   <option value="">(none)</option>
-                  <option value="0">0°</option>
-                  <option value="90">90°</option>
-                  <option value="180">180°</option>
-                  <option value="270">270°</option>
+                  {PART_ANGLE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
                 </select>
               </label>
               <div className="row">

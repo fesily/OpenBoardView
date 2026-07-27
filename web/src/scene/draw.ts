@@ -1,4 +1,4 @@
-import type { BoardDocument, Component, OverlayAnnotation, Pin } from '../types/board';
+import type { Arc, BoardDocument, Component, OverlayAnnotation, Pin, Track, Via } from '../types/board';
 import { boardToScreen, type ViewState } from './transform';
 
 export interface DrawHighlight {
@@ -11,6 +11,9 @@ export interface DrawColors {
   background: string;
   boardFill: string;
   outline: string;
+  track: string;
+  via: string;
+  arc: string;
   partOutline: string;
   partFill: string;
   pin: string;
@@ -24,6 +27,9 @@ export const DEFAULT_COLORS: DrawColors = {
   background: '#1a1d24',
   boardFill: '#2a3140',
   outline: '#c5cad3',
+  track: '#5a7a9a',
+  via: '#90a4ae',
+  arc: '#5a7a9a',
   partOutline: '#8b93a7',
   partFill: 'rgba(80, 90, 110, 0.35)',
   pin: '#6ec6ff',
@@ -38,7 +44,7 @@ function sideVisible(elSide: string, viewSide: string): boolean {
   return elSide === viewSide;
 }
 
-/** Layers: fill → outline → parts → pins → highlights → annotations (spec §8.3 subset). */
+/** Layers: fill → outline → tracks/arcs/vias → parts → pins → highlights → annotations. */
 export function drawBoard(
   ctx: CanvasRenderingContext2D,
   board: BoardDocument,
@@ -56,6 +62,9 @@ export function drawBoard(
 
   drawBoardFill(ctx, board, view, cssW, cssH, colors);
   drawOutline(ctx, board, view, cssW, cssH, colors);
+  drawTracks(ctx, board, view, cssW, cssH, colors);
+  drawArcs(ctx, board, view, cssW, cssH, colors);
+  drawVias(ctx, board, view, cssW, cssH, colors);
   drawParts(ctx, board, view, cssW, cssH, highlight, colors);
   drawPins(ctx, board, view, cssW, cssH, highlight, colors);
   drawHighlights(ctx, board, view, cssW, cssH, highlight, colors);
@@ -135,6 +144,85 @@ function drawOutline(
     else ctx.lineTo(s.x, s.y);
   }
   ctx.stroke();
+}
+
+function drawTracks(
+  ctx: CanvasRenderingContext2D,
+  board: BoardDocument,
+  view: ViewState,
+  cssW: number,
+  cssH: number,
+  colors: DrawColors,
+): void {
+  const tracks: readonly Track[] = board.tracks ?? [];
+  if (!tracks.length) return;
+  ctx.strokeStyle = colors.track;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const t of tracks) {
+    if (!sideVisible(t.side, view.side)) continue;
+    const a = boardToScreen(view, t.start.x, t.start.y, cssW, cssH);
+    const b = boardToScreen(view, t.end.x, t.end.y, cssW, cssH);
+    const w = Math.max((t.width > 0 ? t.width : 1) * view.scale, 0.75);
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.lineWidth = w;
+    ctx.stroke();
+  }
+}
+
+function drawArcs(
+  ctx: CanvasRenderingContext2D,
+  board: BoardDocument,
+  view: ViewState,
+  cssW: number,
+  cssH: number,
+  colors: DrawColors,
+): void {
+  const arcs: readonly Arc[] = board.arcs ?? [];
+  if (!arcs.length) return;
+  ctx.strokeStyle = colors.arc;
+  ctx.lineCap = 'round';
+  for (const arc of arcs) {
+    if (!sideVisible(arc.side, view.side)) continue;
+    const c = boardToScreen(view, arc.pos.x, arc.pos.y, cssW, cssH);
+    const r = Math.max((arc.radius > 0 ? arc.radius : 1) * view.scale, 0.5);
+    const w = Math.max((arc.width > 0 ? arc.width : 1) * view.scale, 0.75);
+    // Board angles are radians (desktop BRD arc convention).
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, r, arc.startAngle, arc.endAngle);
+    ctx.lineWidth = w;
+    ctx.stroke();
+  }
+}
+
+function drawVias(
+  ctx: CanvasRenderingContext2D,
+  board: BoardDocument,
+  view: ViewState,
+  cssW: number,
+  cssH: number,
+  colors: DrawColors,
+): void {
+  const vias: readonly Via[] = board.vias ?? [];
+  if (!vias.length) return;
+  ctx.fillStyle = colors.via;
+  ctx.strokeStyle = colors.via;
+  for (const v of vias) {
+    // Vias are inter-layer; show when either face is visible or side is both/unknown.
+    const visible =
+      sideVisible(v.side, view.side) ||
+      sideVisible(v.targetSide, view.side) ||
+      v.side === 'both' ||
+      v.targetSide === 'both';
+    if (!visible) continue;
+    const s = boardToScreen(view, v.pos.x, v.pos.y, cssW, cssH);
+    const r = Math.max((v.size > 0 ? v.size : 4) * view.scale * 0.5, 1.25);
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 function drawParts(

@@ -55,6 +55,47 @@ bool writeAll(const filesystem::path &path, const std::string &body) {
 
 } // namespace
 
+// Match Annotations::Load / SavePinInfos naming:
+//   yaml   = boardPath.string() + ".yaml"
+//   sqlite = last '.' replaced by '_' + ".sqlite3"
+filesystem::path overlayYamlPath(const filesystem::path &boardPath) {
+	return filesystem::path(boardPath.string() + ".yaml");
+}
+
+filesystem::path overlaySqlitePath(const filesystem::path &boardPath) {
+	std::string sqlfn = boardPath.string();
+	const auto pos = sqlfn.rfind('.');
+	if (pos != std::string::npos) {
+		sqlfn[pos] = '_';
+	}
+	sqlfn += ".sqlite3";
+	return filesystem::path(sqlfn);
+}
+
+// Best-effort move of overlay sidecars when the board file is renamed.
+// Failures are non-fatal (same policy as board rename).
+void renameOverlaySidecars(const filesystem::path &oldBoardPath,
+						   const filesystem::path &newBoardPath) {
+	if (oldBoardPath == newBoardPath) {
+		return;
+	}
+	const filesystem::path oldYaml = overlayYamlPath(oldBoardPath);
+	const filesystem::path newYaml = overlayYamlPath(newBoardPath);
+	const filesystem::path oldSql = overlaySqlitePath(oldBoardPath);
+	const filesystem::path newSql = overlaySqlitePath(newBoardPath);
+
+	std::error_code ec;
+	if (filesystem::exists(oldYaml, ec) && !ec && oldYaml != newYaml) {
+		ec.clear();
+		filesystem::rename(oldYaml, newYaml, ec);
+	}
+	ec.clear();
+	if (filesystem::exists(oldSql, ec) && !ec && oldSql != newSql) {
+		ec.clear();
+		filesystem::rename(oldSql, newSql, ec);
+	}
+}
+
 BoardRegistry::BoardRegistry(ServerConfig cfg)
 	: cfg_(std::move(cfg)), boardsDir_(cfg_.dataRoot / "boards") {
 	ensureBoardsDir();
@@ -223,6 +264,7 @@ BoardRegistry::Entry BoardRegistry::ImportUpload(const std::string &originalName
 				std::error_code renEc;
 				filesystem::rename(storePath, newPath, renEc);
 				if (!renEc && filesystem::exists(newPath)) {
+					renameOverlaySidecars(storePath, newPath);
 					storePath = newPath;
 				}
 				// Rename failure is non-fatal: keep existing path, still update display name.
