@@ -333,4 +333,13 @@ bool BoardRegistry::Remove(const std::string &id) {
 	return true;
 }
 
+std::mutex &BoardRegistry::OverlayMutex(const std::string &id) {
+	std::lock_guard<std::mutex> lock(overlayMapMu_);
+	auto it = overlayMu_.find(id);
+	if (it == overlayMu_.end()) {
+		it = overlayMu_.emplace(id, std::make_unique<std::mutex>()).first;
+	}
+	return *it->second;
+}
+
 } // namespace obv_server

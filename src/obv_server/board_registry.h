@@ -39,6 +39,10 @@ public:
 	// true when removed; false when missing or delete disabled (check allowDelete separately).
 	bool Remove(const std::string &id);
 
+	// Per-board mutex for overlay/annotation write serialization (last-write-wins).
+	// Mutex lifetime is process-long; never destroyed while a lock may be held.
+	std::mutex &OverlayMutex(const std::string &id);
+
 	bool allowDelete() const { return cfg_.allowDelete; }
 	size_t maxUploadBytes() const { return cfg_.maxUploadBytes; }
 	const ServerConfig &config() const { return cfg_; }
@@ -64,6 +68,9 @@ private:
 	filesystem::path boardsDir_;
 	mutable std::mutex mu_;
 	std::unordered_map<std::string, CacheSlot> byId_;
+	// Separate from mu_: hold OverlayMutex across load/mutate/save without blocking List/GetParsed.
+	mutable std::mutex overlayMapMu_;
+	std::unordered_map<std::string, std::unique_ptr<std::mutex>> overlayMu_;
 	bool scanned_ = false;
 };
 
