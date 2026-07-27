@@ -3,7 +3,7 @@
 **Status:** DONE  
 **Branch:** `merge_upsteam_my`  
 **Base:** `de40cfe` (Task 4 complete)  
-**Commit:** `3a36592` — `feat(server): obv_server health/version skeleton`  
+**Commit:** `214d103` — `feat(server): obv_server health/version skeleton`  
 **Date:** 2026-07-27
 
 ---
