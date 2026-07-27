@@ -3,7 +3,7 @@
 **Status:** DONE  
 **Branch:** `merge_upsteam_my`  
 **Base:** `23df5d3` (Task 1 complete)  
-**Commit:** `f678fe0` — `feat(core): ParseBoardBuffer/File with BoardSnapshot`  
+**Commit:** `2c665fe` — `feat(core): ParseBoardBuffer/File with BoardSnapshot`  
 
 ---
 
@@ -138,8 +138,8 @@ Skipped when env unset (default CI path).
 
 ## Commit
 
-See git log after Step 6 commit message:
+Feature commit (code + initial report):
 
 ```
-feat(core): ParseBoardBuffer/File with BoardSnapshot
+2c665fe feat(core): ParseBoardBuffer/File with BoardSnapshot
 ```
