@@ -157,7 +157,7 @@ export default function BoardCanvas({
   const onRotate = (dir: 1 | -1) => {
     const v = viewRef.current;
     if (!v) return;
-    syncView(rotateView(v, dir));
+    syncView(rotateView(v, dir, size.w, size.h));
   };
 
   const onFlip = () => {

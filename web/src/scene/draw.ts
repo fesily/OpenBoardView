@@ -217,6 +217,8 @@ function drawHighlights(
   if (!highlight.selectedPinId) return;
   const pin = board.pins.find((p) => p.id === highlight.selectedPinId);
   if (!pin) return;
+  // Same side filter as drawPins — hide selection halo on the other side.
+  if (!sideVisible(pin.side, view.side)) return;
   const s = boardToScreen(view, pin.pos.x, pin.pos.y, cssW, cssH);
   const r = pinRadiusPx(pin, view.scale) + 3;
   ctx.beginPath();

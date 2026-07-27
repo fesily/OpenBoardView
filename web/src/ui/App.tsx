@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import {
   ApiError,
   getBoard,
@@ -26,6 +26,7 @@ export default function App() {
   const [boardError, setBoardError] = useState<string | null>(null);
   const [boardLoading, setBoardLoading] = useState(false);
   const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
+  const openBoardGen = useRef(0);
 
   const refreshBoards = useCallback(async () => {
     try {
@@ -62,19 +63,25 @@ export default function App() {
   }, [refreshHealth, refreshBoards]);
 
   const openBoard = useCallback(async (id: string) => {
+    const gen = ++openBoardGen.current;
     setSelectedId(id);
     setSelectedPin(null);
     setBoardLoading(true);
     setBoardError(null);
     try {
       const doc = await getBoard(id);
+      // Drop stale responses if the user selected another board meanwhile.
+      if (openBoardGen.current !== gen) return;
       setBoard(doc);
     } catch (e) {
+      if (openBoardGen.current !== gen) return;
       setBoard(null);
       const msg = e instanceof ApiError ? `${e.code}: ${e.message}` : String(e);
       setBoardError(msg);
     } finally {
-      setBoardLoading(false);
+      if (openBoardGen.current === gen) {
+        setBoardLoading(false);
+      }
     }
   }, []);
 

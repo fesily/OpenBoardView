@@ -69,3 +69,33 @@ Manual: start `obv_server`, `npm run dev`, upload/select board → outline/parts
 - Overlay editor / annotations (Task 11)
 - Tracks/vias/arcs full draw (optional later; pins/outline/parts only for MVP)
 - Desktop pixel-perfect color scheme parity
+
+---
+
+## Important fix follow-up (Task9Fix)
+
+**Status:** FIXED  
+**Commit:** `fix(web): canvas rotate pan, highlight side, load race`  
+**Date:** 2026-07-27
+
+### 1. Preserve panned viewport on rotate
+- **Bug:** `rotateView` only bumped `rotation`, so after pan the on-screen region spun around look-at without an explicit center-preservation contract (desktop `BoardView::Rotate` adjusts pan offsets).
+- **Fix:** Capture board point under screen center, apply rotation, recompute `mx`/`my` so that point maps back to center (`web/src/scene/transform.ts`). `BoardCanvas` passes canvas size into `rotateView`.
+- **Test:** `rotateView keeps panned screen-center board point fixed` in `transform.test.ts`.
+
+### 2. Hide selected-pin highlight on non-visible side
+- **Bug:** `drawPins` skipped other-side pins via `sideVisible`, but `drawHighlights` still drew the selection halo for a selected pin on the flipped-away side.
+- **Fix:** Early-return in `drawHighlights` when `!sideVisible(pin.side, view.side)`.
+
+### 3. Ignore stale board-load responses
+- **Bug:** Rapid board switches could apply an older `getBoard` result after a newer selection.
+- **Fix:** Generation counter in `openBoard`; only `setBoard` / error / loading clear when gen still current.
+
+### Verification
+```text
+cd web && npm test
+# → 7 passed
+
+cd web && npm run build
+# → tsc -b && vite build OK
+```

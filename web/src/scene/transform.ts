@@ -145,8 +145,21 @@ export function defaultView(): ViewState {
   };
 }
 
-/** Rotate view by `quarters` (positive = CW). Keeps look-at fixed (screen center). */
-export function rotateView(v: ViewState, quarters: number): ViewState {
+/**
+ * Rotate view by `quarters` (positive = CW).
+ * Ports BoardView::Rotate's pan-offset adjustment intent: after rotation,
+ * the board point that was at screen center stays at screen center
+ * (recompute mx/my like zoomAt does for the cursor).
+ */
+export function rotateView(
+  v: ViewState,
+  quarters: number,
+  cssW = 2,
+  cssH = 2,
+): ViewState {
+  const cx = cssW / 2;
+  const cy = cssH / 2;
+  const before = screenToBoard(v, cx, cy, cssW, cssH);
   let r = v.rotation;
   let q = quarters;
   while (q > 0) {
@@ -157,7 +170,13 @@ export function rotateView(v: ViewState, quarters: number): ViewState {
     r = ((r - 1) & 3) as Rotation;
     q++;
   }
-  return { ...v, rotation: r };
+  const next: ViewState = { ...v, rotation: r };
+  const after = screenToBoard(next, cx, cy, cssW, cssH);
+  return {
+    ...next,
+    mx: next.mx + (before.x - after.x),
+    my: next.my + (before.y - after.y),
+  };
 }
 
 /**

@@ -64,6 +64,24 @@ describe('transform', () => {
     expect(mid2.y).toBeCloseTo(mid.y, 5);
   });
 
+  test('rotateView keeps panned screen-center board point fixed', () => {
+    const W = 400;
+    const H = 200;
+    let v = centerOnBounds({ minX: 0, minY: 0, maxX: 200, maxY: 100 }, W, H);
+    // Pan so look-at is no longer board midpoint.
+    v = { ...v, mx: v.mx - 30 / v.scale, my: v.my + 15 / v.scale };
+    const before = screenToBoard(v, W / 2, H / 2, W, H);
+    const rotated = rotateView(v, 1, W, H);
+    const after = screenToBoard(rotated, W / 2, H / 2, W, H);
+    expect(after.x).toBeCloseTo(before.x, 5);
+    expect(after.y).toBeCloseTo(before.y, 5);
+    expect(rotated.rotation).toBe(((v.rotation + 1) & 3) as 0 | 1 | 2 | 3);
+    // Former center point stays at canvas center in screen space.
+    const s = boardToScreen(rotated, before.x, before.y, W, H);
+    expect(s.x).toBeCloseTo(W / 2, 5);
+    expect(s.y).toBeCloseTo(H / 2, 5);
+  });
+
   test('flipBoard toggles side and rotates 180 when flipY', () => {
     const v = centerOnBounds({ minX: 0, minY: 0, maxX: 10, maxY: 10 }, 100, 100);
     const f = flipBoard(v);
