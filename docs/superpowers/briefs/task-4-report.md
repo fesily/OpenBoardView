@@ -3,7 +3,7 @@
 **Status:** DONE  
 **Branch:** `merge_upsteam_my`  
 **Base:** `ddf813d` (Task 3 complete)  
-**Commit:** `402bc2e` — `feat(core): overlay load/save and JSON for API`
+**Commit:** `246392e` — `feat(core): overlay load/save and JSON for API`
 
 ---
 
