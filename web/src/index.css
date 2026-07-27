@@ -18,7 +18,7 @@ body {
 }
 
 .app {
-  max-width: 880px;
+  max-width: 1100px;
   margin: 0 auto;
   padding: 1.5rem 1.25rem 3rem;
 }
@@ -107,4 +107,59 @@ td {
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.82rem;
+}
+
+tr.row-selected td {
+  background: #2a3344;
+}
+
+.board-view-card {
+  padding-bottom: 0.75rem;
+}
+
+.board-canvas-root {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.board-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.board-toolbar-meta {
+  margin-left: auto;
+  font-size: 0.85rem;
+}
+
+.board-canvas-wrap {
+  position: relative;
+  width: 100%;
+  height: min(70vh, 640px);
+  min-height: 320px;
+  border: 1px solid #2a2f3a;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #12141a;
+  touch-action: none;
+}
+
+.board-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+.board-canvas:active {
+  cursor: grabbing;
+}
+
+.selection-pane {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
 }

@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState, type ChangeEvent } from 'react';
 import {
   ApiError,
+  getBoard,
   getHealth,
   getVersion,
   listBoards,
   uploadBoard,
 } from '../api/client';
-import type { BoardSummary } from '../types/board';
+import BoardCanvas from '../scene/BoardCanvas';
+import type { BoardDocument, BoardSummary, Pin } from '../types/board';
 
 type HealthState =
   | { kind: 'loading' }
@@ -19,6 +21,11 @@ export default function App() {
   const [listError, setListError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [board, setBoard] = useState<BoardDocument | null>(null);
+  const [boardError, setBoardError] = useState<string | null>(null);
+  const [boardLoading, setBoardLoading] = useState(false);
+  const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
 
   const refreshBoards = useCallback(async () => {
     try {
@@ -54,6 +61,23 @@ export default function App() {
     void refreshBoards();
   }, [refreshHealth, refreshBoards]);
 
+  const openBoard = useCallback(async (id: string) => {
+    setSelectedId(id);
+    setSelectedPin(null);
+    setBoardLoading(true);
+    setBoardError(null);
+    try {
+      const doc = await getBoard(id);
+      setBoard(doc);
+    } catch (e) {
+      setBoard(null);
+      const msg = e instanceof ApiError ? `${e.code}: ${e.message}` : String(e);
+      setBoardError(msg);
+    } finally {
+      setBoardLoading(false);
+    }
+  }, []);
+
   const onFile = async (ev: ChangeEvent<HTMLInputElement>) => {
     const file = ev.target.files?.[0];
     ev.target.value = '';
@@ -68,6 +92,9 @@ export default function App() {
           : `Stored ${file.name} → ${result.id} (parse: ${result.error || 'failed'})`,
       );
       await refreshBoards();
+      if (result.ok) {
+        await openBoard(result.id);
+      }
     } catch (e) {
       const msg = e instanceof ApiError ? `${e.code}: ${e.message}` : String(e);
       setUploadMsg(`Upload failed: ${msg}`);
@@ -80,7 +107,7 @@ export default function App() {
     <div className="app">
       <header>
         <h1>OpenBoardView Web</h1>
-        <p className="sub">Task 8 scaffold — health, upload, board list (no canvas yet)</p>
+        <p className="sub">Canvas board view — pan / zoom / flip / rotate (Task 9)</p>
       </header>
 
       <section className="card">
@@ -138,7 +165,14 @@ export default function App() {
             </thead>
             <tbody>
               {boards.map((b) => (
-                <tr key={b.id}>
+                <tr
+                  key={b.id}
+                  className={selectedId === b.id ? 'row-selected' : undefined}
+                  onClick={() => {
+                    if (b.ok) void openBoard(b.id);
+                  }}
+                  style={{ cursor: b.ok ? 'pointer' : 'default' }}
+                >
                   <td>{b.name}</td>
                   <td className={b.ok ? 'ok' : 'err'}>{b.ok ? 'ok' : b.error || 'error'}</td>
                   <td className="mono" title={b.id}>
@@ -148,6 +182,48 @@ export default function App() {
               ))}
             </tbody>
           </table>
+        )}
+      </section>
+
+      <section className="card board-view-card">
+        <div className="row">
+          <h2>Board view</h2>
+          {board && (
+            <span className="muted mono" title={board.boardId}>
+              {board.sourceName}
+            </span>
+          )}
+        </div>
+        {boardLoading && <p className="muted">Loading board…</p>}
+        {boardError && <p className="err">{boardError}</p>}
+        {!boardLoading && !board && !boardError && (
+          <p className="muted">Select an uploaded board or upload a new one.</p>
+        )}
+        {board && (
+          <>
+            <BoardCanvas
+              board={board}
+              selectedPinId={selectedPin?.id ?? null}
+              onSelectPin={setSelectedPin}
+            />
+            <div className="selection-pane">
+              {selectedPin ? (
+                <p>
+                  <strong>Pin</strong> {selectedPin.id}
+                  {selectedPin.component ? ` · part ${selectedPin.component}` : ''}
+                  {selectedPin.number ? ` · #${selectedPin.number}` : ''}
+                  {selectedPin.netId != null ? ` · netId ${selectedPin.netId}` : ''}
+                  <br />
+                  <span className="muted mono">
+                    ({selectedPin.pos.x.toFixed(1)}, {selectedPin.pos.y.toFixed(1)}) · side{' '}
+                    {selectedPin.side}
+                  </span>
+                </p>
+              ) : (
+                <p className="muted">Click a pin to select.</p>
+              )}
+            </div>
+          </>
         )}
       </section>
     </div>
