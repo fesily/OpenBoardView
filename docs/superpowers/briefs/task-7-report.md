@@ -126,3 +126,25 @@ POST annotations net="O'Brien" → 201 stored as O'Brien
 POST annotations net="x'); DROP TABLE annotations; --" → 201 literal string (table intact)
 PATCH/DELETE/GET → 200/204/200 as expected
 ```
+
+---
+
+## Critical fix follow-up (Task7Fix2)
+
+**Commit:** `fix(build): use SQLite3_FOUND for bundled sqlite fallback`
+
+### Problem
+`find_package(SQLite3)` sets `SQLite3_FOUND`, but `src/CMakeLists.txt` checked `SQLITE3_FOUND` (wrong case/name). That made the bundled `add_subdirectory(sqlite3)` always run even when system SQLite was found, redefining `SQLite::SQLite3` and breaking configure.
+
+### Fix
+- `src/CMakeLists.txt` ENABLE_SQLITE3 block: `if(NOT SQLite3_FOUND)` before `add_subdirectory(sqlite3)`.
+- `CMakeModules/FindSQLite3.cmake` already uses `SQLite3_FOUND` and creates `SQLite::SQLite3` — no change.
+- Bundled `src/sqlite3` still provides `SQLite::SQLite3` alias when system package is missing.
+
+### Verification
+```text
+cmake -S . -B build-web -DENABLE_OBV_CORE=ON -DENABLE_OBV_SERVER=ON -DENABLE_SQLITE3=ON
+# configure OK; system SQLite not present → bundled src/sqlite3 used
+cmake --build build-web --target obv_server -j 8 --config Release
+# → obv_server.exe; HAVE_SQLITE3 on obv_core / server
+```
