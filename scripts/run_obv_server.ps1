@@ -16,9 +16,16 @@ if (-not $BuildDir) { $BuildDir = Join-Path $Root "build-web" }
 
 $index = Join-Path $Www "index.html"
 if (-not (Test-Path $index)) {
-    Write-Host "web dist missing; running npm run build in web/"
+    Write-Host "web dist missing; installing deps and building web/"
     Push-Location (Join-Path $Root "web")
     try {
+        if (-not (Test-Path "node_modules")) {
+            npm ci
+            if ($LASTEXITCODE -ne 0) {
+                npm install
+                if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
+            }
+        }
         npm run build
     } finally {
         Pop-Location

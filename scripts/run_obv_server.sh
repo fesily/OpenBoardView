@@ -32,8 +32,18 @@ find_server() {
 }
 
 if [[ ! -f "$WWW/index.html" ]]; then
-  echo "web dist missing; running npm run build in web/"
-  (cd "$ROOT/web" && npm run build)
+  echo "web dist missing; installing deps and building web/"
+  if [[ -x "$ROOT/scripts/build_web_release.sh" ]]; then
+    "$ROOT/scripts/build_web_release.sh"
+  else
+    (
+      cd "$ROOT/web"
+      if [[ ! -d node_modules ]]; then
+        npm ci || npm install
+      fi
+      npm run build
+    )
+  fi
 fi
 
 SERVER="$(find_server)" || {

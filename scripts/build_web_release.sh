@@ -5,6 +5,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:-}"
 
+# Resolve relative OUT against repo ROOT before cd web (so data/www is at repo root).
+if [[ -n "$OUT" ]]; then
+  case "$OUT" in
+    /*|[A-Za-z]:/*|[A-Za-z]:\\*) ;; # absolute
+    *) OUT="$ROOT/$OUT" ;;
+  esac
+fi
+
 cd "$ROOT/web"
 if [[ ! -d node_modules ]]; then
   npm ci || npm install
