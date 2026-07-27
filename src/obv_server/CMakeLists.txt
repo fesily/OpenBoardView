@@ -7,6 +7,9 @@ endif()
 add_executable(obv_server
 	main.cpp
 	server_config.cpp
+	board_registry.cpp
+	routes.cpp
+	sha256.c
 )
 
 target_include_directories(obv_server

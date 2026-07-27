@@ -1,3 +1,5 @@
+#include "board_registry.h"
+#include "routes.h"
 #include "server_config.h"
 
 #include "httplib.h"
@@ -17,9 +19,11 @@ constexpr const char *kServerVersion = "0.1.0";
 int main(int argc, char **argv) {
 	const obv_server::ServerConfig cfg = obv_server::ParseArgs(argc, argv);
 
+	obv_server::BoardRegistry registry(cfg);
+
 	httplib::Server svr;
 
-	// Future board upload limit (Task 6); set early so all routes share it.
+	// Board upload limit; set early so all routes share it.
 	svr.set_payload_max_length(cfg.maxUploadBytes);
 
 	svr.Get("/api/v1/health", [](const httplib::Request &, httplib::Response &res) {
@@ -33,6 +37,8 @@ int main(int argc, char **argv) {
 			"\",\"core\":\"" + kCoreVersion + "\"}";
 		res.set_content(body, "application/json");
 	});
+
+	obv_server::RegisterBoardRoutes(svr, registry);
 
 	// static later: svr.set_mount_point("/", webDist);
 
