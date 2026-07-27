@@ -202,7 +202,7 @@ void ReloadPinInfos(Annotations &m_annotations, Board *m_board) {
 			if (pinInfo.ohm_black.size() > 0) pin->ohm_black_value = pinInfo.ohm_black;
 			if (pinInfo.voltage_flag != PinVoltageFlag::unknown) pin->voltage_flag = pinInfo.voltage_flag;
 			pin->note = pinInfo.note;
-			pin->show_name = pinInfo.show_name;
+			pin->show_name = pinInfo.show_name.empty() ? pin->name : pinInfo.show_name;
 		}
 		part->angle = partInfo.angle;
 //		if (part->angle != PartAngle::_0)
@@ -610,6 +610,12 @@ void BoardView::ContextMenu(void) {
 			 * we're going to go through all the possible items we can annotate at this position and offer them
 			 */
 
+			pin.clear();
+			pin_name.clear();
+			partn.clear();
+			net.clear();
+			net_name.clear();
+
 			float min_dist = m_pinDiameter * 1.0f;
 
 			/*
@@ -619,7 +625,7 @@ void BoardView::ContextMenu(void) {
 			min_dist *= min_dist; // all distance squared
 			Pin *selection = nullptr;
 			for (auto &pin : m_board->Pins()) {
-				if (BoardElementIsVisible(pin->component)) {
+				if (pin->component && BoardElementIsVisible(pin->component)) {
 					float dx   = pin->position.x - pos.x;
 					float dy   = pin->position.y - pos.y;
 					float dist = dx * dx + dy * dy;
@@ -633,13 +639,15 @@ void BoardView::ContextMenu(void) {
 			/*
 			 * If there was a pin selected, we can extract net/part off it
 			 */
-			Component* selection_component = nullptr;
+			Component* selection_component = selection && selection->component ? selection->component.get() : nullptr;
 			if (selection != nullptr) {
 				pin   = selection->name;
 				pin_name = selection->show_name;
-				partn = selection->component->name;
-				net   = selection->net->name;
-				net_name = selection->net->show_name;
+				if (selection_component) partn = selection_component->name;
+				if (selection->net) {
+					net   = selection->net->name;
+					net_name = selection->net->show_name;
+				}
 			}
 
 			/*
@@ -668,8 +676,8 @@ void BoardView::ContextMenu(void) {
 				} // hull test
 				if (hit) {
 					selection_component = part.get();
+					partn = part->name;
 					if (selection != nullptr) {
-						partn = part->name;
 
 						ImGui::SameLine();
 					}
@@ -759,8 +767,9 @@ void BoardView::ContextMenu(void) {
 						memcpy(ohmNew, selection->ohm_value.c_str(), std::min<size_t>(sizeof(ohmNew), selection->ohm_value.size()));
 						memcpy(ohmBlackNew, selection->ohm_black_value.c_str(), std::min<size_t>(sizeof(ohmBlackNew), selection->ohm_black_value.size()));
 						voltageFlagNew = selection->voltage_flag;
-						memcpy(netNameNew, selection->net->show_name.c_str(), std::min<size_t>(sizeof(netNameNew), selection->net->show_name.size()));
-						auto partIt = m_annotations.partInfos.find(selection_component->name);
+						if (selection->net) {
+							memcpy(netNameNew, selection->net->show_name.c_str(), std::min<size_t>(sizeof(netNameNew), selection->net->show_name.size()));
+						}
 						if (selection->show_name.empty()) {
 							memcpy(pinShowNameNew, selection->name.c_str(), std::min<size_t>(sizeof(pinShowNameNew), selection->name.size()));
 						} else {
@@ -771,7 +780,7 @@ void BoardView::ContextMenu(void) {
 							auto &note = selection->note;
 							memcpy(pinNoteNew, note.c_str(), std::min<size_t>(sizeof(pinNoteNew), note.size()));
 						}
-						if (!selection->net->note.empty()) {
+						if (selection->net && !selection->net->note.empty()) {
 							auto &note = selection->net->note;
 							memcpy(netNoteNew, note.c_str(), std::min<size_t>(sizeof(netNoteNew), note.size()));
 						}
@@ -800,7 +809,7 @@ void BoardView::ContextMenu(void) {
 						if (selection) {
 							init_fun(selection);
 						}
-						pinMode = selection;
+						pinMode = selection && selection_component;
 					}
 
 					ImGui::Text("Create new annotation for: %c(%0.0f,%0.0f) %s %s%c%s%c",
@@ -859,7 +868,7 @@ void BoardView::ContextMenu(void) {
 						ImGui::SameLine();
 						ImGui::RadioButton("Output", (int*)&voltageFlagNew, (int)PinVoltageFlag::output);
 
-						if (!selection->net->is_ground && selection->type != Pin::kPinTypeNotConnected) {
+						if (selection->net && !selection->net->is_ground && selection->type != Pin::kPinTypeNotConnected) {
 							ImGui::InputText("netName##netNameNew",
 											netNameNew,
 											sizeof(netNameNew));
@@ -899,7 +908,7 @@ void BoardView::ContextMenu(void) {
 							pinInfo.ohm_black = selection->ohm_black_value = ohmBlackNew;
 							pinInfo.voltage_flag = selection->voltage_flag = voltageFlagNew;
 
-							if (std::string_view{netNameNew} != net_name) {
+							if (selection->net && std::string_view{netNameNew} != net_name) {
 								m_annotations.NewNetInfo(net.c_str()).showname = selection->net->show_name = netNameNew;
 								if (selection->net->show_name.empty())
 									selection->net->show_name = net;
@@ -917,7 +926,7 @@ void BoardView::ContextMenu(void) {
 							}
 						}
 						// Net-bound annotation
-						if (!net.empty()) {
+						if (selection && selection->net && !net.empty()) {
 							m_annotations.NewNetInfo(net.c_str()).note = selection->net->note = netNoteNew;
 						}
 						m_annotations.SavePinInfos();
