@@ -46,6 +46,7 @@ set(OBV_CORE_SOURCES
 	src/core_utils.cpp
 	src/parse.cpp
 	src/board_json.cpp
+	src/overlay_store.cpp
 	${OBV_OPENBOARDVIEW_DIR}/Board.cpp
 	${OBV_OPENBOARDVIEW_DIR}/BRDBoard.cpp
 	${OBV_OPENBOARDVIEW_DIR}/annotations.cpp
