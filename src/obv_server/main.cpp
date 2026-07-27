@@ -26,6 +26,15 @@ int main(int argc, char **argv) {
 	// Board upload limit; set early so all routes share it.
 	svr.set_payload_max_length(cfg.maxUploadBytes);
 
+	// Framework-level 413 (payload max) uses default HTML/text unless handled.
+	svr.set_error_handler([](const httplib::Request &, httplib::Response &res) {
+		if (res.status == 413) {
+			res.set_content(
+				R"({"error":{"code":"PAYLOAD_TOO_LARGE","message":"upload exceeds maxUploadBytes"}})",
+				"application/json");
+		}
+	});
+
 	svr.Get("/api/v1/health", [](const httplib::Request &, httplib::Response &res) {
 		res.set_content(R"({"status":"ok"})", "application/json");
 	});

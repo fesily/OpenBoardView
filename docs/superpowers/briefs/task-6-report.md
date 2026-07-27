@@ -112,3 +112,44 @@ No redistributable sample board in-repo; success path (`{"boardSchemaVersion":1�
 1. **Upload always HTTP 200** with `ok`/`error` in body so clients keep content-addressed id on parse failure; only transport/write failures use 4xx/5xx.
 2. **List() re-parses** disk-scanned entries lazily on first list — fine for small LAN stores; may want index file later.
 3. **MSVC C4819** avoided by keeping comments ASCII-only.
+
+---
+
+## Fix pass
+
+**Status:** FIXED (Important findings)  
+**Commit:** `55dd8fa` — `fix(server): board API path, 413 envelope, delete check`  
+**Date:** 2026-07-27
+
+### Changes
+
+1. **sourceName no longer exposes storage path** (`board_registry.cpp`)
+   - After `ParseBoardBuffer` (still given real path for ASC relative assets), force `snap.sourceName` to the original upload / registry display name in both `parseAndStoreLocked` and `loadParsedLocked`.
+
+2. **413 JSON error envelope** (`main.cpp`)
+   - Registered `set_error_handler` that, for status 413, returns
+     `{"error":{"code":"PAYLOAD_TOO_LARGE","message":"upload exceeds maxUploadBytes"}}`
+     with `application/json`. Route-level size check retained.
+
+3. **DELETE unlink failure** (`board_registry.cpp` + `routes.cpp`)
+   - `Remove` only erases the registry entry after successful unlink or when the file is already gone; I/O failure (`!deleted && ec`) returns false and keeps the entry.
+   - Handler: missing board → 404 `NOT_FOUND`; present but unlink fails → 500 `DELETE_FAILED`; success → 204. 403 when `allowDelete=false` unchanged.
+
+### Re-verification
+
+```text
+cmake --build build-web --target obv_server -j 8 --config Release
+# OK
+
+# Default (allowDelete=false, max 64MiB)
+GET  /api/v1/health -> 200 {"status":"ok"}
+POST invalid multipart -> 200 {id sha256("nope"), ok:false, name path not leaked in list}
+DELETE /api/v1/boards/<id> -> 403 FORBIDDEN
+
+# Config maxUploadBytes=16, allowDelete=true
+POST 64-byte body -> 413 {"error":{"code":"PAYLOAD_TOO_LARGE",...}} Content-Type application/json
+POST "nope" -> 200 upload ok
+DELETE <id> -> 204
+DELETE <id> again -> 404 NOT_FOUND
+GET /api/v1/boards -> []
+```

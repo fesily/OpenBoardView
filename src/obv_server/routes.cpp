@@ -216,8 +216,12 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 					   return;
 				   }
 				   const std::string &id = it->second;
-				   if (!registry.Remove(id)) {
+				   if (registry.BoardPath(id).empty()) {
 					   setError(res, 404, "NOT_FOUND", "board not found");
+					   return;
+				   }
+				   if (!registry.Remove(id)) {
+					   setError(res, 500, "DELETE_FAILED", "failed to delete board file");
 					   return;
 				   }
 				   res.status = 204;

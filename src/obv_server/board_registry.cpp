@@ -179,9 +179,8 @@ BoardRegistry::Entry BoardRegistry::parseAndStoreLocked(const std::string &id,
 	}
 
 	obv::BoardSnapshot snap = obv::ParseBoardBuffer(std::move(buf), path, cfg_.keys);
-	if (snap.sourceName.empty()) {
-		snap.sourceName = name;
-	}
+	// Always expose original upload filename, not storage path (path still used for ASC relatives).
+	snap.sourceName = name;
 	e.ok = snap.ok();
 	e.parseError = e.ok ? std::string() : (snap.error.empty() ? "parse failed" : snap.error);
 
@@ -264,9 +263,8 @@ BoardRegistry::loadParsedLocked(const std::string &id) {
 	auto buf = readAll(slot.entry.path);
 	obv::BoardSnapshot snap =
 		obv::ParseBoardBuffer(std::move(buf), slot.entry.path, cfg_.keys);
-	if (snap.sourceName.empty()) {
-		snap.sourceName = slot.entry.name;
-	}
+	// Prefer registry display name over full storage path.
+	snap.sourceName = slot.entry.name;
 	slot.entry.ok = snap.ok();
 	slot.entry.parseError =
 		slot.entry.ok ? std::string() : (snap.error.empty() ? "parse failed" : snap.error);
@@ -314,7 +312,11 @@ bool BoardRegistry::Remove(const std::string &id) {
 		return false;
 	}
 	std::error_code ec;
-	filesystem::remove(it->second.entry.path, ec);
+	const bool deleted = filesystem::remove(it->second.entry.path, ec);
+	// false + ec means real I/O failure; false + clear ec means already gone.
+	if (!deleted && ec) {
+		return false;
+	}
 	byId_.erase(it);
 	return true;
 }
