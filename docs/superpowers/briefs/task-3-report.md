@@ -106,4 +106,35 @@ cmake --build build-core-only --target obv_core_tests -j 8
 ## Concerns
 
 - Without `OBV_TEST_BOARD`, full-board schema path is not exercised at runtime (only empty-export path). Recommend CI set `OBV_TEST_BOARD` to a private fixture when available.
-- Component `outline` prefers special outline → computed outline → hull; empty when none calculated yet (depends on parse-time hull work already present in `BRDBoard`/desktop path).
+- Component geometry now falls back at export time (pin bbox center + rect outline) when parse never ran DrawParts.
+
+---
+
+## Fix pass
+
+**Commit:** `fix(core): board JSON pin/net ids and component geometry`
+
+Addressed Task 3 Important review findings in `src/obv_core/src/board_json.cpp` only (no Task 4 work).
+
+### 1. Pin id nail fallback for dummy components
+- **Bug:** `pinId` treated any non-null `pin.component` as a real part. BRDBoard attaches nails/test pads to dummy components and strips `"..."` names to `""`, so IDs became `.1` and collided.
+- **Fix:** Nail path when component is null, name empty, or `component_type == kComponentTypeDummy`: `nail.<number>.<globalPinIndex>`.
+- Component.pins and global pins[] share a `Pin*` → global index map so the same pin gets the same id.
+
+### 2. Component geometry defaults
+- **Bug:** `centerpoint` / `outline_done` / `hull` are filled lazily in `BoardView::DrawParts`; pure parse export left center `0,0` and empty outline for most parts.
+- **Fix:** `deriveCompGeom` at export: if special_outline / outline_done / hull present, keep them; else compute pin-bbox center and axis-aligned rect outline with pin-diameter/size margin. Recompute center from pins when stored center is still `(0,0)`.
+
+### 3. Unique net IDs for name-only nets
+- **Bug:** Export used `Net::number`, which BRDBoard often leaves unset → many nets shared `id`/`netId` 0.
+- **Fix:** Sequential export-local map `Net* → id` starting at 1 in `Nets()` order; same map for pin/track/via/arc `netId`.
+
+### Verification
+
+```text
+cmake --build build-core-only --target obv_core_tests -j 8
+./build-core-only/src/obv_core_tests/Debug/obv_core_tests.exe
+# skip export
+# ok
+# exit:0
+```

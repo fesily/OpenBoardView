@@ -1,7 +1,12 @@
 // Pin id rule (locked Task 3):
-//   id = componentName + "." + pin.number   when pin.component is present
-//   id = "nail." + pin.number + "." + index when no component (nails / free pins)
+//   id = componentName + "." + pin.number when pin belongs to a real named component
+//   id = "nail." + pin.number + "." + globalPinIndex when:
+//     - pin.component is null, OR
+//     - component name is empty (BRDBoard strips dummy "..." names to ""), OR
+//     - component_type is kComponentTypeDummy (nails / test pads)
 // Geometry is raw board space (not screen-transformed). Overlay fields are omitted.
+// Net ids are export-local sequential integers (starting at 1) mapped Net* -> id so
+// name-only nets with unset Net::number stay unique across pins/tracks/vias/arcs.
 
 #include "obv_core/board_json.h"
 
@@ -12,6 +17,9 @@
 #include <sstream>
 #include <string>
 #include <utility>
+#include <algorithm>
+#include <limits>
+#include <unordered_map>
 
 namespace obv {
 namespace {
@@ -120,11 +128,137 @@ const char *shapeToString(EShapeType t) {
 	}
 }
 
-std::string pinId(const Pin &pin, size_t index) {
-	if (pin.component) {
+// Nail/test-pad pins must not use ".<number>" when dummy component name is empty.
+std::string pinId(const Pin &pin, size_t globalIndex) {
+	const bool nailLike = !pin.component || pin.component->name.empty() ||
+	                      pin.component->component_type == Component::kComponentTypeDummy;
+	if (!nailLike) {
 		return pin.component->name + "." + pin.number;
 	}
-	return "nail." + pin.number + "." + std::to_string(index);
+	return "nail." + pin.number + "." + std::to_string(globalIndex);
+}
+
+// True when component already has a usable outline from parse/special data.
+bool hasUsableOutline(const Component &c) {
+	if (c.is_special_outline) return true;
+	if (c.outline_done) return true;
+	if (!c.hull.empty()) return true;
+	return false;
+}
+
+// Export-time pin-bbox geometry when parse path never ran DrawParts hull/center.
+// center = pin bbox midpoint; outline = axis-aligned rect around pins with margin.
+struct CompGeom {
+	float cx = 0.f, cy = 0.f;
+	bool hasCenter = false;
+	// 4-corner rect when derived from pins; empty when caller should use native outline
+	bool usePinRect = false;
+	float minX = 0.f, minY = 0.f, maxX = 0.f, maxY = 0.f;
+};
+
+CompGeom deriveCompGeom(const Component &c) {
+	CompGeom g;
+	if (c.pins.empty()) {
+		// Fall back to stored center even if 0,0 (no better source).
+		g.cx = c.centerpoint.x;
+		g.cy = c.centerpoint.y;
+		g.hasCenter = true;
+		return g;
+	}
+
+	float minX = std::numeric_limits<float>::max();
+	float minY = std::numeric_limits<float>::max();
+	float maxX = std::numeric_limits<float>::lowest();
+	float maxY = std::numeric_limits<float>::lowest();
+	float margin = 0.f;
+	for (const auto &pp : c.pins) {
+		if (!pp) continue;
+		const float x = pp->position.x;
+		const float y = pp->position.y;
+		minX = std::min(minX, x);
+		minY = std::min(minY, y);
+		maxX = std::max(maxX, x);
+		maxY = std::max(maxY, y);
+		const float r = pp->diameter * 0.5f;
+		if (r > margin) margin = r;
+		// Also consider rect pin half-size
+		const float hx = std::abs(pp->size.x) * 0.5f;
+		const float hy = std::abs(pp->size.y) * 0.5f;
+		if (hx > margin) margin = hx;
+		if (hy > margin) margin = hy;
+	}
+	if (!(minX <= maxX && minY <= maxY)) {
+		g.cx = c.centerpoint.x;
+		g.cy = c.centerpoint.y;
+		g.hasCenter = true;
+		return g;
+	}
+	if (margin <= 0.f) {
+		// Tiny pad so single-pin parts still get a visible box.
+		const float span = std::max(maxX - minX, maxY - minY);
+		margin = span > 0.f ? span * 0.1f : 1.f;
+	}
+
+	const bool centerUnset = (c.centerpoint.x == 0.f && c.centerpoint.y == 0.f);
+	if (!hasUsableOutline(c) || centerUnset) {
+		g.cx = (minX + maxX) * 0.5f;
+		g.cy = (minY + maxY) * 0.5f;
+		g.hasCenter = true;
+	} else {
+		g.cx = c.centerpoint.x;
+		g.cy = c.centerpoint.y;
+		g.hasCenter = true;
+	}
+
+	if (!hasUsableOutline(c)) {
+		g.usePinRect = true;
+		g.minX = minX - margin;
+		g.minY = minY - margin;
+		g.maxX = maxX + margin;
+		g.maxY = maxY + margin;
+	}
+	return g;
+}
+
+// Append outline points: prefer special/outline_done/hull; else pin-rect from geom.
+void appendComponentOutline(std::ostringstream &os, const Component &c, const CompGeom &g) {
+	os << ",\"outline\":[";
+	if (c.is_special_outline) {
+		for (size_t oi = 0; oi < c.special_outline.size(); ++oi) {
+			if (oi) os << ',';
+			appendPoint(os, c.special_outline[oi].x, c.special_outline[oi].y);
+		}
+	} else if (c.outline_done) {
+		for (size_t oi = 0; oi < c.outline.size(); ++oi) {
+			if (oi) os << ',';
+			appendPoint(os, c.outline[oi].x, c.outline[oi].y);
+		}
+	} else if (!c.hull.empty()) {
+		for (size_t oi = 0; oi < c.hull.size(); ++oi) {
+			if (oi) os << ',';
+			appendPoint(os, c.hull[oi].x, c.hull[oi].y);
+		}
+	} else if (g.usePinRect) {
+		// Axis-aligned rect (TL, TR, BR, BL) from pin bbox + margin.
+		appendPoint(os, g.minX, g.minY);
+		os << ',';
+		appendPoint(os, g.maxX, g.minY);
+		os << ',';
+		appendPoint(os, g.maxX, g.maxY);
+		os << ',';
+		appendPoint(os, g.minX, g.maxY);
+	}
+	os << ']';
+}
+
+// Look up export net id; assign a new sequential id if this Net* was not in Nets().
+int exportNetId(std::unordered_map<const Net *, int> &netIds, int &nextNetId, const Net *n) {
+	if (!n) return 0;
+	auto it = netIds.find(n);
+	if (it != netIds.end()) return it->second;
+	const int id = nextNetId++;
+	netIds.emplace(n, id);
+	return id;
 }
 
 void appendBounds(std::ostringstream &os, const BoardBounds &b) {
@@ -211,22 +345,33 @@ std::string ExportBoardJson(const BoardSnapshot &snap, const std::string &boardI
 	}
 	os << "]}";
 
-	// nets
+	// nets — assign unique stable sequential ids in export order (Net::number often unset).
+	std::unordered_map<const Net *, int> netIds;
+	int nextNetId = 1;
 	os << ",\"nets\":[";
 	{
 		const auto &nets = board.Nets();
 		for (size_t i = 0; i < nets.size(); ++i) {
 			if (i) os << ',';
 			const Net &n = *nets[i];
-			os << "{\"id\":" << n.number << ",\"name\":";
+			const int id = exportNetId(netIds, nextNetId, &n);
+			os << "{\"id\":" << id << ",\"name\":";
 			appendEscaped(os, n.name);
 			os << ",\"isGround\":" << (n.is_ground ? "true" : "false") << '}';
 		}
 	}
 	os << ']';
 
-	// Build pin ids once so component.pins can reference them stably by pin index in board Pins().
-	// Prefer component-local listing with same id rule.
+	// Global pin index map for stable nail.* ids shared by component.pins and pins[].
+	std::unordered_map<const Pin *, size_t> pinGlobalIndex;
+	{
+		const auto &allPins = board.Pins();
+		pinGlobalIndex.reserve(allPins.size());
+		for (size_t i = 0; i < allPins.size(); ++i) {
+			pinGlobalIndex.emplace(allPins[i].get(), i);
+		}
+	}
+
 	// components
 	os << ",\"components\":[";
 	{
@@ -244,30 +389,17 @@ std::string ExportBoardJson(const BoardSnapshot &snap, const std::string &boardI
 			appendEscaped(os, componentTypeToString(c.component_type));
 			os << ",\"mfgcode\":";
 			appendEscaped(os, c.mfgcode);
+			const CompGeom geom = deriveCompGeom(c);
 			os << ",\"center\":";
-			appendPoint(os, c.centerpoint.x, c.centerpoint.y);
-			os << ",\"outline\":[";
-			if (c.is_special_outline) {
-				for (size_t oi = 0; oi < c.special_outline.size(); ++oi) {
-					if (oi) os << ',';
-					appendPoint(os, c.special_outline[oi].x, c.special_outline[oi].y);
-				}
-			} else if (c.outline_done) {
-				for (size_t oi = 0; oi < c.outline.size(); ++oi) {
-					if (oi) os << ',';
-					appendPoint(os, c.outline[oi].x, c.outline[oi].y);
-				}
-			} else if (!c.hull.empty()) {
-				for (size_t oi = 0; oi < c.hull.size(); ++oi) {
-					if (oi) os << ',';
-					appendPoint(os, c.hull[oi].x, c.hull[oi].y);
-				}
-			}
-			os << "],\"pins\":[";
+			appendPoint(os, geom.cx, geom.cy);
+			appendComponentOutline(os, c, geom);
+			os << ",\"pins\":[";
 			for (size_t pi = 0; pi < c.pins.size(); ++pi) {
 				if (pi) os << ',';
-				// index not needed when component present
-				appendEscaped(os, pinId(*c.pins[pi], pi));
+				size_t globalIdx = pi;
+				auto it = pinGlobalIndex.find(c.pins[pi].get());
+				if (it != pinGlobalIndex.end()) globalIdx = it->second;
+				appendEscaped(os, pinId(*c.pins[pi], globalIdx));
 			}
 			os << "]}";
 		}
@@ -295,7 +427,7 @@ std::string ExportBoardJson(const BoardSnapshot &snap, const std::string &boardI
 			appendEscaped(os, p.name);
 			os << ",\"netId\":";
 			if (p.net) {
-				os << p.net->number;
+				os << exportNetId(netIds, nextNetId, p.net);
 			} else {
 				os << "null";
 			}
@@ -331,7 +463,7 @@ std::string ExportBoardJson(const BoardSnapshot &snap, const std::string &boardI
 			appendNumber(os, t.width);
 			os << ",\"netId\":";
 			if (t.net) {
-				os << t.net->number;
+				os << exportNetId(netIds, nextNetId, t.net);
 			} else {
 				os << "null";
 			}
@@ -357,7 +489,7 @@ std::string ExportBoardJson(const BoardSnapshot &snap, const std::string &boardI
 			appendNumber(os, v.size);
 			os << ",\"netId\":";
 			if (v.net) {
-				os << v.net->number;
+				os << exportNetId(netIds, nextNetId, v.net);
 			} else {
 				os << "null";
 			}
@@ -387,7 +519,7 @@ std::string ExportBoardJson(const BoardSnapshot &snap, const std::string &boardI
 			appendNumber(os, a.endAngle);
 			os << ",\"netId\":";
 			if (a.net) {
-				os << a.net->number;
+				os << exportNetId(netIds, nextNetId, a.net);
 			} else {
 				os << "null";
 			}
