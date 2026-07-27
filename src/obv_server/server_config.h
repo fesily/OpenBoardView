@@ -12,6 +12,7 @@ struct ServerConfig {
 	std::string host = "127.0.0.1";
 	int port = 8080;
 	filesystem::path dataRoot; // contains boards/, overlays/, config/
+	filesystem::path webRoot;  // optional SPA/static root (web/dist); empty = API only
 	obv::DecryptKeys keys;
 	size_t maxUploadBytes = 64 * 1024 * 1024;
 	bool allowDelete = false;
@@ -21,7 +22,7 @@ struct ServerConfig {
 // Missing path or empty content returns defaults (no throw).
 ServerConfig LoadConfig(const filesystem::path &jsonOrTomlPath);
 
-// Apply CLI: --config PATH, --host HOST, --port N, --data PATH.
+// Apply CLI: --config PATH, --host HOST, --port N, --data PATH, --www DIR.
 // Later flags override earlier / config file values.
 ServerConfig ParseArgs(int argc, char **argv);
 

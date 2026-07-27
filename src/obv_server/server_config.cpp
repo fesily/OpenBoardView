@@ -195,6 +195,11 @@ void ApplyFromJson(ServerConfig &cfg, const std::string &text) {
 	} else if (const auto data = JsonString(text, "data"); !data.empty()) {
 		cfg.dataRoot = data;
 	}
+	if (const auto www = JsonString(text, "webRoot"); !www.empty()) {
+		cfg.webRoot = www;
+	} else if (const auto www = JsonString(text, "www"); !www.empty()) {
+		cfg.webRoot = www;
+	}
 	const long long maxUp = JsonNumber(text, "maxUploadBytes", -1);
 	if (maxUp > 0) {
 		cfg.maxUploadBytes = static_cast<size_t>(maxUp);
@@ -246,6 +251,8 @@ void ApplyFromKeyValue(ServerConfig &cfg, const std::string &text) {
 			}
 		} else if (key == "dataRoot" || key == "data") {
 			cfg.dataRoot = val;
+		} else if (key == "webRoot" || key == "www") {
+			cfg.webRoot = val;
 		} else if (key == "maxUploadBytes") {
 			const long long n = std::strtoll(val.c_str(), nullptr, 10);
 			if (n > 0) {
@@ -328,12 +335,15 @@ ServerConfig ParseArgs(int argc, char **argv) {
 			}
 		} else if (const char *v = needVal("--data")) {
 			cfg.dataRoot = v;
+		} else if (const char *v = needVal("--www")) {
+			cfg.webRoot = v;
 		} else if (const char *v = needVal("--config")) {
 			(void)v; // already applied
 		} else if (std::strcmp(a, "--help") == 0 || std::strcmp(a, "-h") == 0) {
 			std::cout
 				<< "obv_server - OpenBoardView local HTTP server\n"
-				<< "Usage: obv_server [--host 127.0.0.1] [--port 8080] [--data DIR] [--config PATH]\n";
+				<< "Usage: obv_server [--host 127.0.0.1] [--port 8080] [--data DIR] [--www DIR] [--config PATH]\n"
+				<< "  --www DIR   Serve SPA/static files from DIR (e.g. web/dist); SPA fallback for non-API 404\n";
 			std::exit(0);
 		}
 	}
