@@ -2,9 +2,14 @@
 option(ENABLE_GL1 "Build OpenGL 1 renderer." ON)
 option(ENABLE_GL3 "Build OpenGL 3 renderer." ON)
 option(ENABLE_GLES2 "Configure OpenGL 3 renderer to be OpenGL ES 2.0 compatible." OFF)
+option(ENABLE_OBV_CORE "Build shared board core library" ON)
+option(ENABLE_OPENBOARDVIEW "Build desktop OpenBoardView application" ON)
 
-if(NOT APPLE AND NOT ANDROID AND NOT WIN32 OR MINGW)
-	find_package(PkgConfig REQUIRED)
+# PkgConfig is only required for desktop system deps (stb, fontconfig/gtk on Linux)
+if(ENABLE_OPENBOARDVIEW)
+	if(NOT APPLE AND NOT ANDROID AND NOT WIN32 OR MINGW)
+		find_package(PkgConfig REQUIRED)
+	endif()
 endif()
 
 ## utf8.h ##
@@ -54,6 +59,66 @@ if(ENABLE_SQLITE3)
 		add_subdirectory(sqlite3)
 	endif()
 endif()
+
+## filesystem ##
+message(CHECK_START "Checking for std::filesystem")
+## GCC 9 and Clang 9 include filesystem in the standard library. Apple is of course messing with us and AppleClang 11.4 is Clang 9.0
+if(((CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU") AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 9.0)
+	OR (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 11.4))
+	message(CHECK_PASS "available")
+	set(CMAKE_CXX_STANDARD 20)
+	set(FILESYSTEM_LIBRARIES)
+	add_definitions(-DWITH_STD_FILESYSTEM)
+# Clang 8 requires explicit linking with lc++fs. AppleClang 11.0 is Clang 8.0
+elseif((CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 8.0)
+	OR (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 11.0))
+	message(CHECK_PASS "available")
+	set(CMAKE_CXX_STANDARD 20)
+	set(FILESYSTEM_LIBRARIES lc++fs)
+	add_definitions(-DWITH_STD_FILESYSTEM)
+# GCC 8 requires explicit linking with stdc++fs
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 8.0)
+	message(CHECK_PASS "available")
+	set(CMAKE_CXX_STANDARD 20)
+	set(FILESYSTEM_LIBRARIES stdc++fs)
+	add_definitions(-DWITH_STD_FILESYSTEM)
+elseif (MSVC)
+	set(CMAKE_CXX_STANDARD 20)
+	add_compile_options(/Zc:__cplusplus)
+	add_definitions(-DWITH_STD_FILESYSTEM)
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" AND MSVC_VERSION VERSION_GREATER 1910)
+	set(CMAKE_CXX_STANDARD 20)
+	add_compile_options(/Zc:__cplusplus)
+	add_definitions(-DWITH_STD_FILESYSTEM)
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" AND MSVC_VERSION VERSION_GREATER 1910)
+	set(CMAKE_CXX_STANDARD 20)
+	add_compile_options(/Zc:__cplusplus)
+	add_definitions(-DWITH_STD_FILESYSTEM)
+else() # Other compiler/version are unsupported, use external lib
+	message(CHECK_FAIL "not available, using ghc::filesystem")
+	execute_process(
+		COMMAND git submodule update --init src/filesystem
+		WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+	)
+	add_subdirectory(filesystem)
+	set(FILESYSTEM_LIBRARIES ghc_filesystem)
+endif()
+
+## mpc - Micro Parser Combinators ##
+execute_process(
+	COMMAND git submodule update --init src/mpc
+	WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+)
+
+add_library(mpc STATIC "mpc/mpc.c")
+
+## obv_core — GUI-free board core library (before desktop GUI deps) ##
+if(ENABLE_OBV_CORE)
+	add_subdirectory(obv_core)
+endif()
+
+## Desktop GUI stack (glad / SDL2 / imgui / stb / openboardview) ##
+if(ENABLE_OPENBOARDVIEW)
 
 ## glad ##
 execute_process(
@@ -189,50 +254,6 @@ set(IMGUI_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/imgui ${CMAKE_CURRENT_SOURCE_
 
 #install(TARGETS imgui DESTINATION ${INSTALL_ARCHIVE_DIR}) # No need to install a static lib
 
-## filesystem ##
-message(CHECK_START "Checking for std::filesystem")
-## GCC 9 and Clang 9 include filesystem in the standard library. Apple is of course messing with us and AppleClang 11.4 is Clang 9.0
-if(((CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU") AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 9.0)
-	OR (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 11.4))
-	message(CHECK_PASS "available")
-	set(CMAKE_CXX_STANDARD 20)
-	set(FILESYSTEM_LIBRARIES)
-	add_definitions(-DWITH_STD_FILESYSTEM)
-# Clang 8 requires explicit linking with lc++fs. AppleClang 11.0 is Clang 8.0
-elseif((CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 8.0)
-	OR (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 11.0))
-	message(CHECK_PASS "available")
-	set(CMAKE_CXX_STANDARD 20)
-	set(FILESYSTEM_LIBRARIES lc++fs)
-	add_definitions(-DWITH_STD_FILESYSTEM)
-# GCC 8 requires explicit linking with stdc++fs
-elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 8.0)
-	message(CHECK_PASS "available")
-	set(CMAKE_CXX_STANDARD 20)
-	set(FILESYSTEM_LIBRARIES stdc++fs)
-	add_definitions(-DWITH_STD_FILESYSTEM)
-elseif (MSVC)
-	set(CMAKE_CXX_STANDARD 20)
-	add_compile_options(/Zc:__cplusplus)
-	add_definitions(-DWITH_STD_FILESYSTEM)
-elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" AND MSVC_VERSION VERSION_GREATER 1910)
-	set(CMAKE_CXX_STANDARD 20)
-	add_compile_options(/Zc:__cplusplus)
-	add_definitions(-DWITH_STD_FILESYSTEM)
-elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" AND MSVC_VERSION VERSION_GREATER 1910)
-	set(CMAKE_CXX_STANDARD 20)
-	add_compile_options(/Zc:__cplusplus)
-	add_definitions(-DWITH_STD_FILESYSTEM)
-else() # Other compiler/version are unsupported, use external lib
-	message(CHECK_FAIL "not available, using ghc::filesystem")
-	execute_process(
-		COMMAND git submodule update --init src/filesystem
-		WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-	)
-	add_subdirectory(filesystem)
-	set(FILESYSTEM_LIBRARIES ghc_filesystem)
-endif()
-
 ## stb ##
 if(NOT APPLE AND NOT ANDROID AND NOT WIN32 OR MINGW)
 	pkg_check_modules(STB stb)
@@ -259,21 +280,7 @@ endif()
 
 add_definitions(-DSTBI_FAILURE_USERMSG)
 
-## mpc - Micro Parser Combinators ##
-execute_process(
-	COMMAND git submodule update --init src/mpc
-	WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-)
-
-add_library(mpc STATIC "mpc/mpc.c")
-
-
-
 ## OpenBoardView ##
 add_subdirectory(openboardview)
 
-## obv_core — GUI-free board core library ##
-option(ENABLE_OBV_CORE "Build shared board core library" ON)
-if(ENABLE_OBV_CORE)
-	add_subdirectory(obv_core)
-endif()
+endif() # ENABLE_OPENBOARDVIEW

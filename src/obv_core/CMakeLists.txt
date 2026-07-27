@@ -104,6 +104,11 @@ target_link_libraries(obv_core
 		${FILESYSTEM_LIBRARIES}
 )
 
+# Propagate filesystem mode to consumers of public headers (core_utils.h).
+if(NOT FILESYSTEM_LIBRARIES STREQUAL "ghc_filesystem")
+	target_compile_definitions(obv_core PUBLIC WITH_STD_FILESYSTEM)
+endif()
+
 # Windows needs NOMINMAX for windows headers pulled by platform.h
 if(WIN32)
 	target_compile_definitions(obv_core PRIVATE NOMINMAX)
