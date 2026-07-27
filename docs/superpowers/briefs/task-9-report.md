@@ -99,3 +99,28 @@ cd web && npm test
 cd web && npm run build
 # → tsc -b && vite build OK
 ```
+
+---
+
+## Important fix follow-up (Task9Fix2): pin.diameter is radius
+
+**Status:** FIXED  
+**Commit:** `fix(web): treat pin.diameter as radius`  
+**Date:** 2026-07-27
+
+### Problem
+JSON field `pin.diameter` is misnamed. Desktop stores **radius** (`pin->diameter = brd_pin.radius / scale`) and draws with `AddCircle(..., p->diameter * m_scale, ...)`. Web `draw.ts` / `hitTest.ts` multiplied by `0.5`, so pads rendered and picked at half size.
+
+### Fix
+- `draw.ts` `pinRadiusPx`: use `pin.diameter` directly as board-space radius when `> 0`; else default **7** (BoardView empty-diameter fill).
+- `hitTest.ts`: same semantics; threshold = radius (not diameter/2). Renamed `DEFAULT_PIN_DIAMETER` → `DEFAULT_PIN_RADIUS = 7`.
+- Unit tests in `hitTest.test.ts` assert no half-factor and default-7 fallback.
+
+### Verification
+```text
+cd web && npm test
+# → 11 passed (transform + hitTest)
+
+cd web && npm run build
+# → tsc -b && vite build OK
+```

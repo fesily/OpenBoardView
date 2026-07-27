@@ -164,9 +164,11 @@ function drawParts(
   }
 }
 
+/** Board-space pin radius in px. `pin.diameter` is misnamed — desktop stores radius (AddCircle). */
 function pinRadiusPx(pin: Pin, scale: number): number {
-  const d = pin.diameter > 0 ? pin.diameter : Math.max(pin.size?.x ?? 0, pin.size?.y ?? 0, 10);
-  return Math.max((d * 0.5) * scale, 1.5);
+  // Default 7 matches BoardView when pin->diameter <= 0.
+  const r = pin.diameter > 0 ? pin.diameter : 7;
+  return Math.max(r * scale, 1.5);
 }
 
 function drawPins(
