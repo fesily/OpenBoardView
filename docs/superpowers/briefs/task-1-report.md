@@ -99,7 +99,7 @@ d514392 build: extract obv_core library without GUI deps
 ## Fix pass
 
 **Date:** 2026-07-27  
-**Commit:** `db52808` — `fix(core): GUI-free cmake path and public filesystem includes`
+**Commit:** `9b0137c` — `fix(core): GUI-free cmake path and public filesystem includes`
 
 ### Changes
 
