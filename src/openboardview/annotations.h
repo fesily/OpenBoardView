@@ -80,9 +80,9 @@ struct Annotations {
 	int SetFilename(const std::string &f);
 	int Load(void);
 	int Close(void);
-	void Remove(int id);
-	void Add(int side, double x, double y, const char *net, const char *part, const char *pin, const char *note);
-	void Update(int id, char *note);
+	int Remove(int id);
+	int Add(int side, double x, double y, const char *net, const char *part, const char *pin, const char *note);
+	int Update(int id, const char *note);
 	void GenerateList(void);
 
 	PartInfo& NewPartInfo(const char* partName);

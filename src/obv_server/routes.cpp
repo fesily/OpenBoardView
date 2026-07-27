@@ -654,28 +654,6 @@ std::optional<AnnotationJson> findAnnotation(const Annotations &ann, int id) {
 	return std::nullopt;
 }
 
-// Prefer the highest id as the newly inserted row (AUTOINCREMENT).
-std::optional<AnnotationJson> newestAnnotation(const Annotations &ann) {
-	if (ann.annotations.empty()) {
-		return std::nullopt;
-	}
-	const Annotation *best = &ann.annotations.front();
-	for (const auto &a : ann.annotations) {
-		if (a.id > best->id) {
-			best = &a;
-		}
-	}
-	AnnotationJson j;
-	j.id = best->id;
-	j.side = best->side;
-	j.x = best->x;
-	j.y = best->y;
-	j.net = best->net;
-	j.part = best->part;
-	j.pin = best->pin;
-	j.note = best->note;
-	return j;
-}
 
 #ifndef HAVE_SQLITE3
 void setSqliteRequired(httplib::Response &res) {
@@ -863,10 +841,15 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 					 ann.Close();
 					 return;
 				 }
-				 ann.Add(body.side, body.x, body.y, body.net.c_str(), body.part.c_str(),
-						 body.pin.c_str(), body.note.c_str());
+				 if (ann.Add(body.side, body.x, body.y, body.net.c_str(), body.part.c_str(),
+							 body.pin.c_str(), body.note.c_str()) != 0) {
+					 setError(res, 500, "ANNOTATION_CREATE_FAILED", "annotation SQLite insert failed");
+					 ann.Close();
+					 return;
+				 }
+				 const int newId = static_cast<int>(sqlite3_last_insert_rowid(ann.sqldb));
 				 ann.GenerateList();
-				 const auto created = newestAnnotation(ann);
+				 const auto created = findAnnotation(ann, newId);
 				 if (!created) {
 					 setError(res, 500, "ANNOTATION_CREATE_FAILED", "annotation was not persisted");
 					 ann.Close();
@@ -924,14 +907,20 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 					  ann.Close();
 					  return;
 				  }
-				  // Annotations::Update takes char* note (mutable API surface).
-				  std::vector<char> noteBuf(note.begin(), note.end());
-				  noteBuf.push_back('\0');
-				  ann.Update(annId, noteBuf.data());
+				  if (ann.Update(annId, note.c_str()) != 0) {
+					  setError(res, 500, "ANNOTATION_UPDATE_FAILED", "annotation SQLite update failed");
+					  ann.Close();
+					  return;
+				  }
 				  ann.GenerateList();
 				  const auto updated = findAnnotation(ann, annId);
 				  if (!updated) {
 					  setError(res, 500, "ANNOTATION_UPDATE_FAILED", "annotation missing after update");
+					  ann.Close();
+					  return;
+				  }
+				  if (updated->note != note) {
+					  setError(res, 500, "ANNOTATION_UPDATE_FAILED", "annotation note not updated");
 					  ann.Close();
 					  return;
 				  }
@@ -980,7 +969,11 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 					   ann.Close();
 					   return;
 				   }
-				   ann.Remove(annId);
+				   if (ann.Remove(annId) != 0) {
+					   setError(res, 500, "ANNOTATION_DELETE_FAILED", "annotation SQLite soft-delete failed");
+					   ann.Close();
+					   return;
+				   }
 				   ann.GenerateList();
 				   if (findAnnotation(ann, annId)) {
 					   setError(res, 500, "ANNOTATION_DELETE_FAILED", "annotation still visible");

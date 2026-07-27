@@ -251,65 +251,114 @@ void Annotations::GenerateList(void) {
 #endif
 }
 
-void Annotations::Add(int side, double x, double y, const char *net, const char *part, const char *pin, const char *note) {
+int Annotations::Add(int side, double x, double y, const char *net, const char *part, const char *pin, const char *note) {
 #ifdef HAVE_SQLITE3
-	char sql[10240];
-	char *zErrMsg = 0;
-	int r;
+	if (!sqldb) return 1;
+	if (!net) net = "";
+	if (!part) part = "";
+	if (!pin) pin = "";
+	if (!note) note = "";
 
-	sqlite3_snprintf(sizeof(sql),
-	                 sql,
-	                 "INSERT into annotations ( visible, side, posx, posy, net, part, pin, note ) \
-			values ( 1, %d, %0.0f, %0.0f, '%q', '%q', '%q', '%q' );",
-	                 side,
-	                 x,
-	                 y,
-	                 net,
-	                 part,
-	                 pin,
-	                 note);
-
-	r = sqlite3_exec(sqldb, sql, NULL, 0, &zErrMsg);
-	if (r != SQLITE_OK) {
-		if (debug) fprintf(stderr, "SQL error: %s\n", zErrMsg);
-		sqlite3_free(zErrMsg);
-	} else {
-		if (debug) fprintf(stdout, "Records created successfully\n");
+	static const char sql[] =
+	    "INSERT INTO annotations (visible, side, posx, posy, net, part, pin, note) "
+	    "VALUES (1, ?, ?, ?, ?, ?, ?, ?);";
+	sqlite3_stmt *stmt = nullptr;
+	int rc = sqlite3_prepare_v2(sqldb, sql, -1, &stmt, nullptr);
+	if (rc != SQLITE_OK) {
+		if (debug) fprintf(stderr, "SQL prepare Add error: %s\n", sqlite3_errmsg(sqldb));
+		return 1;
 	}
+
+	sqlite3_bind_int(stmt, 1, side);
+	sqlite3_bind_int(stmt, 2, static_cast<int>(x));
+	sqlite3_bind_int(stmt, 3, static_cast<int>(y));
+	sqlite3_bind_text(stmt, 4, net, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 5, part, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 6, pin, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 7, note, -1, SQLITE_TRANSIENT);
+
+	rc = sqlite3_step(stmt);
+	sqlite3_finalize(stmt);
+	if (rc != SQLITE_DONE) {
+		if (debug) fprintf(stderr, "SQL Add error: %s\n", sqlite3_errmsg(sqldb));
+		return 1;
+	}
+	if (debug) fprintf(stdout, "Records created successfully\n");
+	return 0;
+#else
+	(void)side;
+	(void)x;
+	(void)y;
+	(void)net;
+	(void)part;
+	(void)pin;
+	(void)note;
+	return 1;
 #endif
 }
 
-void Annotations::Remove(int id) {
+int Annotations::Remove(int id) {
 #ifdef HAVE_SQLITE3
-	char sql[1024];
-	char *zErrMsg = 0;
-	int r;
+	if (!sqldb) return 1;
 
-	sqlite3_snprintf(sizeof(sql), sql, "UPDATE annotations set visible = 0 where id=%d;", id);
-	r = sqlite3_exec(sqldb, sql, NULL, 0, &zErrMsg);
-	if (r != SQLITE_OK) {
-		if (debug) fprintf(stderr, "SQL error: %s\n", zErrMsg);
-		sqlite3_free(zErrMsg);
-	} else {
-		if (debug) fprintf(stdout, "Records created successfully\n");
+	static const char sql[] = "UPDATE annotations SET visible = 0 WHERE id = ?;";
+	sqlite3_stmt *stmt = nullptr;
+	int rc = sqlite3_prepare_v2(sqldb, sql, -1, &stmt, nullptr);
+	if (rc != SQLITE_OK) {
+		if (debug) fprintf(stderr, "SQL prepare Remove error: %s\n", sqlite3_errmsg(sqldb));
+		return 1;
 	}
+
+	sqlite3_bind_int(stmt, 1, id);
+	rc = sqlite3_step(stmt);
+	sqlite3_finalize(stmt);
+	if (rc != SQLITE_DONE) {
+		if (debug) fprintf(stderr, "SQL Remove error: %s\n", sqlite3_errmsg(sqldb));
+		return 1;
+	}
+	if (sqlite3_changes(sqldb) < 1) {
+		if (debug) fprintf(stderr, "SQL Remove: no rows updated for id=%d\n", id);
+		return 1;
+	}
+	if (debug) fprintf(stdout, "Records updated successfully\n");
+	return 0;
+#else
+	(void)id;
+	return 1;
 #endif
 }
 
-void Annotations::Update(int id, char *note) {
+int Annotations::Update(int id, const char *note) {
 #ifdef HAVE_SQLITE3
-	char sql[10240];
-	char *zErrMsg = 0;
-	int r;
+	if (!sqldb) return 1;
+	if (!note) note = "";
 
-	sqlite3_snprintf(sizeof(sql), sql, "UPDATE annotations set note = '%q' where id=%d;", note, id);
-	r = sqlite3_exec(sqldb, sql, NULL, 0, &zErrMsg);
-	if (r != SQLITE_OK) {
-		if (debug) fprintf(stderr, "SQL error: %s\n", zErrMsg);
-		sqlite3_free(zErrMsg);
-	} else {
-		if (debug) fprintf(stdout, "Records created successfully\n");
+	static const char sql[] = "UPDATE annotations SET note = ? WHERE id = ?;";
+	sqlite3_stmt *stmt = nullptr;
+	int rc = sqlite3_prepare_v2(sqldb, sql, -1, &stmt, nullptr);
+	if (rc != SQLITE_OK) {
+		if (debug) fprintf(stderr, "SQL prepare Update error: %s\n", sqlite3_errmsg(sqldb));
+		return 1;
 	}
+
+	sqlite3_bind_text(stmt, 1, note, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_int(stmt, 2, id);
+	rc = sqlite3_step(stmt);
+	sqlite3_finalize(stmt);
+	if (rc != SQLITE_DONE) {
+		if (debug) fprintf(stderr, "SQL Update error: %s\n", sqlite3_errmsg(sqldb));
+		return 1;
+	}
+	if (sqlite3_changes(sqldb) < 1) {
+		if (debug) fprintf(stderr, "SQL Update: no rows updated for id=%d\n", id);
+		return 1;
+	}
+	if (debug) fprintf(stdout, "Records updated successfully\n");
+	return 0;
+#else
+	(void)id;
+	(void)note;
+	return 1;
 #endif
 }
 
