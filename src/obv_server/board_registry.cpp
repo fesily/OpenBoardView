@@ -75,10 +75,20 @@ bool BoardRegistry::isHexId(const std::string &id) {
 	if (id.size() != 64) {
 		return false;
 	}
-	return std::all_of(id.begin(), id.end(), [](unsigned char c) {
-		return std::isxdigit(c) != 0;
-	});
+	// Strict: lowercase hex only (sha256_hex output). Rejects path segments and A-F.
+	for (unsigned char c : id) {
+		const bool ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+		if (!ok) {
+			return false;
+		}
+	}
+	return true;
 }
+
+bool BoardRegistry::IsValidBoardId(const std::string &id) {
+	return isHexId(id);
+}
+
 
 std::string BoardRegistry::safeFileName(const std::string &originalName) {
 	std::string base = originalName;
@@ -334,6 +344,11 @@ bool BoardRegistry::Remove(const std::string &id) {
 }
 
 std::mutex &BoardRegistry::OverlayMutex(const std::string &id) {
+	// Only allocate mutexes for well-formed ids (callers should validate first).
+	static std::mutex invalidMu;
+	if (!isHexId(id)) {
+		return invalidMu;
+	}
 	std::lock_guard<std::mutex> lock(overlayMapMu_);
 	auto it = overlayMu_.find(id);
 	if (it == overlayMu_.end()) {

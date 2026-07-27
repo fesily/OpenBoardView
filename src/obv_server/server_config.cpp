@@ -343,7 +343,12 @@ ServerConfig ParseArgs(int argc, char **argv) {
 			std::cout
 				<< "obv_server - OpenBoardView local HTTP server\n"
 				<< "Usage: obv_server [--host 127.0.0.1] [--port 8080] [--data DIR] [--www DIR] [--config PATH]\n"
-				<< "  --www DIR   Serve SPA/static files from DIR (e.g. web/dist); SPA fallback for non-API 404\n";
+				<< "  --host ADDR  Bind address (default 127.0.0.1 local-only; use 0.0.0.0 for LAN)\n"
+				<< "  --port N     Listen port (default 8080)\n"
+				<< "  --data DIR   Data root for boards/ overlays/ config/ (default ./data)\n"
+				<< "  --www DIR    Serve SPA/static files from DIR (e.g. web/dist); SPA fallback for non-API 404\n"
+				<< "  --config P   JSON or key=value config (keys stay server-side; never exposed via API)\n"
+				<< "Security: default bind is loopback. Prefer a reverse proxy for TLS/gzip on LAN.\n";
 			std::exit(0);
 		}
 	}

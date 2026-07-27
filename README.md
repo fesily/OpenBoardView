@@ -108,3 +108,42 @@ $ open ./openboardview.app
 
 - L: Show net list
 - K: Show part list
+
+### Local web server (`obv_server`)
+
+Companion HTTP server + browser UI (optional; desktop app unchanged).
+
+```bash
+# Build SPA then run (defaults: bind 127.0.0.1:8080, data ./data)
+cd web && npm ci && npm run build && cd ..
+./scripts/run_obv_server.sh          # Unix
+# .\scripts\run_obv_server.ps1       # Windows
+```
+
+**Bind defaults:** `ServerConfig::host` defaults to **`127.0.0.1`** (loopback only). Use `--host 0.0.0.0` only when you intentionally expose the API on the LAN (no auth in MVP).
+
+Decrypt keys (FZ/CAE/XZZ) live in a server-side config file only; `/api/v1/version` never returns key material.
+
+**gzip / TLS:** `obv_server` does not compress responses itself. Put nginx (or similar) in front when serving large board JSON over a network:
+
+```nginx
+# Example reverse proxy in front of obv_server on 127.0.0.1:8080
+server {
+  listen 443 ssl;
+  server_name obv.local;
+  # ssl_certificate …; ssl_certificate_key …;
+
+  gzip on;
+  gzip_types application/json text/css application/javascript application/wasm;
+  gzip_min_length 1024;
+
+  client_max_body_size 64m;  # match maxUploadBytes (default 64 MiB)
+
+  location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  }
+}
+```

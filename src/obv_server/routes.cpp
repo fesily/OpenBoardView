@@ -205,6 +205,53 @@ std::string pathParam(const httplib::Request &req, const char *name) {
 	return it->second;
 }
 
+// boardId must be lowercase sha256 hex — blocks ../ and other path segments.
+bool requireBoardId(const std::string &id, httplib::Response &res) {
+	if (id.empty()) {
+		setError(res, 400, "BAD_REQUEST", "missing board id");
+		return false;
+	}
+	if (!BoardRegistry::IsValidBoardId(id)) {
+		setError(res, 400, "BAD_REQUEST", "board id must be 64 lowercase hex characters");
+		return false;
+	}
+	return true;
+}
+
+// Lowercase file extension including leading '.' (empty if none).
+std::string fileExtensionLower(const std::string &name) {
+	const auto slash = name.find_last_of("/\\");
+	const std::string base = (slash == std::string::npos) ? name : name.substr(slash + 1);
+	const auto dot = base.find_last_of('.');
+	if (dot == std::string::npos || dot + 1 >= base.size()) {
+		return {};
+	}
+	std::string ext = base.substr(dot);
+	for (char &c : ext) {
+		c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+	}
+	return ext;
+}
+
+// Known board / content-sniffed formats. Rejects executables and scripts.
+bool isAllowedUploadExtension(const std::string &name) {
+	static const char *kAllowed[] = {".brd",  ".brd2", ".bdv", ".bvr", ".bvr3", ".fz",
+									 ".cae",  ".bom",  ".asc", ".cst", ".json", ".cad",
+									 ".pcb",  ".alg",  ".xzz", ".bin", ".txt",  ".gencad"};
+	const std::string ext = fileExtensionLower(name);
+	if (ext.empty()) {
+		// Content-detected formats often omit/ignore extension; allow bare names.
+		return true;
+	}
+	for (const char *a : kAllowed) {
+		if (ext == a) {
+			return true;
+		}
+	}
+	return false;
+}
+
+
 // Minimal JSON helpers for annotation bodies (not full JSON parser).
 struct MiniJson {
 	const std::string &s;
@@ -695,6 +742,12 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 					 setError(res, 413, "PAYLOAD_TOO_LARGE", "upload exceeds maxUploadBytes");
 					 return;
 				 }
+				 if (!isAllowedUploadExtension(name)) {
+					 setError(res, 400, "UNSUPPORTED_TYPE",
+							  "upload extension not allowed (use board formats: .brd .bdv .bvr .fz "
+							  ".cae .bom .asc .cst .json .cad .pcb .alg .xzz .bin .txt .gencad)");
+					 return;
+				 }
 				 const auto entry = registry.ImportUpload(name, body);
 				 if (!entry.parseError.empty() && entry.parseError == "failed to write board file") {
 					 setError(res, 500, "WRITE_FAILED", entry.parseError);
@@ -710,8 +763,7 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 	svr.Get("/api/v1/boards/:id/meta",
 			[&registry](const httplib::Request &req, httplib::Response &res) {
 				const std::string id = pathParam(req, "id");
-				if (id.empty()) {
-					setError(res, 400, "BAD_REQUEST", "missing board id");
+				if (!requireBoardId(id, res)) {
 					return;
 				}
 				const auto snap = registry.GetParsed(id);
@@ -736,8 +788,7 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 	svr.Get("/api/v1/boards/:id/overlays",
 			[&registry](const httplib::Request &req, httplib::Response &res) {
 				const std::string id = pathParam(req, "id");
-				if (id.empty()) {
-					setError(res, 400, "BAD_REQUEST", "missing board id");
+				if (!requireBoardId(id, res)) {
 					return;
 				}
 				const auto boardPath = registry.BoardPath(id);
@@ -763,8 +814,7 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 	svr.Put("/api/v1/boards/:id/overlays",
 			[&registry](const httplib::Request &req, httplib::Response &res) {
 				const std::string id = pathParam(req, "id");
-				if (id.empty()) {
-					setError(res, 400, "BAD_REQUEST", "missing board id");
+				if (!requireBoardId(id, res)) {
 					return;
 				}
 				const auto boardPath = registry.BoardPath(id);
@@ -817,8 +867,7 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 				 return;
 #else
 				 const std::string id = pathParam(req, "id");
-				 if (id.empty()) {
-					 setError(res, 400, "BAD_REQUEST", "missing board id");
+				 if (!requireBoardId(id, res)) {
 					 return;
 				 }
 				 const auto boardPath = registry.BoardPath(id);
@@ -873,8 +922,11 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 #else
 				  const std::string id = pathParam(req, "id");
 				  const std::string annIdStr = pathParam(req, "annId");
-				  if (id.empty() || annIdStr.empty()) {
-					  setError(res, 400, "BAD_REQUEST", "missing board id or annotation id");
+				  if (!requireBoardId(id, res)) {
+					  return;
+				  }
+				  if (annIdStr.empty()) {
+					  setError(res, 400, "BAD_REQUEST", "missing annotation id");
 					  return;
 				  }
 				  int annId = 0;
@@ -941,8 +993,11 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 #else
 				   const std::string id = pathParam(req, "id");
 				   const std::string annIdStr = pathParam(req, "annId");
-				   if (id.empty() || annIdStr.empty()) {
-					   setError(res, 400, "BAD_REQUEST", "missing board id or annotation id");
+				   if (!requireBoardId(id, res)) {
+					   return;
+				   }
+				   if (annIdStr.empty()) {
+					   setError(res, 400, "BAD_REQUEST", "missing annotation id");
 					   return;
 				   }
 				   int annId = 0;
@@ -989,8 +1044,7 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 	svr.Get("/api/v1/boards/:id",
 			[&registry](const httplib::Request &req, httplib::Response &res) {
 				const std::string id = pathParam(req, "id");
-				if (id.empty()) {
-					setError(res, 400, "BAD_REQUEST", "missing board id");
+				if (!requireBoardId(id, res)) {
 					return;
 				}
 				const auto snap = registry.GetParsed(id);
@@ -1018,8 +1072,7 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 					   return;
 				   }
 				   const std::string id = pathParam(req, "id");
-				   if (id.empty()) {
-					   setError(res, 400, "BAD_REQUEST", "missing board id");
+				   if (!requireBoardId(id, res)) {
 					   return;
 				   }
 				   if (registry.BoardPath(id).empty()) {

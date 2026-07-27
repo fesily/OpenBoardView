@@ -45,6 +45,9 @@ public:
 
 	bool allowDelete() const { return cfg_.allowDelete; }
 	size_t maxUploadBytes() const { return cfg_.maxUploadBytes; }
+	// boardId = lowercase sha256 hex only ([0-9a-f]{64}); blocks path traversal.
+	static bool IsValidBoardId(const std::string &id);
+
 	const ServerConfig &config() const { return cfg_; }
 
 private:
