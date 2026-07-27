@@ -4,6 +4,8 @@ option(ENABLE_GL3 "Build OpenGL 3 renderer." ON)
 option(ENABLE_GLES2 "Configure OpenGL 3 renderer to be OpenGL ES 2.0 compatible." OFF)
 option(ENABLE_OBV_CORE "Build shared board core library" ON)
 option(ENABLE_OPENBOARDVIEW "Build desktop OpenBoardView application" ON)
+option(ENABLE_OBV_SERVER "Build obv_server HTTP service" ON)
+
 
 # PkgConfig is only required for desktop system deps (stb, fontconfig/gtk on Linux)
 if(ENABLE_OPENBOARDVIEW)
@@ -117,6 +119,14 @@ if(ENABLE_OBV_CORE)
 	add_subdirectory(obv_core)
 	enable_testing()
 	add_subdirectory(obv_core_tests)
+endif()
+
+## obv_server — HTTP service (depends on obv_core) ##
+if(ENABLE_OBV_SERVER)
+	if(NOT ENABLE_OBV_CORE)
+		message(FATAL_ERROR "ENABLE_OBV_SERVER requires ENABLE_OBV_CORE=ON")
+	endif()
+	add_subdirectory(obv_server)
 endif()
 
 ## Desktop GUI stack (glad / SDL2 / imgui / stb / openboardview) ##
