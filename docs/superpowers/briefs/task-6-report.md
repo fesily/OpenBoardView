@@ -159,7 +159,7 @@ GET /api/v1/boards -> []
 ## Fix pass 2 (raw upload without form preparse)
 
 **Status:** FIXED  
-**Commit:** `74a1ced` — `fix(server): raw board upload without form preparse`  
+**Commit:** `3c4f1e0` — `fix(server): raw board upload without form preparse`  
 **Date:** 2026-07-27
 
 ### Problem
