@@ -92,8 +92,12 @@ static void test_overlay_yaml_roundtrip() {
 	part.part_type = "ic";
 	part.angle = PartAngle::_90;
 	auto &pin = ann.NewPinInfo("U1", "1");
+	pin.show_name = "RST";
+	pin.diode = "0.7";
 	pin.note = "reset";
 	pin.voltage = "3.3";
+	pin.ohm = "10k";
+	pin.ohm_black = "high";
 	pin.voltage_flag = PinVoltageFlag::input;
 	auto &net = ann.NewNetInfo("GND");
 	net.showname = "Ground";
@@ -122,8 +126,12 @@ static void test_overlay_yaml_roundtrip() {
 	assert(loaded.partInfos["U1"].part_type == "ic");
 	assert(loaded.partInfos["U1"].angle == PartAngle::_90);
 	assert(loaded.partInfos["U1"].pins.count("1") == 1);
+	assert(loaded.partInfos["U1"].pins["1"].show_name == "RST");
+	assert(loaded.partInfos["U1"].pins["1"].diode == "0.7");
 	assert(loaded.partInfos["U1"].pins["1"].note == "reset");
 	assert(loaded.partInfos["U1"].pins["1"].voltage == "3.3");
+	assert(loaded.partInfos["U1"].pins["1"].ohm == "10k");
+	assert(loaded.partInfos["U1"].pins["1"].ohm_black == "high");
 	assert(loaded.partInfos["U1"].pins["1"].voltage_flag == PinVoltageFlag::input);
 	assert(loaded.netInfos.count("GND") == 1);
 	assert(loaded.netInfos["GND"].showname == "Ground");

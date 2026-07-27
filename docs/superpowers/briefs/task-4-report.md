@@ -129,3 +129,12 @@ Header documents that `SavePinInfos` cannot signal write failure and that overla
 
 Version check kept as an extra guard; success no longer relies on Version alone.
 
+
+## Fix: compare full overlay fields after YAML save (`fix(core): compare full overlay fields after YAML save`)
+
+**Finding:** Post-save reload only compared `part_type` and pin `note`/`show_name` (and net `note`/`showname`); missed `angle`, pin `diode`/`voltage`/`ohm`/`ohm_black`/`voltage_flag`.
+
+**Fix:** After reload into temporary `Annotations`, for each post-prune expected part key compare `part_type` + `angle`; for each pin key compare `show_name`, `diode`, `voltage`, `ohm`, `ohm_black`, `note`, `voltage_flag`. For each expected net key compare `showname` + `note`. First mismatch returns false with descriptive `incomplete write …` err. Expected maps remain the post-`SavePinInfos` prune set (empty-only entries already erased).
+
+Round-trip test sets and asserts the full pin scalar set.
+

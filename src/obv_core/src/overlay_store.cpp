@@ -673,8 +673,12 @@ bool SavePartNetYaml(const filesystem::path &boardPath, const Annotations &ann, 
 		}
 		const auto &want = copy.partInfos.at(key);
 		const auto &got = it->second;
-		if (!want.part_type.empty() && got.part_type != want.part_type) {
+		if (got.part_type != want.part_type) {
 			err = "incomplete write " + yamlPath + " (PartInfos part_type mismatch: " + key + ")";
+			return false;
+		}
+		if (got.angle != want.angle) {
+			err = "incomplete write " + yamlPath + " (PartInfos angle mismatch: " + key + ")";
 			return false;
 		}
 		for (const auto &pkv : want.pins) {
@@ -683,12 +687,34 @@ bool SavePartNetYaml(const filesystem::path &boardPath, const Annotations &ann, 
 				err = "incomplete write " + yamlPath + " (missing pin " + pkv.first + " under " + key + ")";
 				return false;
 			}
-			if (!pkv.second.note.empty() && pit->second.note != pkv.second.note) {
+			const auto &wp = pkv.second;
+			const auto &gp = pit->second;
+			if (gp.show_name != wp.show_name) {
+				err = "incomplete write " + yamlPath + " (pin show_name mismatch: " + key + "/" + pkv.first + ")";
+				return false;
+			}
+			if (gp.diode != wp.diode) {
+				err = "incomplete write " + yamlPath + " (pin diode mismatch: " + key + "/" + pkv.first + ")";
+				return false;
+			}
+			if (gp.voltage != wp.voltage) {
+				err = "incomplete write " + yamlPath + " (pin voltage mismatch: " + key + "/" + pkv.first + ")";
+				return false;
+			}
+			if (gp.ohm != wp.ohm) {
+				err = "incomplete write " + yamlPath + " (pin ohm mismatch: " + key + "/" + pkv.first + ")";
+				return false;
+			}
+			if (gp.ohm_black != wp.ohm_black) {
+				err = "incomplete write " + yamlPath + " (pin ohm_black mismatch: " + key + "/" + pkv.first + ")";
+				return false;
+			}
+			if (gp.note != wp.note) {
 				err = "incomplete write " + yamlPath + " (pin note mismatch: " + key + "/" + pkv.first + ")";
 				return false;
 			}
-			if (!pkv.second.show_name.empty() && pit->second.show_name != pkv.second.show_name) {
-				err = "incomplete write " + yamlPath + " (pin show_name mismatch: " + key + "/" + pkv.first + ")";
+			if (gp.voltage_flag != wp.voltage_flag) {
+				err = "incomplete write " + yamlPath + " (pin voltage_flag mismatch: " + key + "/" + pkv.first + ")";
 				return false;
 			}
 		}
@@ -701,12 +727,12 @@ bool SavePartNetYaml(const filesystem::path &boardPath, const Annotations &ann, 
 		}
 		const auto &want = copy.netInfos.at(key);
 		const auto &got = it->second;
-		if (!want.note.empty() && got.note != want.note) {
-			err = "incomplete write " + yamlPath + " (NetInfos note mismatch: " + key + ")";
+		if (got.showname != want.showname) {
+			err = "incomplete write " + yamlPath + " (NetInfos showname mismatch: " + key + ")";
 			return false;
 		}
-		if (!want.showname.empty() && got.showname != want.showname) {
-			err = "incomplete write " + yamlPath + " (NetInfos showname mismatch: " + key + ")";
+		if (got.note != want.note) {
+			err = "incomplete write " + yamlPath + " (NetInfos note mismatch: " + key + ")";
 			return false;
 		}
 	}
