@@ -602,7 +602,7 @@ bool SavePartNetYaml(const filesystem::path &boardPath, const Annotations &ann, 
 
 	// Annotations::SavePinInfos -> serialize ignores file_write_text's bool return
 	// (desktop always voids the write result). Detect failure here via create /
-	// mtime / size change, then re-read for Version 0.0.2.
+	// mtime / size change, Version header, and a full PartInfos/NetInfos reload.
 	const auto yamlPath = boardPath.string() + ".yaml";
 	const filesystem::path yamlFs(yamlPath);
 	std::error_code ec;
@@ -624,6 +624,14 @@ bool SavePartNetYaml(const filesystem::path &boardPath, const Annotations &ann, 
 	copy.partInfos = ann.partInfos;
 	copy.netInfos = ann.netInfos;
 	copy.SavePinInfos();
+
+	// Post-prune keys that serialize was supposed to persist.
+	std::vector<std::string> expectedParts;
+	expectedParts.reserve(copy.partInfos.size());
+	for (const auto &kv : copy.partInfos) expectedParts.push_back(kv.first);
+	std::vector<std::string> expectedNets;
+	expectedNets.reserve(copy.netInfos.size());
+	for (const auto &kv : copy.netInfos) expectedNets.push_back(kv.first);
 
 	if (!filesystem::exists(yamlFs, ec) || ec) {
 		err = "failed to write " + yamlPath;
@@ -649,6 +657,58 @@ bool SavePartNetYaml(const filesystem::path &boardPath, const Annotations &ann, 
 	if (content.find("0.0.2") == std::string::npos) {
 		err = "failed to write " + yamlPath + " (missing Version 0.0.2)";
 		return false;
+	}
+
+	// Reload into a temporary Annotations so partial writes (Version header only,
+	// truncated PartInfos/NetInfos) fail closed. Do not mutate caller's maps.
+	Annotations tmp;
+	tmp.filename = boardPath.string();
+	tmp.RefreshPinInfos();
+
+	for (const auto &key : expectedParts) {
+		auto it = tmp.partInfos.find(key);
+		if (it == tmp.partInfos.end()) {
+			err = "incomplete write " + yamlPath + " (missing PartInfos key: " + key + ")";
+			return false;
+		}
+		const auto &want = copy.partInfos.at(key);
+		const auto &got = it->second;
+		if (!want.part_type.empty() && got.part_type != want.part_type) {
+			err = "incomplete write " + yamlPath + " (PartInfos part_type mismatch: " + key + ")";
+			return false;
+		}
+		for (const auto &pkv : want.pins) {
+			auto pit = got.pins.find(pkv.first);
+			if (pit == got.pins.end()) {
+				err = "incomplete write " + yamlPath + " (missing pin " + pkv.first + " under " + key + ")";
+				return false;
+			}
+			if (!pkv.second.note.empty() && pit->second.note != pkv.second.note) {
+				err = "incomplete write " + yamlPath + " (pin note mismatch: " + key + "/" + pkv.first + ")";
+				return false;
+			}
+			if (!pkv.second.show_name.empty() && pit->second.show_name != pkv.second.show_name) {
+				err = "incomplete write " + yamlPath + " (pin show_name mismatch: " + key + "/" + pkv.first + ")";
+				return false;
+			}
+		}
+	}
+	for (const auto &key : expectedNets) {
+		auto it = tmp.netInfos.find(key);
+		if (it == tmp.netInfos.end()) {
+			err = "incomplete write " + yamlPath + " (missing NetInfos key: " + key + ")";
+			return false;
+		}
+		const auto &want = copy.netInfos.at(key);
+		const auto &got = it->second;
+		if (!want.note.empty() && got.note != want.note) {
+			err = "incomplete write " + yamlPath + " (NetInfos note mismatch: " + key + ")";
+			return false;
+		}
+		if (!want.showname.empty() && got.showname != want.showname) {
+			err = "incomplete write " + yamlPath + " (NetInfos showname mismatch: " + key + ")";
+			return false;
+		}
 	}
 	return true;
 }

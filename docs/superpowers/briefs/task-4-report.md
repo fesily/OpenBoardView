@@ -114,3 +114,18 @@ cmake --build build-core-only --target obv_core_tests -j 8
 3. re-read content contains `0.0.2` (serialize always writes `Version: 0.0.2`).
 
 Header documents that `SavePinInfos` cannot signal write failure and that overlay_store verifies via create/mtime/size + Version re-read.
+
+---
+
+## Fix: verify PartInfos/NetInfos after YAML write (`fix(core): verify overlay YAML maps after save`)
+
+**Finding:** `SavePartNetYaml` could return true when only the Version `0.0.2` header was present after a partial write (create/mtime/size + Version checks alone do not prove PartInfos/NetInfos landed).
+
+**Fix:** After `SavePinInfos` + existence/mtime/size + Version checks:
+1. Capture post-prune expected keys from the local `copy` maps (what serialize actually wrote).
+2. Reload via temporary `Annotations tmp` (`tmp.filename` + `RefreshPinInfos` only — never mutate caller).
+3. Require every expected PartInfos/NetInfos key present; for non-empty scalars compare `part_type`, pin `note`/`show_name`, net `note`/`showname`.
+4. On mismatch return false with `incomplete write …` err.
+
+Version check kept as an extra guard; success no longer relies on Version alone.
+

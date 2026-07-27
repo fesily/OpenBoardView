@@ -37,7 +37,8 @@ struct OverlayDocument {
 bool LoadOverlayForBoard(const filesystem::path &boardPath, Annotations &out, std::string &err);
 
 // Persist PartInfos/NetInfos to boardPath.yaml (Version 0.0.2) via Annotations::SavePinInfos.
-// SavePinInfos cannot signal write failure; success is verified by create/mtime/size change + Version re-read.
+// SavePinInfos cannot signal write failure; success is verified by create/mtime/size change,
+// Version re-read, and a fresh Reload of PartInfos/NetInfos keys (and sample scalars).
 bool SavePartNetYaml(const filesystem::path &boardPath, const Annotations &ann, std::string &err);
 
 // Freeform annotations: use Annotations::Add/Update/Remove then GenerateList after SetFilename/Load.
