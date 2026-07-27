@@ -1,4 +1,4 @@
-import type { BoardDocument, Component, Pin } from '../types/board';
+import type { BoardDocument, Component, OverlayAnnotation, Pin } from '../types/board';
 import { boardToScreen, type ViewState } from './transform';
 
 export interface DrawHighlight {
@@ -17,6 +17,7 @@ export interface DrawColors {
   pinSelected: string;
   pinHighlight: string;
   partHighlight: string;
+  annotation: string;
 }
 
 export const DEFAULT_COLORS: DrawColors = {
@@ -29,6 +30,7 @@ export const DEFAULT_COLORS: DrawColors = {
   pinSelected: '#ffb74d',
   pinHighlight: '#ff8a80',
   partHighlight: '#ffe082',
+  annotation: '#ce93d8',
 };
 
 function sideVisible(elSide: string, viewSide: string): boolean {
@@ -36,7 +38,7 @@ function sideVisible(elSide: string, viewSide: string): boolean {
   return elSide === viewSide;
 }
 
-/** Layers: fill → outline → parts → pins → highlights (spec §8.3 subset). */
+/** Layers: fill → outline → parts → pins → highlights → annotations (spec §8.3 subset). */
 export function drawBoard(
   ctx: CanvasRenderingContext2D,
   board: BoardDocument,
@@ -45,6 +47,7 @@ export function drawBoard(
   cssH: number,
   highlight: DrawHighlight = {},
   colors: DrawColors = DEFAULT_COLORS,
+  annotations: readonly OverlayAnnotation[] = [],
 ): void {
   ctx.save();
   ctx.clearRect(0, 0, cssW, cssH);
@@ -56,6 +59,7 @@ export function drawBoard(
   drawParts(ctx, board, view, cssW, cssH, highlight, colors);
   drawPins(ctx, board, view, cssW, cssH, highlight, colors);
   drawHighlights(ctx, board, view, cssW, cssH, highlight, colors);
+  drawAnnotations(ctx, annotations, view, cssW, cssH, colors);
 
   ctx.restore();
 }
@@ -244,5 +248,35 @@ function drawHighlights(
       ctx.lineWidth = 2;
       ctx.stroke();
     }
+  }
+}
+
+/** Freeform annotation markers (desktop side: 0=top, 1=bottom). */
+function drawAnnotations(
+  ctx: CanvasRenderingContext2D,
+  annotations: readonly OverlayAnnotation[],
+  view: ViewState,
+  cssW: number,
+  cssH: number,
+  colors: DrawColors,
+): void {
+  if (!annotations.length) return;
+  const viewBottom = view.side === 'bottom';
+  for (const ann of annotations) {
+    if (!ann.visible) continue;
+    const annBottom = ann.side !== 0;
+    if (annBottom !== viewBottom) continue;
+    const s = boardToScreen(view, ann.x, ann.y, cssW, cssH);
+    const r = 5;
+    ctx.beginPath();
+    ctx.moveTo(s.x, s.y - r);
+    ctx.lineTo(s.x + r, s.y + r * 0.7);
+    ctx.lineTo(s.x - r, s.y + r * 0.7);
+    ctx.closePath();
+    ctx.fillStyle = colors.annotation;
+    ctx.fill();
+    ctx.strokeStyle = '#f3e5f5';
+    ctx.lineWidth = 1;
+    ctx.stroke();
   }
 }

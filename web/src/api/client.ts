@@ -110,14 +110,17 @@ export async function putOverlays(
   return parseJson<OverlayDocument>(res);
 }
 
-/** Create freeform annotation. Brief interface is void; server returns 201 + object. */
-export async function postAnnotation(id: string, body: NewAnnotation): Promise<void> {
+/** Create freeform annotation. Server returns 201 + created object. */
+export async function postAnnotation(
+  id: string,
+  body: NewAnnotation,
+): Promise<OverlayAnnotation> {
   const res = await fetch(`${API}/boards/${encodeURIComponent(id)}/annotations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  await parseJson<OverlayAnnotation>(res);
+  return parseJson<OverlayAnnotation>(res);
 }
 
 export async function patchAnnotation(

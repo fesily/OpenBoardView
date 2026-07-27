@@ -159,9 +159,106 @@ tr.row-selected td {
   cursor: grabbing;
 }
 
-.selection-pane {
-  margin-top: 0.5rem;
+/* Info pane (selection + overlays + annotations) */
+.info-pane {
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #2a2f3a;
+  border-radius: 8px;
+  background: #151922;
   font-size: 0.9rem;
+}
+
+.info-pane-header {
+  margin-bottom: 0.35rem;
+}
+
+.info-pane-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.info-sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.75rem;
+}
+
+.info-section {
+  margin-top: 0.5rem;
+}
+
+.info-section h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  color: #c5cad3;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.info-dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.15rem 0.65rem;
+  margin: 0;
+}
+
+.info-dl dt {
+  color: #9aa0a6;
+}
+
+.info-dl dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+.info-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-bottom: 0.4rem;
+}
+
+.info-field span {
+  color: #9aa0a6;
+  font-size: 0.8rem;
+}
+
+.info-field input,
+.info-field textarea,
+.ann-item textarea {
+  width: 100%;
+  background: #0f1218;
+  border: 1px solid #2a2f3a;
+  border-radius: 6px;
+  color: #e8eaed;
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+}
+
+.annotations-section {
+  grid-column: 1 / -1;
+}
+
+.ann-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.ann-item {
+  padding: 0.5rem;
+  border: 1px solid #2a2f3a;
+  border-radius: 6px;
+  background: #0f1218;
+}
+
+.ann-meta {
+  margin-bottom: 0.35rem;
+  font-size: 0.8rem;
 }
 
 .search-box {

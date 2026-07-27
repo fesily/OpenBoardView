@@ -3,12 +3,20 @@ import {
   ApiError,
   getBoard,
   getHealth,
+  getOverlays,
   getVersion,
   listBoards,
+  postAnnotation,
   uploadBoard,
 } from '../api/client';
 import BoardCanvas from '../scene/BoardCanvas';
-import type { BoardDocument, BoardSummary, Pin } from '../types/board';
+import type {
+  BoardDocument,
+  BoardSummary,
+  OverlayDocument,
+  Pin,
+} from '../types/board';
+import InfoPane from './InfoPane';
 import SearchBox, { type SearchSelection } from './SearchBox';
 
 type HealthState =
@@ -28,6 +36,9 @@ export default function App() {
   const [boardLoading, setBoardLoading] = useState(false);
   const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
   const [searchSel, setSearchSel] = useState<SearchSelection | null>(null);
+  const [overlay, setOverlay] = useState<OverlayDocument | null>(null);
+  const [overlayLoading, setOverlayLoading] = useState(false);
+  const [overlayError, setOverlayError] = useState<string | null>(null);
   const openBoardGen = useRef(0);
 
   const onSearchSelection = useCallback((sel: SearchSelection) => {
@@ -68,29 +79,92 @@ export default function App() {
     void refreshBoards();
   }, [refreshHealth, refreshBoards]);
 
-  const openBoard = useCallback(async (id: string) => {
-    const gen = ++openBoardGen.current;
-    setSelectedId(id);
-    setSelectedPin(null);
-    setSearchSel(null);
-    setBoardLoading(true);
-    setBoardError(null);
+  const loadOverlays = useCallback(async (id: string, gen?: number) => {
+    setOverlayLoading(true);
+    setOverlayError(null);
     try {
-      const doc = await getBoard(id);
-      // Drop stale responses if the user selected another board meanwhile.
-      if (openBoardGen.current !== gen) return;
-      setBoard(doc);
+      const doc = await getOverlays(id);
+      if (gen != null && openBoardGen.current !== gen) return;
+      setOverlay(doc);
     } catch (e) {
-      if (openBoardGen.current !== gen) return;
-      setBoard(null);
+      if (gen != null && openBoardGen.current !== gen) return;
+      setOverlay(null);
       const msg = e instanceof ApiError ? `${e.code}: ${e.message}` : String(e);
-      setBoardError(msg);
+      setOverlayError(msg);
     } finally {
-      if (openBoardGen.current === gen) {
-        setBoardLoading(false);
+      if (gen == null || openBoardGen.current === gen) {
+        setOverlayLoading(false);
       }
     }
   }, []);
+
+  const openBoard = useCallback(
+    async (id: string) => {
+      const gen = ++openBoardGen.current;
+      setSelectedId(id);
+      setSelectedPin(null);
+      setSearchSel(null);
+      setOverlay(null);
+      setOverlayError(null);
+      setBoardLoading(true);
+      setBoardError(null);
+      try {
+        const doc = await getBoard(id);
+        // Drop stale responses if the user selected another board meanwhile.
+        if (openBoardGen.current !== gen) return;
+        setBoard(doc);
+        await loadOverlays(id, gen);
+      } catch (e) {
+        if (openBoardGen.current !== gen) return;
+        setBoard(null);
+        setOverlay(null);
+        const msg = e instanceof ApiError ? `${e.code}: ${e.message}` : String(e);
+        setBoardError(msg);
+      } finally {
+        if (openBoardGen.current === gen) {
+          setBoardLoading(false);
+        }
+      }
+    },
+    [loadOverlays],
+  );
+
+  const onContextAnnotate = useCallback(
+    async (pos: { x: number; y: number; side: number; pin: Pin | null }) => {
+      if (!selectedId || !board) return;
+      const defaultNote = pos.pin
+        ? `note @ ${pos.pin.id}`
+        : `note @ (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)})`;
+      const note = window.prompt('Annotation note', defaultNote);
+      if (note == null) return; // cancelled
+      const netName =
+        pos.pin?.netId != null
+          ? (board.nets.find((n) => n.id === pos.pin!.netId)?.name ?? '')
+          : '';
+      try {
+        const created = await postAnnotation(selectedId, {
+          side: pos.side,
+          x: pos.x,
+          y: pos.y,
+          note,
+          part: pos.pin?.component ?? '',
+          pin: pos.pin ? pos.pin.name || pos.pin.number || '' : '',
+          net: netName,
+        });
+        setOverlay((prev) => {
+          const base = prev ?? { annotations: [], partInfos: {}, netInfos: {} };
+          return {
+            ...base,
+            annotations: [...base.annotations.filter((a) => a.id !== created.id), created],
+          };
+        });
+      } catch (e) {
+        const msg = e instanceof ApiError ? `${e.code}: ${e.message}` : String(e);
+        window.alert(`Failed to create annotation: ${msg}`);
+      }
+    },
+    [selectedId, board],
+  );
 
   const onFile = async (ev: ChangeEvent<HTMLInputElement>) => {
     const file = ev.target.files?.[0];
@@ -121,7 +195,7 @@ export default function App() {
     <div className="app">
       <header>
         <h1>OpenBoardView Web</h1>
-        <p className="sub">Canvas board view — pan / zoom / search / highlight</p>
+        <p className="sub">Canvas board view — pan / zoom / search / overlays</p>
       </header>
 
       <section className="card">
@@ -224,24 +298,21 @@ export default function App() {
               highlightPinIds={searchSel?.highlight.pinIds}
               focusPoint={searchSel?.focus ?? null}
               focusToken={searchSel?.focusToken ?? 0}
+              annotations={overlay?.annotations ?? []}
+              onContextAnnotate={(pos) => void onContextAnnotate(pos)}
             />
-            <div className="selection-pane">
-              {selectedPin ? (
-                <p>
-                  <strong>Pin</strong> {selectedPin.id}
-                  {selectedPin.component ? ` · part ${selectedPin.component}` : ''}
-                  {selectedPin.number ? ` · #${selectedPin.number}` : ''}
-                  {selectedPin.netId != null ? ` · netId ${selectedPin.netId}` : ''}
-                  <br />
-                  <span className="muted mono">
-                    ({selectedPin.pos.x.toFixed(1)}, {selectedPin.pos.y.toFixed(1)}) · side{' '}
-                    {selectedPin.side}
-                  </span>
-                </p>
-              ) : (
-                <p className="muted">Click a pin to select · search results highlight on canvas.</p>
-              )}
-            </div>
+            <InfoPane
+              boardId={board.boardId}
+              board={board}
+              selectedPin={selectedPin}
+              overlay={overlay}
+              overlayLoading={overlayLoading}
+              overlayError={overlayError}
+              onOverlayChange={setOverlay}
+              onReloadOverlays={() => {
+                if (selectedId) void loadOverlays(selectedId);
+              }}
+            />
           </>
         )}
       </section>

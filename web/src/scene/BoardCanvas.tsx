@@ -3,10 +3,11 @@ import {
   useEffect,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from 'react';
-import type { BoardDocument, Pin } from '../types/board';
+import type { BoardDocument, OverlayAnnotation, Pin } from '../types/board';
 import { drawBoard } from './draw';
 import { hitTestNearestPin } from './hitTest';
 import {
@@ -14,6 +15,7 @@ import {
   flipBoard,
   panByScreen,
   rotateView,
+  screenToBoard,
   zoomAt,
   type ViewState,
 } from './transform';
@@ -29,6 +31,18 @@ export interface BoardCanvasProps {
   focusPoint?: { x: number; y: number } | null;
   /** Changes on each explicit center request. */
   focusToken?: number;
+  /** Freeform annotations drawn as markers. */
+  annotations?: readonly OverlayAnnotation[];
+  /**
+   * Right-click at board coordinates. Caller creates annotation (prompt/API).
+   * `side` is 0=top, 1=bottom matching desktop SQLite annotations.
+   */
+  onContextAnnotate?: (pos: {
+    x: number;
+    y: number;
+    side: number;
+    pin: Pin | null;
+  }) => void;
 }
 
 export default function BoardCanvas({
@@ -39,6 +53,8 @@ export default function BoardCanvas({
   highlightPinIds,
   focusPoint = null,
   focusToken = 0,
+  annotations = [],
+  onContextAnnotate,
 }: BoardCanvasProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -110,12 +126,30 @@ export default function BoardCanvas({
         if (p.id === selectedPinId && p.component) partNames.add(p.component);
       }
     }
-    drawBoard(ctx, board, v, cssW, cssH, {
-      selectedPinId,
-      partNames: partNames.size ? partNames : undefined,
-      pinIds: pinIds.size ? pinIds : undefined,
-    });
-  }, [board, view, size.w, size.h, selectedPinId, highlightPartNames, highlightPinIds]);
+    drawBoard(
+      ctx,
+      board,
+      v,
+      cssW,
+      cssH,
+      {
+        selectedPinId,
+        partNames: partNames.size ? partNames : undefined,
+        pinIds: pinIds.size ? pinIds : undefined,
+      },
+      undefined,
+      annotations,
+    );
+  }, [
+    board,
+    view,
+    size.w,
+    size.h,
+    selectedPinId,
+    highlightPartNames,
+    highlightPinIds,
+    annotations,
+  ]);
 
   const localPoint = (ev: { clientX: number; clientY: number }) => {
     const canvas = canvasRef.current;
@@ -175,6 +209,22 @@ export default function BoardCanvas({
     onSelectPin?.(pin);
   };
 
+  const onContextMenu = (ev: ReactMouseEvent<HTMLCanvasElement>) => {
+    if (!onContextAnnotate) return;
+    ev.preventDefault();
+    const v = viewRef.current;
+    if (!v) return;
+    const { x, y } = localPoint(ev);
+    const boardPt = screenToBoard(v, x, y, size.w, size.h);
+    const pin = hitTestNearestPin(board, v, x, y, size.w, size.h);
+    onContextAnnotate({
+      x: boardPt.x,
+      y: boardPt.y,
+      side: v.side === 'bottom' ? 1 : 0,
+      pin,
+    });
+  };
+
   const onRotate = (dir: 1 | -1) => {
     const v = viewRef.current;
     if (!v) return;
@@ -219,6 +269,7 @@ export default function BoardCanvas({
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
+          onContextMenu={onContextMenu}
         />
       </div>
     </div>
