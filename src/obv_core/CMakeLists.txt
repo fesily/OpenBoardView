@@ -45,6 +45,7 @@ add_custom_command(OUTPUT "${GENERATED_GENCAD_FILE_GRAMMAR_H}"
 set(OBV_CORE_SOURCES
 	src/core_utils.cpp
 	src/parse.cpp
+	src/board_json.cpp
 	${OBV_OPENBOARDVIEW_DIR}/Board.cpp
 	${OBV_OPENBOARDVIEW_DIR}/BRDBoard.cpp
 	${OBV_OPENBOARDVIEW_DIR}/annotations.cpp
