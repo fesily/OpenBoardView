@@ -7,7 +7,6 @@ import type {
   NewAnnotation,
   OverlayAnnotation,
   OverlayDocument,
-  UploadBoardResult,
   VersionResponse,
 } from '../types/board';
 
@@ -63,16 +62,16 @@ export async function listBoards(): Promise<BoardSummary[]> {
   return parseJson<BoardSummary[]>(res);
 }
 
-/** Multipart upload (field name "file"). Returns content-addressed id even when parse fails. */
-export async function uploadBoard(file: File): Promise<UploadBoardResult> {
-  const form = new FormData();
-  form.append('file', file, file.name);
-  const res = await fetch(`${API}/boards`, {
-    method: 'POST',
-    body: form,
-  });
-  return parseJson<UploadBoardResult>(res);
+/** Server public config (no secrets). boardRoot is the library scan root. */
+export async function getServerConfig(): Promise<{
+  boardRoot: string;
+  host?: string;
+  port?: number;
+}> {
+  const res = await fetch(`${API}/config`);
+  return parseJson<{ boardRoot: string; host?: string; port?: number }>(res);
 }
+
 
 export async function getBoard(id: string): Promise<BoardDocument> {
   const res = await fetch(`${API}/boards/${encodeURIComponent(id)}`);

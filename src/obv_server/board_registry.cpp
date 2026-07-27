@@ -37,20 +37,23 @@ std::vector<char> readAll(const filesystem::path &path) {
 	return buf;
 }
 
-bool writeAll(const filesystem::path &path, const std::string &body) {
+std::string toLowerAscii(std::string s) {
+	for (char &c : s) {
+		c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+	}
+	return s;
+}
+
+// Preferred-separator absolute path string used as the board id key material.
+std::string preferredAbsString(filesystem::path p) {
 	std::error_code ec;
-	const auto parent = path.parent_path();
-	if (!parent.empty()) {
-		filesystem::create_directories(parent, ec);
+	filesystem::path abs = filesystem::absolute(p, ec);
+	if (ec) {
+		abs = p;
 	}
-	std::ofstream out(path, std::ios::binary | std::ios::trunc);
-	if (!out) {
-		return false;
-	}
-	if (!body.empty()) {
-		out.write(body.data(), static_cast<std::streamsize>(body.size()));
-	}
-	return static_cast<bool>(out);
+	abs = abs.lexically_normal();
+	abs.make_preferred();
+	return abs.string();
 }
 
 } // namespace
@@ -72,38 +75,15 @@ filesystem::path overlaySqlitePath(const filesystem::path &boardPath) {
 	return filesystem::path(sqlfn);
 }
 
-// Best-effort move of overlay sidecars when the board file is renamed.
-// Failures are non-fatal (same policy as board rename).
-void renameOverlaySidecars(const filesystem::path &oldBoardPath,
-						   const filesystem::path &newBoardPath) {
-	if (oldBoardPath == newBoardPath) {
-		return;
-	}
-	const filesystem::path oldYaml = overlayYamlPath(oldBoardPath);
-	const filesystem::path newYaml = overlayYamlPath(newBoardPath);
-	const filesystem::path oldSql = overlaySqlitePath(oldBoardPath);
-	const filesystem::path newSql = overlaySqlitePath(newBoardPath);
-
-	std::error_code ec;
-	if (filesystem::exists(oldYaml, ec) && !ec && oldYaml != newYaml) {
-		ec.clear();
-		filesystem::rename(oldYaml, newYaml, ec);
-	}
-	ec.clear();
-	if (filesystem::exists(oldSql, ec) && !ec && oldSql != newSql) {
-		ec.clear();
-		filesystem::rename(oldSql, newSql, ec);
-	}
+BoardRegistry::BoardRegistry(ServerConfig cfg) : cfg_(std::move(cfg)) {
+	libraryDir_ = normalizeAbs(cfg_.boardRoot);
+	cfg_.boardRoot = libraryDir_;
 }
 
-BoardRegistry::BoardRegistry(ServerConfig cfg)
-	: cfg_(std::move(cfg)), boardsDir_(cfg_.dataRoot / "boards") {
-	ensureBoardsDir();
-}
-
-void BoardRegistry::ensureBoardsDir() const {
-	std::error_code ec;
-	filesystem::create_directories(boardsDir_, ec);
+void BoardRegistry::Rescan() {
+	std::lock_guard<std::mutex> lock(mu_);
+	byId_.clear();
+	scanDiskLocked();
 }
 
 std::string BoardRegistry::sha256Hex(const std::string &body) {
@@ -130,39 +110,6 @@ bool BoardRegistry::IsValidBoardId(const std::string &id) {
 	return isHexId(id);
 }
 
-
-std::string BoardRegistry::safeFileName(const std::string &originalName) {
-	std::string base = originalName;
-	// Strip directories.
-	const auto slash = base.find_last_of("/\\");
-	if (slash != std::string::npos) {
-		base = base.substr(slash + 1);
-	}
-	if (base.empty()) {
-		base = "upload.bin";
-	}
-	std::string out;
-	out.reserve(base.size());
-	for (unsigned char c : base) {
-		if (std::isalnum(c) || c == '.' || c == '-' || c == '_' || c == '+') {
-			out.push_back(static_cast<char>(c));
-		} else if (c == ' ') {
-			out.push_back('_');
-		} else {
-			out.push_back('_');
-		}
-	}
-	// Avoid empty / hidden-only names.
-	if (out.empty() || out == "." || out == "..") {
-		out = "upload.bin";
-	}
-	// Cap length so path stays reasonable.
-	if (out.size() > 120) {
-		out.resize(120);
-	}
-	return out;
-}
-
 std::intmax_t BoardRegistry::fileMtime(const filesystem::path &path) {
 	std::error_code ec;
 	const auto ft = filesystem::last_write_time(path, ec);
@@ -173,136 +120,157 @@ std::intmax_t BoardRegistry::fileMtime(const filesystem::path &path) {
 	return static_cast<std::intmax_t>(ft.time_since_epoch().count());
 }
 
-void BoardRegistry::scanDiskLocked() {
-	ensureBoardsDir();
+filesystem::path BoardRegistry::normalizeAbs(const filesystem::path &p) {
 	std::error_code ec;
-	if (!filesystem::exists(boardsDir_, ec)) {
-		scanned_ = true;
+	filesystem::path abs = filesystem::absolute(p, ec);
+	if (ec) {
+		abs = p;
+	}
+	abs = abs.lexically_normal();
+	abs.make_preferred();
+	return abs;
+}
+
+std::string BoardRegistry::pathIdKey(const filesystem::path &absPath) {
+	// id = sha256 of absolute normalized path with preferred separators (UTF-8 path string).
+	return sha256Hex(preferredAbsString(absPath));
+}
+
+std::string BoardRegistry::relativeDisplayPath(const filesystem::path &root,
+											   const filesystem::path &absPath) {
+	std::error_code ec;
+	filesystem::path rel = filesystem::relative(absPath, root, ec);
+	if (ec || rel.empty()) {
+		return absPath.filename().string();
+	}
+	rel.make_preferred();
+	return rel.string();
+}
+
+bool BoardRegistry::isSidecarOrConfig(const filesystem::path &path) {
+	const std::string name = path.filename().string();
+	const std::string lower = toLowerAscii(name);
+	// Skip overlay sidecars and conf files that live next to boards.
+	if (lower.size() >= 5 && lower.compare(lower.size() - 5, 5, ".yaml") == 0) {
+		return true;
+	}
+	if (lower.size() >= 8 && lower.compare(lower.size() - 8, 8, ".sqlite3") == 0) {
+		return true;
+	}
+	if (lower.size() >= 5 && lower.compare(lower.size() - 5, 5, ".conf") == 0) {
+		return true;
+	}
+	return false;
+}
+
+bool BoardRegistry::isAllowedBoardExtension(const filesystem::path &path) {
+	static const char *kAllowed[] = {".brd",  ".brd2", ".bdv", ".bvr", ".bvr3", ".fz",
+									 ".cae",  ".bom",  ".asc", ".cst", ".json", ".cad",
+									 ".pcb",  ".alg",  ".xzz", ".bin", ".txt",  ".gencad"};
+	std::string ext = path.extension().string();
+	if (ext.empty()) {
+		// Bare names without extension are not listed in library mode (too noisy).
+		return false;
+	}
+	ext = toLowerAscii(ext);
+	for (const char *a : kAllowed) {
+		if (ext == a) {
+			return true;
+		}
+	}
+	return false;
+}
+
+void BoardRegistry::scanDiskLocked() {
+	// Full rescan index: caller may clear byId_ first (Rescan/List).
+	std::error_code ec;
+	if (libraryDir_.empty() || !filesystem::exists(libraryDir_, ec) ||
+		!filesystem::is_directory(libraryDir_, ec)) {
 		return;
 	}
-	for (const auto &ent : filesystem::directory_iterator(boardsDir_, ec)) {
+
+	// Preserve parse cache for files that still exist (same id + mtime).
+	std::unordered_map<std::string, CacheSlot> previous = std::move(byId_);
+	byId_.clear();
+
+	const auto opts = filesystem::directory_options::skip_permission_denied;
+	for (filesystem::recursive_directory_iterator it(libraryDir_, opts, ec), end;
+		 !ec && it != end; it.increment(ec)) {
 		if (ec) {
+			// Skip unreadable subtrees when possible.
+			if (it.depth() > 0) {
+				it.disable_recursion_pending();
+				ec.clear();
+				continue;
+			}
 			break;
 		}
-		if (!ent.is_regular_file(ec)) {
+		std::error_code fec;
+		if (!it->is_regular_file(fec)) {
 			continue;
 		}
-		const auto name = ent.path().filename().string();
-		// Expected: <64hex>_<safeName>
-		if (name.size() < 66 || name[64] != '_') {
+		const filesystem::path filePath = it->path();
+		if (isSidecarOrConfig(filePath)) {
 			continue;
 		}
-		const std::string id = name.substr(0, 64);
+		if (!isAllowedBoardExtension(filePath)) {
+			continue;
+		}
+
+		const filesystem::path abs = normalizeAbs(filePath);
+		const std::string id = pathIdKey(abs);
 		if (!isHexId(id)) {
 			continue;
 		}
-		if (byId_.count(id)) {
+
+		const std::intmax_t mt = fileMtime(abs);
+		auto prev = previous.find(id);
+		if (prev != previous.end() && prev->second.mtime == mt &&
+			prev->second.entry.path == abs) {
+			// Keep cached parse result; refresh display metadata.
+			CacheSlot slot = std::move(prev->second);
+			slot.entry.id = id;
+			slot.entry.path = abs;
+			slot.entry.name = abs.filename().string();
+			slot.entry.displayPath = relativeDisplayPath(libraryDir_, abs);
+			// If never opened, ok stays true with empty error (available).
+			if (!slot.snap) {
+				slot.entry.ok = true;
+				slot.entry.parseError.clear();
+			}
+			byId_.emplace(id, std::move(slot));
 			continue;
 		}
+
 		Entry e;
 		e.id = id;
-		e.path = ent.path();
-		e.name = name.substr(65);
-		e.ok = false;
-		e.parseError = "not parsed yet";
+		e.path = abs;
+		e.name = abs.filename().string();
+		e.displayPath = relativeDisplayPath(libraryDir_, abs);
+		e.ok = true; // present / available; parse status filled on GetParsed
+		e.parseError.clear();
 		CacheSlot slot;
 		slot.entry = std::move(e);
-		slot.mtime = fileMtime(ent.path());
+		slot.mtime = mt;
 		byId_.emplace(id, std::move(slot));
 	}
-	scanned_ = true;
-}
-
-BoardRegistry::Entry BoardRegistry::parseAndStoreLocked(const std::string &id,
-														const std::string &name,
-														const filesystem::path &path,
-														const std::string &bodyOrEmpty) {
-	Entry e;
-	e.id = id;
-	e.path = path;
-	e.name = name;
-
-	std::vector<char> buf;
-	if (!bodyOrEmpty.empty()) {
-		buf = toBuffer(bodyOrEmpty);
-	} else {
-		buf = readAll(path);
-	}
-
-	obv::BoardSnapshot snap = obv::ParseBoardBuffer(std::move(buf), path, cfg_.keys);
-	// Always expose original upload filename, not storage path (path still used for ASC relatives).
-	snap.sourceName = name;
-	e.ok = snap.ok();
-	e.parseError = e.ok ? std::string() : (snap.error.empty() ? "parse failed" : snap.error);
-
-	CacheSlot slot;
-	slot.entry = e;
-	slot.mtime = fileMtime(path);
-	slot.snap = std::make_shared<const obv::BoardSnapshot>(std::move(snap));
-	byId_[id] = std::move(slot);
-	return e;
-}
-
-BoardRegistry::Entry BoardRegistry::ImportUpload(const std::string &originalName,
-												 const std::string &body) {
-	const std::string id = sha256Hex(body);
-	const std::string name = safeFileName(originalName);
-	const filesystem::path path = boardsDir_ / (id + "_" + name);
-
-	std::lock_guard<std::mutex> lock(mu_);
-	if (!scanned_) {
-		scanDiskLocked();
-	}
-
-	// Already present with same content id - refresh display name to latest upload.
-	auto it = byId_.find(id);
-	if (it != byId_.end() && filesystem::exists(it->second.entry.path)) {
-		filesystem::path storePath = it->second.entry.path;
-		if (it->second.entry.name != name) {
-			const filesystem::path newPath = boardsDir_ / (id + "_" + name);
-			if (storePath != newPath) {
-				std::error_code renEc;
-				filesystem::rename(storePath, newPath, renEc);
-				if (!renEc && filesystem::exists(newPath)) {
-					renameOverlaySidecars(storePath, newPath);
-					storePath = newPath;
-				}
-				// Rename failure is non-fatal: keep existing path, still update display name.
-			}
-		}
-		// Always re-parse with current sanitized upload name (list/meta/sourceName).
-		return parseAndStoreLocked(id, name, storePath, body);
-	}
-
-	if (!writeAll(path, body)) {
-		Entry e;
-		e.id = id;
-		e.name = name;
-		e.path = path;
-		e.ok = false;
-		e.parseError = "failed to write board file";
-		return e;
-	}
-	return parseAndStoreLocked(id, name, path, body);
 }
 
 std::vector<BoardRegistry::Entry> BoardRegistry::List() const {
 	std::lock_guard<std::mutex> lock(mu_);
-	if (!scanned_) {
-		const_cast<BoardRegistry *>(this)->scanDiskLocked();
-	}
-	// Ensure parse status for disk-scanned entries (lazy).
+	// Always rescan: extension-only, no parse — safe for large libraries.
+	const_cast<BoardRegistry *>(this)->scanDiskLocked();
 	std::vector<Entry> out;
 	out.reserve(byId_.size());
-	for (auto &kv : const_cast<BoardRegistry *>(this)->byId_) {
-		CacheSlot &slot = kv.second;
-		if (!slot.snap) {
-			const_cast<BoardRegistry *>(this)->loadParsedLocked(kv.first);
-		}
-		out.push_back(slot.entry);
+	for (const auto &kv : byId_) {
+		out.push_back(kv.second.entry);
 	}
-	std::sort(out.begin(), out.end(),
-			  [](const Entry &a, const Entry &b) { return a.name < b.name; });
+	std::sort(out.begin(), out.end(), [](const Entry &a, const Entry &b) {
+		if (a.displayPath != b.displayPath) {
+			return a.displayPath < b.displayPath;
+		}
+		return a.name < b.name;
+	});
 	return out;
 }
 
@@ -310,7 +278,7 @@ std::shared_ptr<const obv::BoardSnapshot>
 BoardRegistry::loadParsedLocked(const std::string &id) {
 	auto it = byId_.find(id);
 	if (it == byId_.end()) {
-		// Try discover by prefix on disk.
+		// Discover latest library contents.
 		scanDiskLocked();
 		it = byId_.find(id);
 		if (it == byId_.end()) {
@@ -325,10 +293,25 @@ BoardRegistry::loadParsedLocked(const std::string &id) {
 	}
 
 	auto buf = readAll(slot.entry.path);
+	if (buf.empty()) {
+		slot.entry.ok = false;
+		slot.entry.parseError = "failed to read board file";
+		slot.mtime = mt;
+		slot.snap.reset();
+		// Return a failed snapshot so callers can surface the error.
+		obv::BoardSnapshot failed;
+		failed.error = slot.entry.parseError;
+		failed.sourceName =
+			slot.entry.displayPath.empty() ? slot.entry.name : slot.entry.displayPath;
+		slot.snap = std::make_shared<const obv::BoardSnapshot>(std::move(failed));
+		return slot.snap;
+	}
+
 	obv::BoardSnapshot snap =
 		obv::ParseBoardBuffer(std::move(buf), slot.entry.path, cfg_.keys);
-	// Prefer registry display name over full storage path.
-	snap.sourceName = slot.entry.name;
+	// Prefer relative library path for UI display.
+	snap.sourceName =
+		slot.entry.displayPath.empty() ? slot.entry.name : slot.entry.displayPath;
 	slot.entry.ok = snap.ok();
 	slot.entry.parseError =
 		slot.entry.ok ? std::string() : (snap.error.empty() ? "parse failed" : snap.error);
@@ -342,9 +325,6 @@ std::shared_ptr<const obv::BoardSnapshot> BoardRegistry::GetParsed(const std::st
 		return nullptr;
 	}
 	std::lock_guard<std::mutex> lock(mu_);
-	if (!scanned_) {
-		scanDiskLocked();
-	}
 	return loadParsedLocked(id);
 }
 
@@ -353,36 +333,21 @@ filesystem::path BoardRegistry::BoardPath(const std::string &id) const {
 		return {};
 	}
 	std::lock_guard<std::mutex> lock(mu_);
-	if (!scanned_) {
-		const_cast<BoardRegistry *>(this)->scanDiskLocked();
-	}
-	const auto it = byId_.find(id);
+	auto it = byId_.find(id);
 	if (it == byId_.end()) {
-		return {};
+		const_cast<BoardRegistry *>(this)->scanDiskLocked();
+		it = byId_.find(id);
+		if (it == byId_.end()) {
+			return {};
+		}
 	}
 	return it->second.entry.path;
 }
 
 bool BoardRegistry::Remove(const std::string &id) {
-	if (!cfg_.allowDelete || !isHexId(id)) {
-		return false;
-	}
-	std::lock_guard<std::mutex> lock(mu_);
-	if (!scanned_) {
-		scanDiskLocked();
-	}
-	auto it = byId_.find(id);
-	if (it == byId_.end()) {
-		return false;
-	}
-	std::error_code ec;
-	const bool deleted = filesystem::remove(it->second.entry.path, ec);
-	// false + ec means real I/O failure; false + clear ec means already gone.
-	if (!deleted && ec) {
-		return false;
-	}
-	byId_.erase(it);
-	return true;
+	// Library mode: never delete real board files under boardRoot.
+	(void)id;
+	return false;
 }
 
 std::mutex &BoardRegistry::OverlayMutex(const std::string &id) {

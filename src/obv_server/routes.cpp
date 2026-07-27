@@ -70,7 +70,11 @@ std::string entryListJson(const std::vector<BoardRegistry::Entry> &entries) {
 		}
 		os << "{\"id\":\"" << jsonEscape(e.id) << "\",\"name\":\"" << jsonEscape(e.name)
 		   << "\",\"ok\":" << (e.ok ? "true" : "false") << ",\"error\":\""
-		   << jsonEscape(e.parseError) << "\"}";
+		   << jsonEscape(e.parseError) << "\"";
+		if (!e.displayPath.empty()) {
+			os << ",\"path\":\"" << jsonEscape(e.displayPath) << "\"";
+		}
+		os << '}';
 	}
 	os << ']';
 	return os.str();
@@ -712,51 +716,23 @@ void setSqliteRequired(httplib::Response &res) {
 } // namespace
 
 void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
+	svr.Get("/api/v1/config", [&registry](const httplib::Request &, httplib::Response &res) {
+		const auto &cfg = registry.config();
+		std::ostringstream os;
+		os << "{\"boardRoot\":\"" << jsonEscape(cfg.boardRoot.string()) << "\",\"host\":\""
+		   << jsonEscape(cfg.host) << "\",\"port\":" << cfg.port << '}';
+		res.set_content(os.str(), "application/json");
+	});
+
 	svr.Get("/api/v1/boards", [&registry](const httplib::Request &, httplib::Response &res) {
 		const auto list = registry.List();
 		res.set_content(entryListJson(list), "application/json");
 	});
 
-	// ContentReader path: streams body without form-urlencoded preparse.
+	// Library mode: uploads disabled — boards come from boardRoot scan.
 	svr.Post("/api/v1/boards",
-			 [&registry](const httplib::Request &req, httplib::Response &res,
-						 const httplib::ContentReader &reader) {
-				 std::string name;
-				 std::string body;
-				 std::string err;
-				 bool tooLarge = false;
-				 const size_t maxBytes = registry.maxUploadBytes();
-
-				 if (!readBoardUpload(req, reader, maxBytes, name, body, err, tooLarge)) {
-					 if (tooLarge || res.status == 413) {
-						 setError(res, 413, "PAYLOAD_TOO_LARGE", "upload exceeds maxUploadBytes");
-					 } else if (res.status >= 400) {
-						 // Framework already set a status (e.g. bad multipart); keep JSON envelope.
-						 setError(res, res.status, "BAD_REQUEST", err);
-					 } else {
-						 setError(res, 400, "BAD_REQUEST", err);
-					 }
-					 return;
-				 }
-				 if (body.size() > maxBytes) {
-					 setError(res, 413, "PAYLOAD_TOO_LARGE", "upload exceeds maxUploadBytes");
-					 return;
-				 }
-				 if (!isAllowedUploadExtension(name)) {
-					 setError(res, 400, "UNSUPPORTED_TYPE",
-							  "upload extension not allowed (use board formats: .brd .bdv .bvr .fz "
-							  ".cae .bom .asc .cst .json .cad .pcb .alg .xzz .bin .txt .gencad)");
-					 return;
-				 }
-				 const auto entry = registry.ImportUpload(name, body);
-				 if (!entry.parseError.empty() && entry.parseError == "failed to write board file") {
-					 setError(res, 500, "WRITE_FAILED", entry.parseError);
-					 return;
-				 }
-				 const auto snap = registry.GetParsed(entry.id);
-				 // Always 200 with ok/error in body so clients can store content-addressed id even on parse fail.
-				 res.status = 200;
-				 res.set_content(uploadResponseJson(entry, snap), "application/json");
+			 [](const httplib::Request &, httplib::Response &res, const httplib::ContentReader &) {
+				 setError(res, 405, "UPLOAD_DISABLED", "use boardRoot library");
 			 });
 
 	// More specific paths first.

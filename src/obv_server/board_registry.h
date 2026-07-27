@@ -22,12 +22,13 @@ public:
 		std::string id;
 		filesystem::path path;
 		std::string name;
+		std::string displayPath; // relative path from boardRoot (preferred separators)
 		std::string parseError;
-		bool ok = false;
+		bool ok = false; // true when listed / parse ok; false after failed open/parse
 	};
 
-	// content-addressed id = sha256 hex of file bytes
-	Entry ImportUpload(const std::string &originalName, const std::string &body);
+	// Re-scan boardRoot (clears index and rebuilds). List() always rescans.
+	void Rescan();
 
 	std::vector<Entry> List() const;
 
@@ -37,6 +38,7 @@ public:
 	filesystem::path BoardPath(const std::string &id) const;
 
 	// true when removed; false when missing or delete disabled (check allowDelete separately).
+	// In library mode, never deletes the real board file under boardRoot.
 	bool Remove(const std::string &id);
 
 	// Per-board mutex for overlay/annotation write serialization (last-write-wins).
@@ -49,6 +51,7 @@ public:
 	static bool IsValidBoardId(const std::string &id);
 
 	const ServerConfig &config() const { return cfg_; }
+	const filesystem::path &libraryDir() const { return libraryDir_; }
 
 private:
 	struct CacheSlot {
@@ -57,24 +60,25 @@ private:
 		std::intmax_t mtime = 0;
 	};
 
-	void ensureBoardsDir() const;
 	void scanDiskLocked();
-	Entry parseAndStoreLocked(const std::string &id, const std::string &name,
-							  const filesystem::path &path, const std::string &bodyOrEmpty);
 	std::shared_ptr<const obv::BoardSnapshot> loadParsedLocked(const std::string &id);
-	static std::string safeFileName(const std::string &originalName);
 	static std::string sha256Hex(const std::string &body);
 	static bool isHexId(const std::string &id);
 	static std::intmax_t fileMtime(const filesystem::path &path);
+	static bool isAllowedBoardExtension(const filesystem::path &path);
+	static bool isSidecarOrConfig(const filesystem::path &path);
+	static filesystem::path normalizeAbs(const filesystem::path &p);
+	static std::string pathIdKey(const filesystem::path &absPath);
+	static std::string relativeDisplayPath(const filesystem::path &root,
+										   const filesystem::path &absPath);
 
 	ServerConfig cfg_;
-	filesystem::path boardsDir_;
+	filesystem::path libraryDir_;
 	mutable std::mutex mu_;
 	std::unordered_map<std::string, CacheSlot> byId_;
 	// Separate from mu_: hold OverlayMutex across load/mutate/save without blocking List/GetParsed.
 	mutable std::mutex overlayMapMu_;
 	std::unordered_map<std::string, std::unique_ptr<std::mutex>> overlayMu_;
-	bool scanned_ = false;
 };
 
 } // namespace obv_server

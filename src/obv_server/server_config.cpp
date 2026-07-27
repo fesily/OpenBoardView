@@ -195,6 +195,11 @@ void ApplyFromJson(ServerConfig &cfg, const std::string &text) {
 	} else if (const auto data = JsonString(text, "data"); !data.empty()) {
 		cfg.dataRoot = data;
 	}
+	if (const auto boards = JsonString(text, "boardRoot"); !boards.empty()) {
+		cfg.boardRoot = boards;
+	} else if (const auto boards = JsonString(text, "boards"); !boards.empty()) {
+		cfg.boardRoot = boards;
+	}
 	if (const auto www = JsonString(text, "webRoot"); !www.empty()) {
 		cfg.webRoot = www;
 	} else if (const auto www = JsonString(text, "www"); !www.empty()) {
@@ -251,6 +256,8 @@ void ApplyFromKeyValue(ServerConfig &cfg, const std::string &text) {
 			}
 		} else if (key == "dataRoot" || key == "data") {
 			cfg.dataRoot = val;
+		} else if (key == "boardRoot" || key == "boards") {
+			cfg.boardRoot = val;
 		} else if (key == "webRoot" || key == "www") {
 			cfg.webRoot = val;
 		} else if (key == "maxUploadBytes") {
@@ -335,6 +342,8 @@ ServerConfig ParseArgs(int argc, char **argv) {
 			}
 		} else if (const char *v = needVal("--data")) {
 			cfg.dataRoot = v;
+		} else if (const char *v = needVal("--boards")) {
+			cfg.boardRoot = v;
 		} else if (const char *v = needVal("--www")) {
 			cfg.webRoot = v;
 		} else if (const char *v = needVal("--config")) {
@@ -342,19 +351,26 @@ ServerConfig ParseArgs(int argc, char **argv) {
 		} else if (std::strcmp(a, "--help") == 0 || std::strcmp(a, "-h") == 0) {
 			std::cout
 				<< "obv_server - OpenBoardView local HTTP server\n"
-				<< "Usage: obv_server [--host 127.0.0.1] [--port 8080] [--data DIR] [--www DIR] [--config PATH]\n"
-				<< "  --host ADDR  Bind address (default 127.0.0.1 local-only; use 0.0.0.0 for LAN)\n"
-				<< "  --port N     Listen port (default 8080)\n"
-				<< "  --data DIR   Data root for boards/ overlays/ config/ (default ./data)\n"
-				<< "  --www DIR    Serve SPA/static files from DIR (e.g. web/dist); SPA fallback for non-API 404\n"
-				<< "  --config P   JSON or key=value config (keys stay server-side; never exposed via API)\n"
-				<< "Security: default bind is loopback. Prefer a reverse proxy for TLS/gzip on LAN.\n";
+				<< "Usage: obv_server [--host 127.0.0.1] [--port 8080] [--data DIR] [--boards DIR] [--www DIR] [--config PATH]\n"
+				<< "  --host ADDR   Bind address (default 127.0.0.1 local-only; use 0.0.0.0 for LAN)\n"
+				<< "  --port N      Listen port (default 8080)\n"
+				<< "  --data DIR    Data root for runtime overlays/config (default ./data)\n"
+				<< "  --boards DIR  Library root: recursive board file scan (default BaiduSyncdisk/pcb on Windows)\n"
+				<< "  --www DIR     Serve SPA/static files from DIR (e.g. web/dist); SPA fallback for non-API 404\n"
+				<< "  --config P    JSON or key=value config (keys stay server-side; never exposed via API)\n"
+				<< "Config keys: host, port, dataRoot/data, boardRoot/boards, webRoot/www, maxUploadBytes, allowDelete, FZKey/CAEKey/XZZPCBKey\n"
+				<< "Security: default bind is loopback. Prefer a reverse proxy for TLS/gzip on LAN.\n"
+				<< "Library mode: POST /api/v1/boards (upload) is disabled; open boards from boardRoot.\n";
 			std::exit(0);
 		}
 	}
 
 	if (cfg.dataRoot.empty()) {
 		cfg.dataRoot = filesystem::current_path() / "data";
+	}
+	if (cfg.boardRoot.empty()) {
+		// User library default (Windows path; other platforms can override via --boards / config).
+		cfg.boardRoot = R"(C:\Users\fesil\Documents\BaiduSyncdisk\pcb)";
 	}
 	return cfg;
 }

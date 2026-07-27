@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Build web/dist if needed and start obv_server with data + SPA static root.
+# Build web/dist if needed and start obv_server with data + library boardRoot + SPA static root.
+# Env: OBV_HOST, OBV_PORT, OBV_DATA, OBV_BOARDS, OBV_WWW, OBV_BUILD_DIR
+# OBV_BOARDS defaults to the Windows BaiduSyncdisk pcb path (override on non-Windows).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -8,6 +10,7 @@ cd "$ROOT"
 HOST="${OBV_HOST:-127.0.0.1}"
 PORT="${OBV_PORT:-8080}"
 DATA="${OBV_DATA:-$ROOT/data}"
+BOARDS="${OBV_BOARDS:-C:/Users/fesil/Documents/BaiduSyncdisk/pcb}"
 WWW="${OBV_WWW:-$ROOT/web/dist}"
 BUILD_DIR="${OBV_BUILD_DIR:-$ROOT/build-web}"
 
@@ -57,5 +60,5 @@ if [[ ! -f "$DATA/config/keys.json" && -f "$ROOT/data/config/keys.example.json" 
   cp "$ROOT/data/config/keys.example.json" "$DATA/config/keys.example.json" 2>/dev/null || true
 fi
 
-echo "Starting: $SERVER --host $HOST --port $PORT --data $DATA --www $WWW"
-exec "$SERVER" --host "$HOST" --port "$PORT" --data "$DATA" --www "$WWW" "$@"
+echo "Starting: $SERVER --host $HOST --port $PORT --data $DATA --boards $BOARDS --www $WWW"
+exec "$SERVER" --host "$HOST" --port "$PORT" --data "$DATA" --boards "$BOARDS" --www "$WWW" "$@"

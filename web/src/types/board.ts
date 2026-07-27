@@ -112,15 +112,10 @@ export interface BoardSummary {
   name: string;
   ok: boolean;
   error: string;
+  /** Relative path from boardRoot when provided by library scan */
+  path?: string;
 }
 
-/** POST /api/v1/boards response */
-export interface UploadBoardResult {
-  id: string;
-  ok: boolean;
-  error: string;
-  meta: BoardMeta | null;
-}
 
 // --- Overlays (desktop-compatible PartInfos / NetInfos + freeform annotations)
 

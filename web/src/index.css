@@ -15,6 +15,139 @@
 body {
   margin: 0;
   min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
+}
+
+#root {
+  height: 100%;
+}
+
+.app-shell {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.sidebar {
+  width: 300px;
+  min-width: 260px;
+  max-width: 360px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #2a2f3a;
+  background: #161922;
+  min-height: 0;
+}
+
+.sidebar-header {
+  padding: 1rem 1rem 0.5rem;
+}
+
+.sidebar-header h1 {
+  margin: 0 0 0.15rem;
+  font-size: 1.15rem;
+}
+
+.sidebar-status {
+  padding: 0 1rem 0.75rem;
+  border-bottom: 1px solid #2a2f3a;
+}
+
+.sidebar-status p {
+  margin: 0.25rem 0;
+  font-size: 0.85rem;
+}
+
+.board-root {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #9aa0a6;
+}
+
+.sidebar-actions {
+  margin: 0.5rem 0 0;
+}
+
+.file-list-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.5rem 0.5rem 1rem;
+}
+
+.file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.file-list li {
+  margin: 0;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0.4rem 0.55rem;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.file-item:hover {
+  background: #1e2430;
+}
+
+.file-item-selected {
+  background: #2a3344;
+  border-color: #3d4658;
+}
+
+.file-item-error .file-item-name {
+  color: #f28b82;
+}
+
+.file-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.88rem;
+}
+
+.file-item-badge {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: #f28b82;
+  border: 1px solid #5c3030;
+  border-radius: 4px;
+  padding: 0.05rem 0.3rem;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 1rem 1.1rem 2rem;
+}
+
+.main-placeholder {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9aa0a6;
+  font-size: 1.1rem;
 }
 
 .app {
@@ -26,6 +159,10 @@ body {
 header h1 {
   margin: 0 0 0.25rem;
   font-size: 1.5rem;
+}
+
+.sidebar .sub {
+  margin: 0;
 }
 
 .sub {
