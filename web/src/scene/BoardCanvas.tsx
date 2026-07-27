@@ -22,12 +22,23 @@ export interface BoardCanvasProps {
   board: BoardDocument;
   onSelectPin?: (pin: Pin | null) => void;
   selectedPinId?: string | null;
+  /** Search / selection highlight sets (parts + pins). */
+  highlightPartNames?: ReadonlySet<string>;
+  highlightPinIds?: ReadonlySet<string>;
+  /** Board-space point to pan to (search result click). */
+  focusPoint?: { x: number; y: number } | null;
+  /** Changes on each explicit center request. */
+  focusToken?: number;
 }
 
 export default function BoardCanvas({
   board,
   onSelectPin,
   selectedPinId = null,
+  highlightPartNames,
+  highlightPinIds,
+  focusPoint = null,
+  focusToken = 0,
 }: BoardCanvasProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -52,6 +63,14 @@ export default function BoardCanvas({
     const v = centerOnBounds(board.bounds, size.w, size.h);
     syncView(v);
   }, [board.boardId, board.bounds, size.w, size.h, syncView]);
+
+  // Center view on search result click (preserve scale/rotation/side).
+  useEffect(() => {
+    if (!focusPoint || focusToken === 0) return;
+    const v = viewRef.current;
+    if (!v) return;
+    syncView({ ...v, mx: focusPoint.x, my: focusPoint.y });
+  }, [focusPoint, focusToken, syncView]);
 
   // Resize observer
   useEffect(() => {
@@ -83,18 +102,20 @@ export default function BoardCanvas({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const partNames = new Set<string>(highlightPartNames ?? []);
+    const pinIds = new Set<string>(highlightPinIds ?? []);
+    if (selectedPinId) {
+      pinIds.add(selectedPinId);
+      for (const p of board.pins) {
+        if (p.id === selectedPinId && p.component) partNames.add(p.component);
+      }
+    }
     drawBoard(ctx, board, v, cssW, cssH, {
       selectedPinId,
-      partNames: selectedPinId
-        ? new Set(
-            board.pins
-              .filter((p) => p.id === selectedPinId && p.component)
-              .map((p) => p.component as string),
-          )
-        : undefined,
-      pinIds: selectedPinId ? new Set([selectedPinId]) : undefined,
+      partNames: partNames.size ? partNames : undefined,
+      pinIds: pinIds.size ? pinIds : undefined,
     });
-  }, [board, view, size.w, size.h, selectedPinId]);
+  }, [board, view, size.w, size.h, selectedPinId, highlightPartNames, highlightPinIds]);
 
   const localPoint = (ev: { clientX: number; clientY: number }) => {
     const canvas = canvasRef.current;

@@ -163,3 +163,81 @@ tr.row-selected td {
   margin-top: 0.5rem;
   font-size: 0.9rem;
 }
+
+.search-box {
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #2a2f3a;
+  border-radius: 8px;
+  background: #151922;
+}
+
+.search-box-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.search-input {
+  flex: 1 1 12rem;
+  min-width: 10rem;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid #364054;
+  border-radius: 6px;
+  background: #0f1218;
+  color: inherit;
+}
+
+.search-check,
+.search-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: #c5cad3;
+  user-select: none;
+}
+
+.search-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.45rem;
+}
+
+.search-results {
+  margin-top: 0.5rem;
+  max-height: 10rem;
+  overflow: auto;
+}
+
+.search-hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+}
+
+.search-group {
+  margin-top: 0.35rem;
+}
+
+.search-group-title {
+  font-size: 0.8rem;
+  color: #9aa0a6;
+  margin-bottom: 0.2rem;
+}
+
+.search-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.search-hit {
+  padding: 0.2rem 0.45rem;
+  font-size: 0.85rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

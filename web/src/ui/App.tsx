@@ -9,6 +9,7 @@ import {
 } from '../api/client';
 import BoardCanvas from '../scene/BoardCanvas';
 import type { BoardDocument, BoardSummary, Pin } from '../types/board';
+import SearchBox, { type SearchSelection } from './SearchBox';
 
 type HealthState =
   | { kind: 'loading' }
@@ -26,7 +27,12 @@ export default function App() {
   const [boardError, setBoardError] = useState<string | null>(null);
   const [boardLoading, setBoardLoading] = useState(false);
   const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
+  const [searchSel, setSearchSel] = useState<SearchSelection | null>(null);
   const openBoardGen = useRef(0);
+
+  const onSearchSelection = useCallback((sel: SearchSelection) => {
+    setSearchSel(sel);
+  }, []);
 
   const refreshBoards = useCallback(async () => {
     try {
@@ -66,6 +72,7 @@ export default function App() {
     const gen = ++openBoardGen.current;
     setSelectedId(id);
     setSelectedPin(null);
+    setSearchSel(null);
     setBoardLoading(true);
     setBoardError(null);
     try {
@@ -114,7 +121,7 @@ export default function App() {
     <div className="app">
       <header>
         <h1>OpenBoardView Web</h1>
-        <p className="sub">Canvas board view — pan / zoom / flip / rotate (Task 9)</p>
+        <p className="sub">Canvas board view — pan / zoom / search / highlight</p>
       </header>
 
       <section className="card">
@@ -208,10 +215,15 @@ export default function App() {
         )}
         {board && (
           <>
+            <SearchBox key={board.boardId} board={board} onSelectionChange={onSearchSelection} />
             <BoardCanvas
               board={board}
               selectedPinId={selectedPin?.id ?? null}
               onSelectPin={setSelectedPin}
+              highlightPartNames={searchSel?.highlight.partNames}
+              highlightPinIds={searchSel?.highlight.pinIds}
+              focusPoint={searchSel?.focus ?? null}
+              focusToken={searchSel?.focusToken ?? 0}
             />
             <div className="selection-pane">
               {selectedPin ? (
@@ -227,7 +239,7 @@ export default function App() {
                   </span>
                 </p>
               ) : (
-                <p className="muted">Click a pin to select.</p>
+                <p className="muted">Click a pin to select · search results highlight on canvas.</p>
               )}
             </div>
           </>
