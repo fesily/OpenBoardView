@@ -1,4 +1,4 @@
-import type { Arc, BoardDocument, Component, OverlayAnnotation, Pin, Track, Via } from '../types/board';
+import type { Arc, BoardDocument, Component, Net, OverlayAnnotation, Pin, Track, Via } from '../types/board';
 import { boardToScreen, type ViewState } from './transform';
 
 export interface DrawHighlight {
@@ -20,6 +20,10 @@ export interface DrawColors {
   pinSelected: string;
   pinHighlight: string;
   partHighlight: string;
+  partText: string;
+  pinText: string;
+  pinTextDark: string;
+  netText: string;
   annotation: string;
 }
 
@@ -36,6 +40,10 @@ export const DEFAULT_COLORS: DrawColors = {
   pinSelected: '#ffb74d',
   pinHighlight: '#ff8a80',
   partHighlight: '#ffe082',
+  partText: '#d5dbe6',
+  pinText: '#e8eaf0',
+  pinTextDark: '#1a1d24',
+  netText: '#8ba3c7',
   annotation: '#ce93d8',
 };
 
@@ -44,7 +52,7 @@ function sideVisible(elSide: string, viewSide: string): boolean {
   return elSide === viewSide;
 }
 
-/** Layers: fill → outline → tracks/arcs/vias → parts → pins → highlights → annotations. */
+/** Layers: fill → outline → tracks/arcs/vias → parts → pins → highlights → text labels → annotations. */
 export function drawBoard(
   ctx: CanvasRenderingContext2D,
   board: BoardDocument,
@@ -68,6 +76,8 @@ export function drawBoard(
   drawParts(ctx, board, view, cssW, cssH, highlight, colors);
   drawPins(ctx, board, view, cssW, cssH, highlight, colors);
   drawHighlights(ctx, board, view, cssW, cssH, highlight, colors);
+  drawPartLabels(ctx, board, view, cssW, cssH, colors);
+  drawPinLabels(ctx, board, view, cssW, cssH, highlight, colors);
   drawAnnotations(ctx, annotations, view, cssW, cssH, colors);
 
   ctx.restore();
@@ -335,6 +345,121 @@ function drawHighlights(
       ctx.strokeStyle = colors.partHighlight;
       ctx.lineWidth = 2;
       ctx.stroke();
+    }
+  }
+}
+
+/**
+ * Part name centered in the part's screen bbox — port of DrawParts showPartName:
+ * font fitted to bbox, skipped when too small (desktop skips at maxfontsize <= 1).
+ * Zoom-gated: nothing renders until the part is ~30px wide on screen.
+ */
+function drawPartLabels(
+  ctx: CanvasRenderingContext2D,
+  board: BoardDocument,
+  view: ViewState,
+  cssW: number,
+  cssH: number,
+  colors: DrawColors,
+): void {
+  const parts = board.components ?? [];
+  if (!parts.length) return;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = colors.partText;
+  for (const part of parts) {
+    if (!part.name) continue;
+    if (!sideVisible(part.side, view.side)) continue;
+    const outline = part.outline;
+    if (!outline || outline.length < 2) continue;
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const p of outline) {
+      const s = boardToScreen(view, p.x, p.y, cssW, cssH);
+      if (s.x < minX) minX = s.x;
+      if (s.x > maxX) maxX = s.x;
+      if (s.y < minY) minY = s.y;
+      if (s.y > maxY) maxY = s.y;
+    }
+    const bw = maxX - minX;
+    const bh = maxY - minY;
+    // Zoom gate: at fit zoom only large parts pass; also cull offscreen parts.
+    if (bw < 30) continue;
+    if (maxX < 0 || minX > cssW || maxY < 0 || minY > cssH) continue;
+
+    let size = Math.min(14, Math.max(9, bh * 0.6));
+    ctx.font = `${size}px sans-serif`;
+    let tw = ctx.measureText(part.name).width;
+    if (tw > bw * 1.2) {
+      // Shrink once toward the 9px floor; skip if it still doesn't fit.
+      const shrunk = Math.max(9, (size * (bw * 1.2)) / tw);
+      if (shrunk >= size) continue;
+      size = shrunk;
+      ctx.font = `${size}px sans-serif`;
+      tw = ctx.measureText(part.name).width;
+      if (tw > bw * 1.2) continue;
+    }
+    ctx.fillText(part.name, minX + bw / 2, minY + bh / 2);
+  }
+}
+
+/**
+ * Pin number inside the pad and net name below it — port of DrawPins text:
+ * desktop shows pin text when psz clears the size threshold, net name at
+ * larger sizes and never for ground nets.
+ */
+function drawPinLabels(
+  ctx: CanvasRenderingContext2D,
+  board: BoardDocument,
+  view: ViewState,
+  cssW: number,
+  cssH: number,
+  highlight: DrawHighlight,
+  colors: DrawColors,
+): void {
+  const pins = board.pins ?? [];
+  if (!pins.length) return;
+  // netId→Net Map built lazily — only paid once the first pin clears the
+  // net-name zoom gate, so fit-zoom frames on dense boards skip it entirely.
+  const nets = board.nets ?? [];
+  let netById: Map<number, Net> | null = null;
+
+  ctx.textAlign = 'center';
+  for (const pin of pins) {
+    if (!sideVisible(pin.side, view.side)) continue;
+    const r = pinRadiusPx(pin, view.scale);
+    if (r < 6) continue; // zoom gate — matches desktop psz threshold intent
+    const s = boardToScreen(view, pin.pos.x, pin.pos.y, cssW, cssH);
+    if (s.x < -r || s.x > cssW + r || s.y < -r || s.y > cssH + r) continue;
+
+    const label = pin.number || pin.name;
+    const selected = highlight.selectedPinId === pin.id;
+    const filled = selected || (highlight.pinIds?.has(pin.id) ?? false);
+    if (label) {
+      const size = Math.min(2 * r * 0.8, 12);
+      ctx.font = `${size}px sans-serif`;
+      ctx.textBaseline = 'middle';
+      // Dark text on filled (selected/highlighted) pads, light on outlined pads.
+      ctx.fillStyle = filled ? colors.pinTextDark : colors.pinText;
+      ctx.fillText(label, s.x, s.y);
+    }
+
+    if (r >= 12 && pin.netId != null) {
+      if (netById === null) {
+        netById = new Map();
+        for (const n of nets) netById.set(n.id, n);
+      }
+      const net = netById.get(pin.netId);
+      // Desktop suppresses net names on ground pins (they'd all read "GND").
+      if (!net || !net.name || net.isGround) continue;
+      const size = Math.min(10, Math.max(8, r * 0.5));
+      ctx.font = `${size}px sans-serif`;
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = colors.netText;
+      ctx.fillText(net.name, s.x, s.y + r + 2);
     }
   }
 }
