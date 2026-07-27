@@ -115,6 +115,8 @@ add_library(mpc STATIC "mpc/mpc.c")
 ## obv_core — GUI-free board core library (before desktop GUI deps) ##
 if(ENABLE_OBV_CORE)
 	add_subdirectory(obv_core)
+	enable_testing()
+	add_subdirectory(obv_core_tests)
 endif()
 
 ## Desktop GUI stack (glad / SDL2 / imgui / stb / openboardview) ##

@@ -44,6 +44,7 @@ add_custom_command(OUTPUT "${GENERATED_GENCAD_FILE_GRAMMAR_H}"
 
 set(OBV_CORE_SOURCES
 	src/core_utils.cpp
+	src/parse.cpp
 	${OBV_OPENBOARDVIEW_DIR}/Board.cpp
 	${OBV_OPENBOARDVIEW_DIR}/BRDBoard.cpp
 	${OBV_OPENBOARDVIEW_DIR}/annotations.cpp
@@ -72,9 +73,10 @@ add_library(obv_core STATIC ${OBV_CORE_SOURCES})
 target_include_directories(obv_core
 	PUBLIC
 		${CMAKE_CURRENT_SOURCE_DIR}/include
-	PRIVATE
+		# BoardSnapshot exposes BRDBoard / BRDFileBase from openboardview tree
 		${OBV_OPENBOARDVIEW_DIR}
 		${CMAKE_CURRENT_SOURCE_DIR}/..
+	PRIVATE
 		${CMAKE_CURRENT_BINARY_DIR}
 		${UTF8_INCLUDE_DIR}
 		${ZLIB_INCLUDE_DIRS}
