@@ -203,11 +203,23 @@ BoardRegistry::Entry BoardRegistry::ImportUpload(const std::string &originalName
 		scanDiskLocked();
 	}
 
-	// Already present with same content id - re-parse / refresh name path if needed.
+	// Already present with same content id - refresh display name to latest upload.
 	auto it = byId_.find(id);
 	if (it != byId_.end() && filesystem::exists(it->second.entry.path)) {
-		// Prefer existing path; re-parse from body for consistent cache.
-		return parseAndStoreLocked(id, it->second.entry.name, it->second.entry.path, body);
+		filesystem::path storePath = it->second.entry.path;
+		if (it->second.entry.name != name) {
+			const filesystem::path newPath = boardsDir_ / (id + "_" + name);
+			if (storePath != newPath) {
+				std::error_code renEc;
+				filesystem::rename(storePath, newPath, renEc);
+				if (!renEc && filesystem::exists(newPath)) {
+					storePath = newPath;
+				}
+				// Rename failure is non-fatal: keep existing path, still update display name.
+			}
+		}
+		// Always re-parse with current sanitized upload name (list/meta/sourceName).
+		return parseAndStoreLocked(id, name, storePath, body);
 	}
 
 	if (!writeAll(path, body)) {
