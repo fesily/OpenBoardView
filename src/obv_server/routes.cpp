@@ -5,6 +5,7 @@
 #include <sstream>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 namespace obv_server {
 namespace {
@@ -87,35 +88,108 @@ std::string uploadResponseJson(const BoardRegistry::Entry &e,
 	return os.str();
 }
 
-bool extractUpload(const httplib::Request &req, std::string &name, std::string &body,
-				   std::string &err) {
+// Read upload via ContentReader so application/x-www-form-urlencoded is not
+// pre-parsed (cpp-httplib's 8 KiB form limit would 413 raw board bodies).
+bool readBoardUpload(const httplib::Request &req, const httplib::ContentReader &reader,
+					 size_t maxBytes, std::string &name, std::string &body, std::string &err,
+					 bool &tooLarge) {
+	tooLarge = false;
+	name.clear();
+	body.clear();
+	err.clear();
+
 	if (req.is_multipart_form_data()) {
-		if (req.has_file("file")) {
-			const auto file = req.get_file_value("file");
-			body = file.content;
-			name = file.filename.empty() ? "upload.bin" : file.filename;
-			return true;
+		struct Part {
+			std::string name;
+			std::string filename;
+			std::string content;
+		};
+		std::vector<Part> parts;
+		Part *cur = nullptr;
+
+		const bool readOk = reader(
+			[&](const httplib::MultipartFormData &file) {
+				parts.push_back(Part{file.name, file.filename, {}});
+				cur = &parts.back();
+				return true;
+			},
+			[&](const char *data, size_t len) {
+				if (!cur) {
+					return false;
+				}
+				if (cur->content.size() + len > maxBytes) {
+					tooLarge = true;
+					return false;
+				}
+				cur->content.append(data, len);
+				return true;
+			});
+
+		if (tooLarge) {
+			err = "upload exceeds maxUploadBytes";
+			return false;
 		}
-		// Accept first file part if named differently.
-		if (!req.files.empty()) {
-			const auto &file = req.files.begin()->second;
-			body = file.content;
-			name = file.filename.empty() ? "upload.bin" : file.filename;
-			return true;
+		if (!readOk) {
+			err = "failed to read multipart upload";
+			return false;
 		}
-		err = "multipart upload missing file field";
-		return false;
+
+		const Part *chosen = nullptr;
+		for (const auto &p : parts) {
+			if (p.name == "file") {
+				chosen = &p;
+				break;
+			}
+		}
+		if (!chosen) {
+			for (const auto &p : parts) {
+				if (!p.filename.empty()) {
+					chosen = &p;
+					break;
+				}
+			}
+		}
+		if (!chosen && !parts.empty()) {
+			// Match prior fallback: first form part if present.
+			chosen = &parts.front();
+		}
+		if (!chosen) {
+			err = "multipart upload missing file field";
+			return false;
+		}
+
+		name = chosen->filename.empty() ? "upload.bin" : chosen->filename;
+		body = chosen->content;
+		return true;
 	}
 
-	if (req.body.empty()) {
-		err = "empty upload body";
-		return false;
-	}
-	body = req.body;
+	// Raw body (any non-multipart Content-Type, including form-urlencoded / missing).
 	if (req.has_header("X-Filename")) {
 		name = req.get_header_value("X-Filename");
 	} else {
 		name = "upload.bin";
+	}
+
+	const bool readOk = reader([&](const char *data, size_t len) {
+		if (body.size() + len > maxBytes) {
+			tooLarge = true;
+			return false;
+		}
+		body.append(data, len);
+		return true;
+	});
+
+	if (tooLarge) {
+		err = "upload exceeds maxUploadBytes";
+		return false;
+	}
+	if (!readOk) {
+		err = "failed to read upload body";
+		return false;
+	}
+	if (body.empty()) {
+		err = "empty upload body";
+		return false;
 	}
 	return true;
 }
@@ -128,28 +202,41 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 		res.set_content(entryListJson(list), "application/json");
 	});
 
-	svr.Post("/api/v1/boards", [&registry](const httplib::Request &req, httplib::Response &res) {
-		std::string name;
-		std::string body;
-		std::string err;
-		if (!extractUpload(req, name, body, err)) {
-			setError(res, 400, "BAD_REQUEST", err);
-			return;
-		}
-		if (body.size() > registry.maxUploadBytes()) {
-			setError(res, 413, "PAYLOAD_TOO_LARGE", "upload exceeds maxUploadBytes");
-			return;
-		}
-		const auto entry = registry.ImportUpload(name, body);
-		if (!entry.parseError.empty() && entry.parseError == "failed to write board file") {
-			setError(res, 500, "WRITE_FAILED", entry.parseError);
-			return;
-		}
-		const auto snap = registry.GetParsed(entry.id);
-		// Always 200 with ok/error in body so clients can store content-addressed id even on parse fail.
-		res.status = 200;
-		res.set_content(uploadResponseJson(entry, snap), "application/json");
-	});
+	// ContentReader path: streams body without form-urlencoded preparse.
+	svr.Post("/api/v1/boards",
+			 [&registry](const httplib::Request &req, httplib::Response &res,
+						 const httplib::ContentReader &reader) {
+				 std::string name;
+				 std::string body;
+				 std::string err;
+				 bool tooLarge = false;
+				 const size_t maxBytes = registry.maxUploadBytes();
+
+				 if (!readBoardUpload(req, reader, maxBytes, name, body, err, tooLarge)) {
+					 if (tooLarge || res.status == 413) {
+						 setError(res, 413, "PAYLOAD_TOO_LARGE", "upload exceeds maxUploadBytes");
+					 } else if (res.status >= 400) {
+						 // Framework already set a status (e.g. bad multipart); keep JSON envelope.
+						 setError(res, res.status, "BAD_REQUEST", err);
+					 } else {
+						 setError(res, 400, "BAD_REQUEST", err);
+					 }
+					 return;
+				 }
+				 if (body.size() > maxBytes) {
+					 setError(res, 413, "PAYLOAD_TOO_LARGE", "upload exceeds maxUploadBytes");
+					 return;
+				 }
+				 const auto entry = registry.ImportUpload(name, body);
+				 if (!entry.parseError.empty() && entry.parseError == "failed to write board file") {
+					 setError(res, 500, "WRITE_FAILED", entry.parseError);
+					 return;
+				 }
+				 const auto snap = registry.GetParsed(entry.id);
+				 // Always 200 with ok/error in body so clients can store content-addressed id even on parse fail.
+				 res.status = 200;
+				 res.set_content(uploadResponseJson(entry, snap), "application/json");
+			 });
 
 	// More specific path first.
 	svr.Get("/api/v1/boards/:id/meta",

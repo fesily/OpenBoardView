@@ -153,3 +153,34 @@ DELETE <id> -> 204
 DELETE <id> again -> 404 NOT_FOUND
 GET /api/v1/boards -> []
 ```
+
+---
+
+## Fix pass 2 (raw upload without form preparse)
+
+**Status:** FIXED  
+**Commit:** `74a1ced` — `fix(server): raw board upload without form preparse`  
+**Date:** 2026-07-27
+
+### Problem
+
+Normal `svr.Post` lets cpp-httplib `read_content` pre-parse `application/x-www-form-urlencoded` and enforce `CPPHTTPLIB_FORM_URL_ENCODED_PAYLOAD_MAX_LENGTH` (8 KiB) before the handler. Raw body + `X-Filename` uploads (curl `--data-binary` defaults to that Content-Type) could get framework 413 while still under `maxUploadBytes`.
+
+### Change
+
+- `routes.cpp`: register `POST /api/v1/boards` with `HandlerWithContentReader`.
+- `readBoardUpload`: stream multipart `file` (or first file-like part) via multipart reader; any other Content-Type streams raw bytes; filename from part / `X-Filename` / `upload.bin`.
+- Size checked while accumulating (`tooLarge` → JSON 413 `PAYLOAD_TOO_LARGE`); form-urlencoded preparse no longer runs for this route.
+
+### Re-verification
+
+```text
+cmake --build build-web --target obv_server -j 8 --config Release
+obv_server --host 127.0.0.1 --port 18081 --data tmp-data-t6-raw
+
+GET  /api/v1/health -> 200 {"status":"ok"}
+POST -F file=@tiny.bin -> 200 id=sha256("nope") ok:false
+POST -H "X-Filename: x.bin" --data-binary @tiny.bin -> 200 same id
+POST -H "X-Filename: big9k.bin" --data-binary @9KiB -> 200 (not 413 from 8KiB form limit)
+GET  /api/v1/boards -> lists x.bin + big9k.bin
+```
