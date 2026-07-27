@@ -226,6 +226,7 @@ tr.row-selected td {
 
 .info-field input,
 .info-field textarea,
+.info-field select,
 .ann-item textarea {
   width: 100%;
   background: #0f1218;
@@ -234,6 +235,10 @@ tr.row-selected td {
   color: #e8eaed;
   padding: 0.35rem 0.5rem;
   font: inherit;
+}
+
+.info-subhead {
+  margin-top: 0.65rem !important;
 }
 
 .annotations-section {

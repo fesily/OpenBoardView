@@ -106,6 +106,8 @@ export default function App() {
       setSearchSel(null);
       setOverlay(null);
       setOverlayError(null);
+      // Drop previous board immediately so canvas coords never target a mismatched id.
+      setBoard(null);
       setBoardLoading(true);
       setBoardError(null);
       try {
@@ -131,7 +133,9 @@ export default function App() {
 
   const onContextAnnotate = useCallback(
     async (pos: { x: number; y: number; side: number; pin: Pin | null }) => {
-      if (!selectedId || !board) return;
+      // Always write against the currently rendered board, not a pending selection.
+      if (!board || boardLoading) return;
+      const targetId = board.boardId;
       const defaultNote = pos.pin
         ? `note @ ${pos.pin.id}`
         : `note @ (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)})`;
@@ -142,7 +146,7 @@ export default function App() {
           ? (board.nets.find((n) => n.id === pos.pin!.netId)?.name ?? '')
           : '';
       try {
-        const created = await postAnnotation(selectedId, {
+        const created = await postAnnotation(targetId, {
           side: pos.side,
           x: pos.x,
           y: pos.y,
@@ -163,7 +167,7 @@ export default function App() {
         window.alert(`Failed to create annotation: ${msg}`);
       }
     },
-    [selectedId, board],
+    [board, boardLoading],
   );
 
   const onFile = async (ev: ChangeEvent<HTMLInputElement>) => {
@@ -287,7 +291,7 @@ export default function App() {
         {!boardLoading && !board && !boardError && (
           <p className="muted">Select an uploaded board or upload a new one.</p>
         )}
-        {board && (
+        {board && !boardLoading && (
           <>
             <SearchBox key={board.boardId} board={board} onSelectionChange={onSearchSelection} />
             <BoardCanvas
@@ -310,7 +314,7 @@ export default function App() {
               overlayError={overlayError}
               onOverlayChange={setOverlay}
               onReloadOverlays={() => {
-                if (selectedId) void loadOverlays(selectedId);
+                void loadOverlays(board.boardId);
               }}
             />
           </>

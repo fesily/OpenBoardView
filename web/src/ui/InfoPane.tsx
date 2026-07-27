@@ -91,6 +91,16 @@ export default function InfoPane({
   const [diode, setDiode] = useState(pinInfo.diode ?? '');
   const [savingPin, setSavingPin] = useState(false);
   const [pinMsg, setPinMsg] = useState<string | null>(null);
+  const [partType, setPartType] = useState(partInfo?.part_type ?? '');
+  const [partAngle, setPartAngle] = useState(
+    partInfo?.angle != null ? String(partInfo.angle) : '',
+  );
+  const [savingPart, setSavingPart] = useState(false);
+  const [partMsg, setPartMsg] = useState<string | null>(null);
+  const [netShowName, setNetShowName] = useState(netInfo?.showname ?? '');
+  const [netNote, setNetNote] = useState(netInfo?.note ?? '');
+  const [savingNet, setSavingNet] = useState(false);
+  const [netMsg, setNetMsg] = useState<string | null>(null);
   const [annDrafts, setAnnDrafts] = useState<Record<number, string>>({});
   const [annBusy, setAnnBusy] = useState<number | null>(null);
   const [annMsg, setAnnMsg] = useState<string | null>(null);
@@ -103,6 +113,18 @@ export default function InfoPane({
     setDiode(pinInfo.diode ?? '');
     setPinMsg(null);
   }, [selectedPin?.id, pinInfo.note, pinInfo.show_name, pinInfo.voltage, pinInfo.diode]);
+
+  useEffect(() => {
+    setPartType(partInfo?.part_type ?? '');
+    setPartAngle(partInfo?.angle != null ? String(partInfo.angle) : '');
+    setPartMsg(null);
+  }, [partName, partInfo?.part_type, partInfo?.angle]);
+
+  useEffect(() => {
+    setNetShowName(netInfo?.showname ?? '');
+    setNetNote(netInfo?.note ?? '');
+    setNetMsg(null);
+  }, [net?.name, netInfo?.showname, netInfo?.note]);
 
   useEffect(() => {
     const next: Record<number, string> = {};
@@ -160,6 +182,93 @@ export default function InfoPane({
       setPinMsg(`Save failed: ${msg}`);
     } finally {
       setSavingPin(false);
+    }
+  };
+
+  const savePartOverlay = async () => {
+    if (!partName) {
+      setPartMsg('Select a pin on a part to edit part overlay.');
+      return;
+    }
+    setSavingPart(true);
+    setPartMsg(null);
+    try {
+      const base = cloneOverlay(
+        overlay ?? { annotations: [], partInfos: {}, netInfos: {} },
+      );
+      const partEntry: PartInfo = { ...(base.partInfos[partName] ?? {}) };
+      const typeTrim = partType.trim();
+      if (typeTrim) partEntry.part_type = typeTrim;
+      else delete partEntry.part_type;
+      if (partAngle === '') {
+        delete partEntry.angle;
+      } else {
+        const ang = Number(partAngle);
+        if (ang === 0 || ang === 90 || ang === 180 || ang === 270) {
+          partEntry.angle = ang;
+        } else {
+          setPartMsg('Angle must be 0, 90, 180, or 270.');
+          setSavingPart(false);
+          return;
+        }
+      }
+      const pins = partEntry.pins ?? {};
+      const hasPins = Object.keys(pins).length > 0;
+      if (!hasPins && !partEntry.part_type && partEntry.angle == null) {
+        delete base.partInfos[partName];
+      } else {
+        base.partInfos[partName] = partEntry;
+      }
+      const updated = await putOverlays(boardId, {
+        partInfos: base.partInfos,
+        netInfos: base.netInfos,
+      });
+      onOverlayChange(updated);
+      setPartMsg('Saved part overlay.');
+    } catch (e) {
+      const msg = e instanceof ApiError ? `${e.code}: ${e.message}` : String(e);
+      setPartMsg(`Save failed: ${msg}`);
+    } finally {
+      setSavingPart(false);
+    }
+  };
+
+  const saveNetOverlay = async () => {
+    if (!net) {
+      setNetMsg('Select a pin on a net to edit net overlay.');
+      return;
+    }
+    setSavingNet(true);
+    setNetMsg(null);
+    try {
+      const base = cloneOverlay(
+        overlay ?? { annotations: [], partInfos: {}, netInfos: {} },
+      );
+      const next: { showname?: string; note?: string } = {
+        ...(base.netInfos[net.name] ?? {}),
+      };
+      const sn = netShowName.trim();
+      const nn = netNote.trim();
+      if (sn) next.showname = sn;
+      else delete next.showname;
+      if (nn) next.note = nn;
+      else delete next.note;
+      if (!next.showname && !next.note) {
+        delete base.netInfos[net.name];
+      } else {
+        base.netInfos[net.name] = next;
+      }
+      const updated = await putOverlays(boardId, {
+        partInfos: base.partInfos,
+        netInfos: base.netInfos,
+      });
+      onOverlayChange(updated);
+      setNetMsg('Saved net overlay.');
+    } catch (e) {
+      const msg = e instanceof ApiError ? `${e.code}: ${e.message}` : String(e);
+      setNetMsg(`Save failed: ${msg}`);
+    } finally {
+      setSavingNet(false);
     }
   };
 
@@ -264,13 +373,45 @@ export default function InfoPane({
                 <dd>{part.side}</dd>
                 <dt>mfg</dt>
                 <dd>{part.mfgcode || '—'}</dd>
-                {partInfo?.part_type != null && partInfo.part_type !== '' && (
-                  <>
-                    <dt>overlay type</dt>
-                    <dd>{partInfo.part_type}</dd>
-                  </>
-                )}
               </dl>
+              <h4 className="info-subhead">Part overlay</h4>
+              <label className="info-field">
+                <span>part_type</span>
+                <input
+                  type="text"
+                  value={partType}
+                  onChange={(e) => setPartType(e.target.value)}
+                  disabled={savingPart}
+                />
+              </label>
+              <label className="info-field">
+                <span>angle</span>
+                <select
+                  value={partAngle}
+                  onChange={(e) => setPartAngle(e.target.value)}
+                  disabled={savingPart}
+                >
+                  <option value="">(none)</option>
+                  <option value="0">0°</option>
+                  <option value="90">90°</option>
+                  <option value="180">180°</option>
+                  <option value="270">270°</option>
+                </select>
+              </label>
+              <div className="row">
+                <button
+                  type="button"
+                  onClick={() => void savePartOverlay()}
+                  disabled={savingPart || !partName}
+                >
+                  {savingPart ? 'Saving…' : 'Save part overlay'}
+                </button>
+              </div>
+              {partMsg && (
+                <p className={partMsg.startsWith('Save failed') || partMsg.startsWith('Angle') ? 'err' : 'msg'}>
+                  {partMsg}
+                </p>
+              )}
             </section>
           )}
 
@@ -284,11 +425,34 @@ export default function InfoPane({
                 <dd>{net.id}</dd>
                 <dt>ground</dt>
                 <dd>{net.isGround ? 'yes' : 'no'}</dd>
-                <dt>showname</dt>
-                <dd>{netInfo?.showname || '—'}</dd>
-                <dt>note</dt>
-                <dd>{netInfo?.note || '—'}</dd>
               </dl>
+              <h4 className="info-subhead">Net overlay</h4>
+              <label className="info-field">
+                <span>showname</span>
+                <input
+                  type="text"
+                  value={netShowName}
+                  onChange={(e) => setNetShowName(e.target.value)}
+                  disabled={savingNet}
+                />
+              </label>
+              <label className="info-field">
+                <span>note</span>
+                <textarea
+                  rows={2}
+                  value={netNote}
+                  onChange={(e) => setNetNote(e.target.value)}
+                  disabled={savingNet}
+                />
+              </label>
+              <div className="row">
+                <button type="button" onClick={() => void saveNetOverlay()} disabled={savingNet}>
+                  {savingNet ? 'Saving…' : 'Save net overlay'}
+                </button>
+              </div>
+              {netMsg && (
+                <p className={netMsg.startsWith('Save failed') ? 'err' : 'msg'}>{netMsg}</p>
+              )}
             </section>
           )}
 
