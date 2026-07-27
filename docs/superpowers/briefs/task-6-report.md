@@ -118,7 +118,7 @@ No redistributable sample board in-repo; success path (`{"boardSchemaVersion":1�
 ## Fix pass
 
 **Status:** FIXED (Important findings)  
-**Commit:** `55dd8fa` — `fix(server): board API path, 413 envelope, delete check`  
+**Commit:** `6f411e6` — `fix(server): board API path, 413 envelope, delete check`  
 **Date:** 2026-07-27
 
 ### Changes
