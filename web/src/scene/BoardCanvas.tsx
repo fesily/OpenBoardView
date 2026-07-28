@@ -94,6 +94,13 @@ export default function BoardCanvas({
     lastY: number;
     pointerId: number;
   } | null>(null);
+  /** Active pointers for multi-touch pinch (id → local canvas coords). */
+  const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchRef = useRef<{
+    lastDist: number;
+    lastMidX: number;
+    lastMidY: number;
+  } | null>(null);
 
   const copperLayers = useMemo(() => collectCopperLayers(board), [board]);
 
@@ -237,11 +244,43 @@ export default function BoardCanvas({
     syncView(zoomAt(v, x, y, size.w, size.h, factor));
   };
 
+  const clearPinch = () => {
+    pinchRef.current = null;
+  };
+
   const onPointerDown = (ev: ReactPointerEvent) => {
-    if (ev.button !== 0) return;
+    // Primary button or touch/pen.
+    if (ev.pointerType === 'mouse' && ev.button !== 0) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
-    canvas.setPointerCapture(ev.pointerId);
+    const pt = localPoint(ev);
+    try {
+      canvas.setPointerCapture(ev.pointerId);
+    } catch {
+      // ignore capture failures
+    }
+    pointersRef.current.set(ev.pointerId, pt);
+
+    if (pointersRef.current.size >= 2) {
+      // Enter / refresh pinch from first two active pointers.
+      const pts = [...pointersRef.current.values()];
+      const a = pts[0];
+      const b = pts[1];
+      const dist = Math.hypot(b.x - a.x, b.y - a.y);
+      pinchRef.current = {
+        lastDist: Math.max(dist, 1),
+        lastMidX: (a.x + b.x) / 2,
+        lastMidY: (a.y + b.y) / 2,
+      };
+      // Cancel single-finger drag/click when second finger lands.
+      if (dragRef.current) {
+        dragRef.current.moved = true;
+        dragRef.current = null;
+      }
+      return;
+    }
+
+    // Single-finger / mouse drag start.
     dragRef.current = {
       active: true,
       moved: false,
@@ -252,10 +291,48 @@ export default function BoardCanvas({
   };
 
   const onPointerMove = (ev: ReactPointerEvent) => {
-    const drag = dragRef.current;
     const v = viewRef.current;
     if (!v) return;
-    if (drag?.active) {
+    const pt = localPoint(ev);
+    if (pointersRef.current.has(ev.pointerId)) {
+      pointersRef.current.set(ev.pointerId, pt);
+    }
+
+    // Two-finger pinch + pan.
+    if (pointersRef.current.size >= 2) {
+      const pts = [...pointersRef.current.values()];
+      const a = pts[0];
+      const b = pts[1];
+      const dist = Math.max(Math.hypot(b.x - a.x, b.y - a.y), 1);
+      const midX = (a.x + b.x) / 2;
+      const midY = (a.y + b.y) / 2;
+      let pinch = pinchRef.current;
+      if (!pinch) {
+        pinch = { lastDist: dist, lastMidX: midX, lastMidY: midY };
+        pinchRef.current = pinch;
+        return;
+      }
+      const factor = dist / pinch.lastDist;
+      let next = v;
+      // Zoom about pinch midpoint.
+      if (Number.isFinite(factor) && factor > 0 && Math.abs(factor - 1) > 0.001) {
+        next = zoomAt(next, midX, midY, size.w, size.h, factor);
+      }
+      // Pan by midpoint movement (after zoom so look-at stays under fingers).
+      const dsx = midX - pinch.lastMidX;
+      const dsy = midY - pinch.lastMidY;
+      if (Math.hypot(dsx, dsy) > 0.5) {
+        next = panByScreen(next, dsx, dsy, size.w, size.h);
+      }
+      pinch.lastDist = dist;
+      pinch.lastMidX = midX;
+      pinch.lastMidY = midY;
+      if (next !== v) syncView(next);
+      return;
+    }
+
+    const drag = dragRef.current;
+    if (drag?.active && drag.pointerId === ev.pointerId) {
       const dsx = ev.clientX - drag.lastX;
       const dsy = ev.clientY - drag.lastY;
       if (!drag.moved && Math.hypot(dsx, dsy) < 3) return;
@@ -265,22 +342,47 @@ export default function BoardCanvas({
       syncView(panByScreen(v, dsx, dsy, size.w, size.h));
       return;
     }
+
+    // Mouse hover only (touch has no useful hover).
+    if (ev.pointerType !== 'mouse') return;
     // Once a pin is selected, freeze status on selection — no hover thrashing.
     if (selectedPinId) {
       if (hoverPin) setHoverPin(null);
       return;
     }
     // Hover hit-test for status bar (allow GND/NC so their info still shows).
-    const { x, y } = localPoint(ev);
-    const pin = hitTestNearestPin(board, v, x, y, size.w, size.h, {
+    const pin = hitTestNearestPin(board, v, pt.x, pt.y, size.w, size.h, {
       allowNonSelectable: true,
     });
     setHoverPin((prev) => (prev?.id === pin?.id ? prev : pin));
   };
 
-  const endDrag = (ev: ReactPointerEvent) => {
+  const endPointer = (ev: ReactPointerEvent) => {
+    pointersRef.current.delete(ev.pointerId);
+    if (pointersRef.current.size < 2) clearPinch();
+
+    // If one finger remains after pinch, re-arm single-finger drag from it.
+    if (pointersRef.current.size === 1) {
+      const [id, p] = [...pointersRef.current.entries()][0];
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const r = canvas.getBoundingClientRect();
+        dragRef.current = {
+          active: true,
+          moved: true, // don't treat as click after pinch
+          lastX: r.left + p.x,
+          lastY: r.top + p.y,
+          pointerId: id,
+        };
+      }
+      return;
+    }
+
     const drag = dragRef.current;
-    if (!drag || drag.pointerId !== ev.pointerId) return;
+    if (!drag || drag.pointerId !== ev.pointerId) {
+      if (pointersRef.current.size === 0) dragRef.current = null;
+      return;
+    }
     const wasClick = drag.active && !drag.moved;
     dragRef.current = null;
     if (!wasClick) return;
@@ -514,8 +616,8 @@ export default function BoardCanvas({
           onWheel={onWheel}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
+          onPointerUp={endPointer}
+          onPointerCancel={endPointer}
           onPointerLeave={onPointerLeave}
           onContextMenu={onContextMenu}
         />
