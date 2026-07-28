@@ -386,6 +386,74 @@ tr.row-selected td {
   font-size: 0.78rem;
 }
 
+.layer-menu {
+  position: relative;
+}
+
+.layer-menu-btn.open {
+  background: #2a3344;
+  border-color: #4a5568;
+}
+
+.layer-menu-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 11rem;
+  padding: 0.45rem 0.5rem 0.55rem;
+  background: #161922;
+  border: 1px solid #2a2f3a;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.layer-menu-actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 0.4rem;
+}
+
+.layer-menu-actions button {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.45rem;
+}
+
+.layer-menu-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 14rem;
+  overflow: auto;
+}
+
+.layer-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.28rem 0.2rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  border-radius: 4px;
+  user-select: none;
+}
+
+.layer-menu-item:hover {
+  background: #1e2430;
+}
+
+.layer-swatch {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  flex-shrink: 0;
+}
+
+.layer-name {
+  text-transform: none;
+}
+
 .board-canvas-wrap {
   position: relative;
   flex: 1;

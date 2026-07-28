@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
@@ -8,7 +9,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from 'react';
 import type { BoardDocument, OverlayAnnotation, OverlayDocument, Pin } from '../types/board';
-import { drawBoard } from './draw';
+import { collectCopperLayers, drawBoard, LAYER_COPPER } from './draw';
 import { hitTestNearestPin } from './hitTest';
 import {
   centerOnBounds,
@@ -64,6 +65,9 @@ export default function BoardCanvas({
   const viewRef = useRef<ViewState | null>(null);
   const [view, setView] = useState<ViewState | null>(null);
   const [size, setSize] = useState({ w: 640, h: 480 });
+  const [layerMenuOpen, setLayerMenuOpen] = useState(false);
+  /** null = all copper layers on (default). Set = explicit toggles. */
+  const [enabledLayers, setEnabledLayers] = useState<Set<string> | null>(null);
   const dragRef = useRef<{
     active: boolean;
     moved: boolean;
@@ -71,6 +75,14 @@ export default function BoardCanvas({
     lastY: number;
     pointerId: number;
   } | null>(null);
+
+  const copperLayers = useMemo(() => collectCopperLayers(board), [board]);
+
+  // Reset layer filter when board changes (default: all on).
+  useEffect(() => {
+    setEnabledLayers(null);
+    setLayerMenuOpen(false);
+  }, [board.boardId]);
 
   const syncView = useCallback((next: ViewState) => {
     viewRef.current = next;
@@ -156,6 +168,7 @@ export default function BoardCanvas({
       undefined,
       annotations,
       overlay,
+      enabledLayers,
     );
   }, [
     board,
@@ -167,6 +180,7 @@ export default function BoardCanvas({
     highlightPinIds,
     annotations,
     overlay,
+    enabledLayers,
   ]);
 
   const localPoint = (ev: { clientX: number; clientY: number }) => {
@@ -259,6 +273,27 @@ export default function BoardCanvas({
     syncView(centerOnBounds(board.bounds, size.w, size.h));
   };
 
+  const layerIsOn = (layer: string) =>
+    enabledLayers === null ? true : enabledLayers.has(layer);
+
+  const toggleLayer = (layer: string) => {
+    setEnabledLayers((prev) => {
+      // First explicit toggle: start from all-on, then flip the clicked layer.
+      const next = new Set(prev ?? copperLayers);
+      if (next.has(layer)) next.delete(layer);
+      else next.add(layer);
+      return next;
+    });
+  };
+
+  const setAllLayers = (on: boolean) => {
+    if (on) setEnabledLayers(null);
+    else setEnabledLayers(new Set());
+  };
+
+  const onCount =
+    enabledLayers === null ? copperLayers.length : enabledLayers.size;
+
   return (
     <div className="board-canvas-root">
       <div className="board-toolbar">
@@ -274,6 +309,55 @@ export default function BoardCanvas({
         <button type="button" onClick={onReset} title="Reset view">
           Reset
         </button>
+
+        {copperLayers.length > 0 && (
+          <div className="layer-menu">
+            <button
+              type="button"
+              className={layerMenuOpen ? 'layer-menu-btn open' : 'layer-menu-btn'}
+              onClick={() => setLayerMenuOpen((o) => !o)}
+              title="Select copper layers to render"
+            >
+              Layers ({onCount}/{copperLayers.length})
+            </button>
+            {layerMenuOpen && (
+              <div className="layer-menu-panel" role="group" aria-label="Copper layers">
+                <div className="layer-menu-actions">
+                  <button type="button" onClick={() => setAllLayers(true)}>
+                    All
+                  </button>
+                  <button type="button" onClick={() => setAllLayers(false)}>
+                    None
+                  </button>
+                </div>
+                <ul className="layer-menu-list">
+                  {copperLayers.map((layer) => {
+                    const on = layerIsOn(layer);
+                    const swatch = LAYER_COPPER[layer] ?? '#8ba3c7';
+                    return (
+                      <li key={layer}>
+                        <label className="layer-menu-item">
+                          <input
+                            type="checkbox"
+                            checked={on}
+                            onChange={() => toggleLayer(layer)}
+                          />
+                          <span
+                            className="layer-swatch"
+                            style={{ background: swatch }}
+                            aria-hidden
+                          />
+                          <span className="layer-name">{layer}</span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+
         <span className="board-toolbar-meta muted">
           scale {view ? view.scale.toFixed(3) : '—'} · rot {view?.rotation ?? 0}
         </span>

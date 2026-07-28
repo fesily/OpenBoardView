@@ -71,17 +71,54 @@ function sideVisible(elSide: string, viewSide: string): boolean {
 }
 
 /**
- * Copper (tracks/arcs/vias) is drawn for every layer at once.
- * Desktop track-mode boards (e.g. *-track.bvr) place different layers in
- * different XY regions (left=top/s2/s3, right=bottom/s4/s5); filtering by
- * view.side alone hides half the routing. Parts/pins still use sideVisible.
+ * Copper visibility: optional layer filter (user menu).
+ * When `enabledLayers` is null/undefined, all copper layers draw.
+ * `both` / empty sides always pass.
+ * Desktop track-mode boards place different layers in different XY regions;
+ * default is all-on so multi-layer routing is visible; user can hide inner layers.
  */
-function copperVisible(_elSide: string, _viewSide: string): boolean {
-  return true;
+export function copperVisible(
+  elSide: string,
+  enabledLayers?: ReadonlySet<string> | null,
+): boolean {
+  if (!enabledLayers) return true;
+  if (!elSide || elSide === 'both' || elSide === 'unknown') return true;
+  return enabledLayers.has(elSide);
+}
+
+/** Layers that have copper on this board (tracks/arcs/via endpoints). */
+export function collectCopperLayers(board: BoardDocument): string[] {
+  const set = new Set<string>();
+  for (const t of board.tracks ?? []) {
+    if (t.side && t.side !== 'both' && t.side !== 'unknown') set.add(t.side);
+  }
+  for (const a of board.arcs ?? []) {
+    if (a.side && a.side !== 'both' && a.side !== 'unknown') set.add(a.side);
+  }
+  for (const v of board.vias ?? []) {
+    if (v.side && v.side !== 'both' && v.side !== 'unknown') set.add(v.side);
+    if (v.targetSide && v.targetSide !== 'both' && v.targetSide !== 'unknown') {
+      set.add(v.targetSide);
+    }
+  }
+  // Prefer board.sides order when present, else sort top/bottom/sN.
+  const order = board.sides?.length
+    ? board.sides.filter((s) => set.has(s))
+    : [];
+  const rest = [...set].filter((s) => !order.includes(s)).sort((a, b) => {
+    const rank = (s: string) => {
+      if (s === 'top') return 0;
+      if (s === 'bottom') return 100;
+      const m = /^s(\d+)$/i.exec(s);
+      return m ? Number(m[1]) : 50;
+    };
+    return rank(a) - rank(b) || a.localeCompare(b);
+  });
+  return order.length ? [...order, ...rest.filter((s) => !order.includes(s))] : rest;
 }
 
 /** Per-layer copper stroke colors (desktop uses layerColor[][]). */
-const LAYER_COPPER: Record<string, string> = {
+export const LAYER_COPPER: Record<string, string> = {
   top: '#5aa8e0',
   bottom: '#e0a85a',
   both: '#8ba3c7',
@@ -94,7 +131,7 @@ const LAYER_COPPER: Record<string, string> = {
   s8: '#b197fc',
 };
 
-function layerCopperColor(side: string, fallback: string): string {
+export function layerCopperColor(side: string, fallback: string): string {
   if (!side) return fallback;
   return LAYER_COPPER[side] ?? fallback;
 }
@@ -110,6 +147,7 @@ export function drawBoard(
   colors: DrawColors = DEFAULT_COLORS,
   annotations: readonly OverlayAnnotation[] = [],
   overlay: OverlayDocument | null = null,
+  enabledLayers: ReadonlySet<string> | null = null,
 ): void {
   ctx.save();
   ctx.clearRect(0, 0, cssW, cssH);
@@ -118,9 +156,9 @@ export function drawBoard(
 
   drawBoardFill(ctx, board, view, cssW, cssH, colors);
   drawOutline(ctx, board, view, cssW, cssH, colors);
-  drawTracks(ctx, board, view, cssW, cssH, colors, highlight);
-  drawArcs(ctx, board, view, cssW, cssH, colors, highlight);
-  drawVias(ctx, board, view, cssW, cssH, colors, highlight);
+  drawTracks(ctx, board, view, cssW, cssH, colors, highlight, enabledLayers);
+  drawArcs(ctx, board, view, cssW, cssH, colors, highlight, enabledLayers);
+  drawVias(ctx, board, view, cssW, cssH, colors, highlight, enabledLayers);
   drawParts(ctx, board, view, cssW, cssH, highlight, colors);
   drawPins(ctx, board, view, cssW, cssH, highlight, colors);
   drawNetWeb(ctx, board, view, cssW, cssH, highlight, colors);
@@ -213,6 +251,7 @@ function drawTracks(
   cssH: number,
   colors: DrawColors,
   highlight: DrawHighlight = {},
+  enabledLayers: ReadonlySet<string> | null = null,
 ): void {
   const tracks: readonly Track[] = board.tracks ?? [];
   if (!tracks.length) return;
@@ -220,8 +259,7 @@ function drawTracks(
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   for (const t of tracks) {
-    // All copper layers — do not filter by view.side (see copperVisible).
-    if (!copperVisible(t.side, view.side)) continue;
+    if (!copperVisible(t.side, enabledLayers)) continue;
     const a = boardToScreen(view, t.start.x, t.start.y, cssW, cssH);
     const b = boardToScreen(view, t.end.x, t.end.y, cssW, cssH);
     const w = Math.max((t.width > 0 ? t.width : 1) * view.scale, 0.75);
@@ -248,13 +286,14 @@ function drawArcs(
   cssH: number,
   colors: DrawColors,
   highlight: DrawHighlight = {},
+  enabledLayers: ReadonlySet<string> | null = null,
 ): void {
   const arcs: readonly Arc[] = board.arcs ?? [];
   if (!arcs.length) return;
   const netId = highlight.selectedNetId;
   ctx.lineCap = 'round';
   for (const arc of arcs) {
-    if (!copperVisible(arc.side, view.side)) continue;
+    if (!copperVisible(arc.side, enabledLayers)) continue;
     const c = boardToScreen(view, arc.pos.x, arc.pos.y, cssW, cssH);
     const r = Math.max((arc.radius > 0 ? arc.radius : 1) * view.scale, 0.5);
     const w = Math.max((arc.width > 0 ? arc.width : 1) * view.scale, 0.75);
@@ -275,13 +314,19 @@ function drawVias(
   cssH: number,
   colors: DrawColors,
   highlight: DrawHighlight = {},
+  enabledLayers: ReadonlySet<string> | null = null,
 ): void {
   const vias: readonly Via[] = board.vias ?? [];
   if (!vias.length) return;
   const netId = highlight.selectedNetId;
   for (const v of vias) {
-    // Always draw vias (inter-layer); copperVisible is always true.
-    if (!copperVisible(v.side, view.side) && !copperVisible(v.targetSide, view.side)) continue;
+    // Show if either endpoint layer is enabled.
+    if (
+      !copperVisible(v.side, enabledLayers) &&
+      !copperVisible(v.targetSide, enabledLayers)
+    ) {
+      continue;
+    }
     const s = boardToScreen(view, v.pos.x, v.pos.y, cssW, cssH);
     const r = Math.max((v.size > 0 ? v.size : 4) * view.scale * 0.5, 1.25);
     const onNet = netId != null && v.netId === netId;
