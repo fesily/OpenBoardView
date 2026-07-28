@@ -291,6 +291,36 @@ function drawTracks(
   }
 }
 
+/**
+ * Desktop BoardView::DrawArc: sample angle from start→end (may be negative sweep)
+ * and plot x=cos(θ)·r, y=-sin(θ)·r so board angles (Y-up) map to screen (Y-down).
+ * Canvas ctx.arc would take the long way when endAngle < startAngle — wrong here.
+ */
+function strokeBoardArc(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  radius: number,
+  startAngle: number,
+  endAngle: number,
+  segments = 50,
+): void {
+  if (!(radius > 0) || !Number.isFinite(startAngle) || !Number.isFinite(endAngle)) return;
+  const sweep = endAngle - startAngle;
+  if (sweep === 0) return;
+  const n = Math.max(2, Math.min(segments, Math.ceil((Math.abs(sweep) / (Math.PI * 2)) * segments) || segments));
+  const slice = sweep / n;
+  ctx.beginPath();
+  for (let i = 0; i <= n; i++) {
+    const angle = startAngle + slice * i;
+    const x = cx + Math.cos(angle) * radius;
+    const y = cy - Math.sin(angle) * radius; // desktop DrawArc Y flip
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+}
+
 function drawArcs(
   ctx: CanvasRenderingContext2D,
   board: BoardDocument,
@@ -304,17 +334,20 @@ function drawArcs(
   const arcs: readonly Arc[] = board.arcs ?? [];
   if (!arcs.length) return;
   ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  // Desktop: startAngle/endAngle -= PI/2 * m_rotation (quarters CW).
+  const rotOffset = (-Math.PI / 2) * (view.rotation ?? 0);
   for (const arc of arcs) {
     const onNet = netForcedVisible(arc.netId, highlight);
     if (!onNet && !copperVisible(arc.side, enabledLayers)) continue;
     const c = boardToScreen(view, arc.pos.x, arc.pos.y, cssW, cssH);
     const r = Math.max((arc.radius > 0 ? arc.radius : 1) * view.scale, 0.5);
     const w = Math.max((arc.width > 0 ? arc.width : 1) * view.scale, 0.75);
-    ctx.beginPath();
-    ctx.arc(c.x, c.y, r, arc.startAngle, arc.endAngle);
+    const sa = arc.startAngle + rotOffset;
+    const ea = arc.endAngle + rotOffset;
     ctx.strokeStyle = onNet ? colors.trackSelected : layerCopperColor(arc.side, colors.arc);
     ctx.lineWidth = onNet ? w * 1.5 : w;
-    ctx.stroke();
+    strokeBoardArc(ctx, c.x, c.y, r, sa, ea);
   }
 }
 
