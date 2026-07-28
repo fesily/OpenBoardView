@@ -54,6 +54,9 @@ export interface DrawColors {
   pinText: string;
   pinTextDark: string;
   netText: string;
+  /** diode/voltage/ohm pad values — high contrast on cyan/ground fills. */
+  pinValue: string;
+  pinValueStroke: string;
   netWeb: string;
   trackSelected: string;
   annotation: string;
@@ -85,6 +88,9 @@ export const DEFAULT_COLORS: DrawColors = {
   pinText: '#e8eaf0',
   pinTextDark: '#1a1d24',
   netText: '#8ba3c7',
+  // Bright amber value text + dark halo for legibility on cyan/blue pads.
+  pinValue: '#ffe566',
+  pinValueStroke: 'rgba(10, 12, 18, 0.92)',
   netWeb: 'rgba(255, 183, 77, 0.55)',
   trackSelected: '#ffcc80',
   annotation: '#ce93d8',
@@ -790,11 +796,17 @@ function drawPinLabels(
     }
 
     if (showValue) {
-      const size = Math.min(11, Math.max(8, r * 0.55));
-      ctx.font = `${size}px sans-serif`;
+      // Slightly larger than before; amber + dark outline reads on cyan/ground pads.
+      const size = Math.min(13, Math.max(9, r * 0.65));
+      ctx.font = `600 ${size}px sans-serif`;
       ctx.textBaseline = nameLabel ? 'top' : 'middle';
-      ctx.fillStyle = colors.netText;
-      ctx.fillText(valueLabel, s.x, nameLabel ? s.y + 1 : s.y);
+      const y = nameLabel ? s.y + 1 : s.y;
+      ctx.lineWidth = Math.max(2.5, size * 0.22);
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = colors.pinValueStroke;
+      ctx.strokeText(valueLabel, s.x, y);
+      ctx.fillStyle = colors.pinValue;
+      ctx.fillText(valueLabel, s.x, y);
     }
   }
 }
