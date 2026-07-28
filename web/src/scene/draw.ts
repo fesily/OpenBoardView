@@ -70,6 +70,35 @@ function sideVisible(elSide: string, viewSide: string): boolean {
   return elSide === viewSide;
 }
 
+/**
+ * Copper (tracks/arcs/vias) is drawn for every layer at once.
+ * Desktop track-mode boards (e.g. *-track.bvr) place different layers in
+ * different XY regions (left=top/s2/s3, right=bottom/s4/s5); filtering by
+ * view.side alone hides half the routing. Parts/pins still use sideVisible.
+ */
+function copperVisible(_elSide: string, _viewSide: string): boolean {
+  return true;
+}
+
+/** Per-layer copper stroke colors (desktop uses layerColor[][]). */
+const LAYER_COPPER: Record<string, string> = {
+  top: '#5aa8e0',
+  bottom: '#e0a85a',
+  both: '#8ba3c7',
+  s2: '#6bcb77',
+  s3: '#c77dff',
+  s4: '#ff6b8a',
+  s5: '#4ecdc4',
+  s6: '#ffe066',
+  s7: '#74c0fc',
+  s8: '#b197fc',
+};
+
+function layerCopperColor(side: string, fallback: string): string {
+  if (!side) return fallback;
+  return LAYER_COPPER[side] ?? fallback;
+}
+
 /** Layers: fill → outline → tracks/arcs/vias → parts → pins → highlights → text labels → annotations. */
 export function drawBoard(
   ctx: CanvasRenderingContext2D,
@@ -191,7 +220,8 @@ function drawTracks(
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   for (const t of tracks) {
-    if (!sideVisible(t.side, view.side)) continue;
+    // All copper layers — do not filter by view.side (see copperVisible).
+    if (!copperVisible(t.side, view.side)) continue;
     const a = boardToScreen(view, t.start.x, t.start.y, cssW, cssH);
     const b = boardToScreen(view, t.end.x, t.end.y, cssW, cssH);
     const w = Math.max((t.width > 0 ? t.width : 1) * view.scale, 0.75);
@@ -203,7 +233,7 @@ function drawTracks(
       ctx.strokeStyle = colors.trackSelected;
       ctx.lineWidth = w * 2;
     } else {
-      ctx.strokeStyle = colors.track;
+      ctx.strokeStyle = layerCopperColor(t.side, colors.track);
       ctx.lineWidth = w;
     }
     ctx.stroke();
@@ -224,14 +254,14 @@ function drawArcs(
   const netId = highlight.selectedNetId;
   ctx.lineCap = 'round';
   for (const arc of arcs) {
-    if (!sideVisible(arc.side, view.side)) continue;
+    if (!copperVisible(arc.side, view.side)) continue;
     const c = boardToScreen(view, arc.pos.x, arc.pos.y, cssW, cssH);
     const r = Math.max((arc.radius > 0 ? arc.radius : 1) * view.scale, 0.5);
     const w = Math.max((arc.width > 0 ? arc.width : 1) * view.scale, 0.75);
     const onNet = netId != null && arc.netId === netId;
     ctx.beginPath();
     ctx.arc(c.x, c.y, r, arc.startAngle, arc.endAngle);
-    ctx.strokeStyle = onNet ? colors.trackSelected : colors.arc;
+    ctx.strokeStyle = onNet ? colors.trackSelected : layerCopperColor(arc.side, colors.arc);
     ctx.lineWidth = onNet ? w * 1.5 : w;
     ctx.stroke();
   }
@@ -250,12 +280,8 @@ function drawVias(
   if (!vias.length) return;
   const netId = highlight.selectedNetId;
   for (const v of vias) {
-    const visible =
-      sideVisible(v.side, view.side) ||
-      sideVisible(v.targetSide, view.side) ||
-      v.side === 'both' ||
-      v.targetSide === 'both';
-    if (!visible) continue;
+    // Always draw vias (inter-layer); copperVisible is always true.
+    if (!copperVisible(v.side, view.side) && !copperVisible(v.targetSide, view.side)) continue;
     const s = boardToScreen(view, v.pos.x, v.pos.y, cssW, cssH);
     const r = Math.max((v.size > 0 ? v.size : 4) * view.scale * 0.5, 1.25);
     const onNet = netId != null && v.netId === netId;
