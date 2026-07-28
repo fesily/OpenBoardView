@@ -47,6 +47,8 @@ export interface DrawColors {
   /** Desktop pinTestPadColor / pinTestPadFillColor. */
   pinTestPad: string;
   pinTestPadFill: string;
+  /** Desktop pinA1PadColor — IC orientation marker (A1 / pin 1). */
+  pinA1: string;
   partHighlight: string;
   partText: string;
   pinText: string;
@@ -76,6 +78,8 @@ export const DEFAULT_COLORS: DrawColors = {
   pinUnconnected: '#9e9e9e',
   pinTestPad: '#888888',
   pinTestPadFill: '#6c5b1f',
+  // Desktop pinA1PadColor 0xdd0000 — solid red for orientation pin.
+  pinA1: '#dd0000',
   partHighlight: '#ffe082',
   partText: '#d5dbe6',
   pinText: '#e8eaf0',
@@ -484,6 +488,25 @@ function pathPinShape(
   }
 }
 
+/** Desktop default pinA1threshold — packages with this many pins show number "1". */
+const PIN_A1_THRESHOLD = 3;
+
+/**
+ * IC orientation marker (desktop DrawPins):
+ * - show_name / name == "A1" (BGA corner) always
+ * - number == "1" when part has >= pinA1threshold pins (default 3)
+ */
+function isOrientationPin(
+  pin: Pin,
+  partPinCount: number,
+  threshold = PIN_A1_THRESHOLD,
+): boolean {
+  const show = (pin.show_name || pin.name || '').trim().toUpperCase();
+  if (show === 'A1') return true;
+  if (String(pin.number || '').trim() === '1' && partPinCount >= threshold) return true;
+  return false;
+}
+
 function drawPins(
   ctx: CanvasRenderingContext2D,
   board: BoardDocument,
@@ -496,6 +519,11 @@ function drawPins(
   const pins = board.pins ?? [];
   const netById = new Map<number, Net>();
   for (const n of board.nets ?? []) netById.set(n.id, n);
+  // component → pin count for pin-1 threshold (desktop component->pins.size()).
+  const partPinCount = new Map<string, number>();
+  for (const c of board.components ?? []) {
+    partPinCount.set(c.name, c.pins?.length ?? 0);
+  }
 
   for (const pin of pins) {
     if (!sideVisible(pin.side, view.side)) continue;
@@ -508,6 +536,8 @@ function drawPins(
     // Prefer pin.type (export) — missing PIN_NET must not look like NC.
     const notConnected = isNotConnectedPin(pin, net);
     const testPad = isTestPadPin(pin);
+    const pinCount = pin.component ? (partPinCount.get(pin.component) ?? 0) : 0;
+    const orient = isOrientationPin(pin, pinCount);
 
     pathPinShape(ctx, pin, view, s.x, s.y);
     if (selected) {
@@ -524,11 +554,21 @@ function drawPins(
       ctx.fill();
     } else if (ground) {
       // Desktop: solid pinGroundColor for is_ground nets.
-      ctx.fillStyle = colors.pinGround;
-      ctx.fill();
+      // A1/1 still wins after ground in desktop — apply orientation next.
+      if (orient) {
+        ctx.fillStyle = colors.pinA1;
+        ctx.fill();
+      } else {
+        ctx.fillStyle = colors.pinGround;
+        ctx.fill();
+      }
     } else if (notConnected) {
       // Desktop: solid pinNotConnectedColor only for kPinTypeNotConnected.
       ctx.fillStyle = colors.pinUnconnected;
+      ctx.fill();
+    } else if (orient) {
+      // Desktop pinA1PadColor: solid red, no ring — IC pin-1 / A1 locator.
+      ctx.fillStyle = colors.pinA1;
       ctx.fill();
     } else if (testPad) {
       // Desktop test pad: brown fill + gray ring (not NC gray).
