@@ -15,6 +15,8 @@ export interface DrawHighlight {
   pinIds?: ReadonlySet<string>;
   partNames?: ReadonlySet<string>;
   selectedPinId?: string | null;
+  /** When set, all pins/tracks/vias/arcs on this net highlight (desktop m_pinSelected same-net). */
+  selectedNetId?: number | null;
 }
 
 export interface DrawColors {
@@ -29,11 +31,14 @@ export interface DrawColors {
   pin: string;
   pinSelected: string;
   pinHighlight: string;
+  pinSameNet: string;
   partHighlight: string;
   partText: string;
   pinText: string;
   pinTextDark: string;
   netText: string;
+  netWeb: string;
+  trackSelected: string;
   annotation: string;
 }
 
@@ -49,11 +54,14 @@ export const DEFAULT_COLORS: DrawColors = {
   pin: '#6ec6ff',
   pinSelected: '#ffb74d',
   pinHighlight: '#ff8a80',
+  pinSameNet: '#4fc3f7',
   partHighlight: '#ffe082',
   partText: '#d5dbe6',
   pinText: '#e8eaf0',
   pinTextDark: '#1a1d24',
   netText: '#8ba3c7',
+  netWeb: 'rgba(255, 183, 77, 0.55)',
+  trackSelected: '#ffcc80',
   annotation: '#ce93d8',
 };
 
@@ -81,11 +89,12 @@ export function drawBoard(
 
   drawBoardFill(ctx, board, view, cssW, cssH, colors);
   drawOutline(ctx, board, view, cssW, cssH, colors);
-  drawTracks(ctx, board, view, cssW, cssH, colors);
-  drawArcs(ctx, board, view, cssW, cssH, colors);
-  drawVias(ctx, board, view, cssW, cssH, colors);
+  drawTracks(ctx, board, view, cssW, cssH, colors, highlight);
+  drawArcs(ctx, board, view, cssW, cssH, colors, highlight);
+  drawVias(ctx, board, view, cssW, cssH, colors, highlight);
   drawParts(ctx, board, view, cssW, cssH, highlight, colors);
   drawPins(ctx, board, view, cssW, cssH, highlight, colors);
+  drawNetWeb(ctx, board, view, cssW, cssH, highlight, colors);
   drawHighlights(ctx, board, view, cssW, cssH, highlight, colors);
   drawPartLabels(ctx, board, view, cssW, cssH, colors);
   drawPinLabels(ctx, board, view, cssW, cssH, highlight, colors, overlay);
@@ -174,10 +183,11 @@ function drawTracks(
   cssW: number,
   cssH: number,
   colors: DrawColors,
+  highlight: DrawHighlight = {},
 ): void {
   const tracks: readonly Track[] = board.tracks ?? [];
   if (!tracks.length) return;
-  ctx.strokeStyle = colors.track;
+  const netId = highlight.selectedNetId;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   for (const t of tracks) {
@@ -185,10 +195,17 @@ function drawTracks(
     const a = boardToScreen(view, t.start.x, t.start.y, cssW, cssH);
     const b = boardToScreen(view, t.end.x, t.end.y, cssW, cssH);
     const w = Math.max((t.width > 0 ? t.width : 1) * view.scale, 0.75);
+    const onNet = netId != null && t.netId === netId;
     ctx.beginPath();
     ctx.moveTo(a.x, a.y);
     ctx.lineTo(b.x, b.y);
-    ctx.lineWidth = w;
+    if (onNet) {
+      ctx.strokeStyle = colors.trackSelected;
+      ctx.lineWidth = w * 2;
+    } else {
+      ctx.strokeStyle = colors.track;
+      ctx.lineWidth = w;
+    }
     ctx.stroke();
   }
 }
@@ -200,20 +217,22 @@ function drawArcs(
   cssW: number,
   cssH: number,
   colors: DrawColors,
+  highlight: DrawHighlight = {},
 ): void {
   const arcs: readonly Arc[] = board.arcs ?? [];
   if (!arcs.length) return;
-  ctx.strokeStyle = colors.arc;
+  const netId = highlight.selectedNetId;
   ctx.lineCap = 'round';
   for (const arc of arcs) {
     if (!sideVisible(arc.side, view.side)) continue;
     const c = boardToScreen(view, arc.pos.x, arc.pos.y, cssW, cssH);
     const r = Math.max((arc.radius > 0 ? arc.radius : 1) * view.scale, 0.5);
     const w = Math.max((arc.width > 0 ? arc.width : 1) * view.scale, 0.75);
-    // Board angles are radians (desktop BRD arc convention).
+    const onNet = netId != null && arc.netId === netId;
     ctx.beginPath();
     ctx.arc(c.x, c.y, r, arc.startAngle, arc.endAngle);
-    ctx.lineWidth = w;
+    ctx.strokeStyle = onNet ? colors.trackSelected : colors.arc;
+    ctx.lineWidth = onNet ? w * 1.5 : w;
     ctx.stroke();
   }
 }
@@ -225,13 +244,12 @@ function drawVias(
   cssW: number,
   cssH: number,
   colors: DrawColors,
+  highlight: DrawHighlight = {},
 ): void {
   const vias: readonly Via[] = board.vias ?? [];
   if (!vias.length) return;
-  ctx.fillStyle = colors.via;
-  ctx.strokeStyle = colors.via;
+  const netId = highlight.selectedNetId;
   for (const v of vias) {
-    // Vias are inter-layer; show when either face is visible or side is both/unknown.
     const visible =
       sideVisible(v.side, view.side) ||
       sideVisible(v.targetSide, view.side) ||
@@ -240,8 +258,10 @@ function drawVias(
     if (!visible) continue;
     const s = boardToScreen(view, v.pos.x, v.pos.y, cssW, cssH);
     const r = Math.max((v.size > 0 ? v.size : 4) * view.scale * 0.5, 1.25);
+    const onNet = netId != null && v.netId === netId;
     ctx.beginPath();
     ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = onNet ? colors.pinSelected : colors.via;
     ctx.fill();
   }
 }
@@ -294,12 +314,14 @@ function drawPins(
   colors: DrawColors,
 ): void {
   const pins = board.pins ?? [];
+  const netId = highlight.selectedNetId;
   for (const pin of pins) {
     if (!sideVisible(pin.side, view.side)) continue;
     const s = boardToScreen(view, pin.pos.x, pin.pos.y, cssW, cssH);
     const r = pinRadiusPx(pin, view.scale);
     const selected = highlight.selectedPinId === pin.id;
     const hi = highlight.pinIds?.has(pin.id) ?? false;
+    const sameNet = !selected && netId != null && pin.netId === netId;
 
     ctx.beginPath();
     ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
@@ -309,6 +331,9 @@ function drawPins(
       ctx.strokeStyle = '#fff3e0';
       ctx.lineWidth = 1.5;
       ctx.stroke();
+    } else if (sameNet) {
+      ctx.fillStyle = colors.pinSameNet;
+      ctx.fill();
     } else if (hi) {
       ctx.fillStyle = colors.pinHighlight;
       ctx.fill();
@@ -317,6 +342,41 @@ function drawPins(
       ctx.lineWidth = 1;
       ctx.stroke();
     }
+  }
+}
+
+/**
+ * Desktop DrawNetWeb: spokes from selected pin to other same-net pins.
+ * Skips ground nets (BoardView::DrawNetWeb early-out).
+ */
+function drawNetWeb(
+  ctx: CanvasRenderingContext2D,
+  board: BoardDocument,
+  view: ViewState,
+  cssW: number,
+  cssH: number,
+  highlight: DrawHighlight,
+  colors: DrawColors,
+): void {
+  const selId = highlight.selectedPinId;
+  const netId = highlight.selectedNetId;
+  if (!selId || netId == null) return;
+  const sel = board.pins.find((p) => p.id === selId);
+  if (!sel || sel.netId !== netId) return;
+  const net = board.nets.find((n) => n.id === netId);
+  if (net?.isGround) return;
+
+  const origin = boardToScreen(view, sel.pos.x, sel.pos.y, cssW, cssH);
+  ctx.strokeStyle = colors.netWeb;
+  ctx.lineWidth = Math.max(1, 1.25 * Math.min(view.scale, 2));
+  ctx.lineCap = 'round';
+  for (const pin of board.pins) {
+    if (pin.id === selId || pin.netId !== netId) continue;
+    const t = boardToScreen(view, pin.pos.x, pin.pos.y, cssW, cssH);
+    ctx.beginPath();
+    ctx.moveTo(origin.x, origin.y);
+    ctx.lineTo(t.x, t.y);
+    ctx.stroke();
   }
 }
 
@@ -332,7 +392,6 @@ function drawHighlights(
   if (!highlight.selectedPinId) return;
   const pin = board.pins.find((p) => p.id === highlight.selectedPinId);
   if (!pin) return;
-  // Same side filter as drawPins — hide selection halo on the other side.
   if (!sideVisible(pin.side, view.side)) return;
   const s = boardToScreen(view, pin.pos.x, pin.pos.y, cssW, cssH);
   const r = pinRadiusPx(pin, view.scale) + 3;
@@ -342,7 +401,6 @@ function drawHighlights(
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Halo on parent part if present
   if (pin.component) {
     const part: Component | undefined = board.components.find((c) => c.name === pin.component);
     if (part?.outline && part.outline.length >= 2 && sideVisible(part.side, view.side)) {
@@ -464,16 +522,20 @@ function drawPinLabels(
   for (const pin of pins) {
     if (!sideVisible(pin.side, view.side)) continue;
     const r = pinRadiusPx(pin, view.scale);
-    // Desktop: showPinName when psz > 3, or forced show_text on selection/search.
+    // Desktop: show_text for selection, search hits, and same-net pads.
     const selected = highlight.selectedPinId === pin.id;
     const hi = highlight.pinIds?.has(pin.id) ?? false;
-    const forceText = selected || hi;
+    const sameNet =
+      !selected &&
+      highlight.selectedNetId != null &&
+      pin.netId === highlight.selectedNetId;
+    const forceText = selected || hi || sameNet;
     if (!forceText && r < 3.5) continue;
     const s = boardToScreen(view, pin.pos.x, pin.pos.y, cssW, cssH);
     if (s.x < -r || s.x > cssW + r || s.y < -r || s.y > cssH + r) continue;
 
     const label = pinDisplayName(pin, overlay);
-    const filled = selected || hi;
+    const filled = selected || hi || sameNet;
     if (label) {
       // Font scales with pad; ensure readable when forced (selection).
       let size = Math.min(2 * Math.max(r, forceText ? 6 : r) * 0.75, 14);

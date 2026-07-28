@@ -123,10 +123,22 @@ export default function BoardCanvas({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const partNames = new Set<string>(highlightPartNames ?? []);
     const pinIds = new Set<string>(highlightPinIds ?? []);
+    let selectedNetId: number | null = null;
     if (selectedPinId) {
       pinIds.add(selectedPinId);
-      for (const p of board.pins) {
-        if (p.id === selectedPinId && p.component) partNames.add(p.component);
+      const sel = board.pins.find((p) => p.id === selectedPinId);
+      if (sel?.component) partNames.add(sel.component);
+      // Desktop: all pins on the same net as m_pinSelected use pinSameNetColor;
+      // tracks/vias/arcs on that net also highlight. Ground still highlights pads
+      // (DrawNetWeb skips ground spokes only).
+      if (sel?.netId != null) {
+        selectedNetId = sel.netId;
+        for (const p of board.pins) {
+          if (p.netId === selectedNetId) {
+            pinIds.add(p.id);
+            if (p.component) partNames.add(p.component);
+          }
+        }
       }
     }
     drawBoard(
@@ -137,6 +149,7 @@ export default function BoardCanvas({
       cssH,
       {
         selectedPinId,
+        selectedNetId,
         partNames: partNames.size ? partNames : undefined,
         pinIds: pinIds.size ? pinIds : undefined,
       },
