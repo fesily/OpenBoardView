@@ -15,8 +15,10 @@ export interface DrawHighlight {
   pinIds?: ReadonlySet<string>;
   partNames?: ReadonlySet<string>;
   selectedPinId?: string | null;
-  /** When set, all pins/tracks/vias/arcs on this net highlight (desktop m_pinSelected same-net). */
+  /** Pin-selection same-net (desktop m_pinSelected). */
   selectedNetId?: number | null;
+  /** Search / multi-net highlight — copper always drawn for these nets. */
+  highlightNetIds?: ReadonlySet<number>;
 }
 
 export interface DrawColors {
@@ -84,6 +86,17 @@ export function copperVisible(
   if (!enabledLayers) return true;
   if (!elSide || elSide === 'both' || elSide === 'unknown') return true;
   return enabledLayers.has(elSide);
+}
+
+/** True when this net is selected or search-highlighted (bypasses layer filter). */
+function netForcedVisible(
+  netId: number | null | undefined,
+  highlight: DrawHighlight,
+): boolean {
+  if (netId == null) return false;
+  if (highlight.selectedNetId != null && netId === highlight.selectedNetId) return true;
+  if (highlight.highlightNetIds?.has(netId)) return true;
+  return false;
 }
 
 /** Layers that have copper on this board (tracks/arcs/via endpoints). */
@@ -255,15 +268,15 @@ function drawTracks(
 ): void {
   const tracks: readonly Track[] = board.tracks ?? [];
   if (!tracks.length) return;
-  const netId = highlight.selectedNetId;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   for (const t of tracks) {
-    if (!copperVisible(t.side, enabledLayers)) continue;
+    const onNet = netForcedVisible(t.netId, highlight);
+    // Highlighted net copper always draws, even if its layer is unchecked.
+    if (!onNet && !copperVisible(t.side, enabledLayers)) continue;
     const a = boardToScreen(view, t.start.x, t.start.y, cssW, cssH);
     const b = boardToScreen(view, t.end.x, t.end.y, cssW, cssH);
     const w = Math.max((t.width > 0 ? t.width : 1) * view.scale, 0.75);
-    const onNet = netId != null && t.netId === netId;
     ctx.beginPath();
     ctx.moveTo(a.x, a.y);
     ctx.lineTo(b.x, b.y);
@@ -290,14 +303,13 @@ function drawArcs(
 ): void {
   const arcs: readonly Arc[] = board.arcs ?? [];
   if (!arcs.length) return;
-  const netId = highlight.selectedNetId;
   ctx.lineCap = 'round';
   for (const arc of arcs) {
-    if (!copperVisible(arc.side, enabledLayers)) continue;
+    const onNet = netForcedVisible(arc.netId, highlight);
+    if (!onNet && !copperVisible(arc.side, enabledLayers)) continue;
     const c = boardToScreen(view, arc.pos.x, arc.pos.y, cssW, cssH);
     const r = Math.max((arc.radius > 0 ? arc.radius : 1) * view.scale, 0.5);
     const w = Math.max((arc.width > 0 ? arc.width : 1) * view.scale, 0.75);
-    const onNet = netId != null && arc.netId === netId;
     ctx.beginPath();
     ctx.arc(c.x, c.y, r, arc.startAngle, arc.endAngle);
     ctx.strokeStyle = onNet ? colors.trackSelected : layerCopperColor(arc.side, colors.arc);
@@ -318,10 +330,11 @@ function drawVias(
 ): void {
   const vias: readonly Via[] = board.vias ?? [];
   if (!vias.length) return;
-  const netId = highlight.selectedNetId;
   for (const v of vias) {
-    // Show if either endpoint layer is enabled.
+    const onNet = netForcedVisible(v.netId, highlight);
+    // Highlighted net vias always draw regardless of layer menu.
     if (
+      !onNet &&
       !copperVisible(v.side, enabledLayers) &&
       !copperVisible(v.targetSide, enabledLayers)
     ) {
@@ -329,7 +342,6 @@ function drawVias(
     }
     const s = boardToScreen(view, v.pos.x, v.pos.y, cssW, cssH);
     const r = Math.max((v.size > 0 ? v.size : 4) * view.scale * 0.5, 1.25);
-    const onNet = netId != null && v.netId === netId;
     ctx.beginPath();
     ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
     ctx.fillStyle = onNet ? colors.pinSelected : colors.via;
@@ -385,14 +397,13 @@ function drawPins(
   colors: DrawColors,
 ): void {
   const pins = board.pins ?? [];
-  const netId = highlight.selectedNetId;
   for (const pin of pins) {
     if (!sideVisible(pin.side, view.side)) continue;
     const s = boardToScreen(view, pin.pos.x, pin.pos.y, cssW, cssH);
     const r = pinRadiusPx(pin, view.scale);
     const selected = highlight.selectedPinId === pin.id;
     const hi = highlight.pinIds?.has(pin.id) ?? false;
-    const sameNet = !selected && netId != null && pin.netId === netId;
+    const sameNet = !selected && netForcedVisible(pin.netId, highlight);
 
     ctx.beginPath();
     ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
@@ -596,10 +607,7 @@ function drawPinLabels(
     // Desktop: show_text for selection, search hits, and same-net pads.
     const selected = highlight.selectedPinId === pin.id;
     const hi = highlight.pinIds?.has(pin.id) ?? false;
-    const sameNet =
-      !selected &&
-      highlight.selectedNetId != null &&
-      pin.netId === highlight.selectedNetId;
+    const sameNet = !selected && netForcedVisible(pin.netId, highlight);
     const forceText = selected || hi || sameNet;
     if (!forceText && r < 3.5) continue;
     const s = boardToScreen(view, pin.pos.x, pin.pos.y, cssW, cssH);

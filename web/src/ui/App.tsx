@@ -289,6 +289,7 @@ export default function App() {
               onSelectPin={setSelectedPin}
               highlightPartNames={searchSel?.highlight.partNames}
               highlightPinIds={searchSel?.highlight.pinIds}
+              highlightNetIds={searchSel?.highlight.netIds}
               focusPoint={searchSel?.focus ?? null}
               focusToken={searchSel?.focusToken ?? 0}
               annotations={overlay?.annotations ?? []}

@@ -154,6 +154,8 @@ describe('highlightFromMatches / focusPointForResult', () => {
     expect(h.pinIds.has('U1.1')).toBe(true);
     expect(h.pinIds.has('U1.2')).toBe(true); // part pin + GND pin
     expect(h.pinIds.has('R1.1')).toBe(false);
+    expect(h.netIds.has(8)).toBe(true); // GND
+    expect(h.netIds.has(7)).toBe(false);
   });
 
   test('focus part uses center; net uses first pin', () => {

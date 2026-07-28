@@ -25,9 +25,10 @@ export interface BoardCanvasProps {
   board: BoardDocument;
   onSelectPin?: (pin: Pin | null) => void;
   selectedPinId?: string | null;
-  /** Search / selection highlight sets (parts + pins). */
+  /** Search / selection highlight sets (parts + pins + nets). */
   highlightPartNames?: ReadonlySet<string>;
   highlightPinIds?: ReadonlySet<string>;
+  highlightNetIds?: ReadonlySet<number>;
   /** Board-space point to pan to (search result click). */
   focusPoint?: { x: number; y: number } | null;
   /** Changes on each explicit center request. */
@@ -54,6 +55,7 @@ export default function BoardCanvas({
   selectedPinId = null,
   highlightPartNames,
   highlightPinIds,
+  highlightNetIds,
   focusPoint = null,
   focusToken = 0,
   annotations = [],
@@ -168,6 +170,7 @@ export default function BoardCanvas({
       {
         selectedPinId,
         selectedNetId,
+        highlightNetIds: highlightNetIds?.size ? highlightNetIds : undefined,
         partNames: partNames.size ? partNames : undefined,
         pinIds: pinIds.size ? pinIds : undefined,
       },
@@ -184,6 +187,7 @@ export default function BoardCanvas({
     selectedPinId,
     highlightPartNames,
     highlightPinIds,
+    highlightNetIds,
     annotations,
     overlay,
     enabledLayers,

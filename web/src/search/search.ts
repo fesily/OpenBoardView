@@ -58,6 +58,8 @@ export function searchNets(
 export interface SearchHighlight {
   partNames: Set<string>;
   pinIds: Set<string>;
+  /** Nets matched by search — copper on these nets always draws. */
+  netIds: Set<number>;
 }
 
 /** Build canvas highlight sets for matched part names and net names. */
@@ -77,7 +79,7 @@ export function highlightFromMatches(
     if (pin.component && partSet.has(pin.component)) pinIds.add(pin.id);
     if (pin.netId != null && netIds.has(pin.netId)) pinIds.add(pin.id);
   }
-  return { partNames: partSet, pinIds };
+  return { partNames: partSet, pinIds, netIds };
 }
 
 /** Board-space focus point for a part (center) or first pin of a net. */
