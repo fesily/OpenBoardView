@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import type { BoardDocument, Pin } from '../types/board';
+import type { BoardDocument, Net, Pin } from '../types/board';
 import { DEFAULT_PIN_RADIUS, hitTestNearestPin, pinPickRadius } from './hitTest';
 import { centerOnBounds, type ViewState } from './transform';
 
@@ -8,7 +8,7 @@ function makePin(partial: Partial<Pin> & Pick<Pin, 'id' | 'pos' | 'diameter'>): 
     component: null,
     number: '1',
     name: partial.id,
-    netId: null,
+    netId: 1,
     side: 'top',
     shape: 'circle',
     size: { x: 0, y: 0 },
@@ -17,7 +17,7 @@ function makePin(partial: Partial<Pin> & Pick<Pin, 'id' | 'pos' | 'diameter'>): 
   };
 }
 
-function boardWith(pins: Pin[]): BoardDocument {
+function boardWith(pins: Pin[], nets?: Net[]): BoardDocument {
   return {
     boardSchemaVersion: 1,
     boardId: 'test',
@@ -25,7 +25,7 @@ function boardWith(pins: Pin[]): BoardDocument {
     sides: ['top', 'bottom'],
     outline: { points: [], segments: [] },
     components: [],
-    nets: [],
+    nets: nets ?? [{ id: 1, name: 'NET1', isGround: false }],
     pins,
     tracks: [],
     vias: [],
@@ -33,6 +33,7 @@ function boardWith(pins: Pin[]): BoardDocument {
     bounds: { minX: -50, minY: -50, maxX: 50, maxY: 50 },
   };
 }
+
 describe('pinPickRadius', () => {
   test('uses pin.diameter as radius when > 0 (no half)', () => {
     expect(pinPickRadius({ diameter: 14 })).toBe(14);
@@ -52,11 +53,6 @@ describe('hitTestNearestPin', () => {
   test('hits within exported radius, misses beyond', () => {
     const pin = makePin({ id: 'p1', pos: { x: 0, y: 0 }, diameter: 10 });
     const board = boardWith([pin]);
-    // board (0,0) maps near canvas center; use screenToBoard inverse via boardToScreen offset
-    // Center-on-bounds puts (0,0) at canvas center (100,100) with scale ~2.
-    // Hit at board distance 9 (inside r=10) and 11 (outside).
-    // With flipY and scale, board delta y flips; use same-axis offset via known transform:
-    // screenToBoard at canvas center is board (0,0). Move sx by r*scale.
     const scale = view.scale;
     const hit = hitTestNearestPin(board, view, 100 + 9 * scale, 100, 200, 200);
     const miss = hitTestNearestPin(board, view, 100 + 11 * scale, 100, 200, 200);
@@ -72,5 +68,33 @@ describe('hitTestNearestPin', () => {
     const miss = hitTestNearestPin(board, view, 100 + 8 * scale, 100, 200, 200);
     expect(hit?.id).toBe('p0');
     expect(miss).toBeNull();
+  });
+
+  test('skips GND / GROUND / UNCONNECTED pins', () => {
+    const nets: Net[] = [
+      { id: 1, name: 'VCC', isGround: false },
+      { id: 2, name: 'GND', isGround: true },
+      { id: 3, name: 'GROUND', isGround: true },
+      { id: 4, name: 'UNCONNECTED', isGround: false },
+    ];
+    const board = boardWith(
+      [
+        makePin({ id: 'gnd', pos: { x: 0, y: 0 }, diameter: 20, netId: 2 }),
+        makePin({ id: 'gnd2', pos: { x: 0, y: 0 }, diameter: 20, netId: 3 }),
+        makePin({ id: 'nc', pos: { x: 0, y: 0 }, diameter: 20, netId: 4 }),
+        makePin({ id: 'sig', pos: { x: 5, y: 0 }, diameter: 20, netId: 1 }),
+      ],
+      nets,
+    );
+    const scale = view.scale;
+    // Click near origin — only signal pin should be selectable (slightly offset).
+    const hit = hitTestNearestPin(board, view, 100 + 5 * scale, 100, 200, 200);
+    expect(hit?.id).toBe('sig');
+    // Pure GND pad under cursor with no signal nearby → null
+    const onlyGnd = boardWith(
+      [makePin({ id: 'g', pos: { x: 0, y: 0 }, diameter: 20, netId: 2 })],
+      nets,
+    );
+    expect(hitTestNearestPin(onlyGnd, view, 100, 100, 200, 200)).toBeNull();
   });
 });

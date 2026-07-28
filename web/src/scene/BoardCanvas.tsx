@@ -1,3 +1,4 @@
+import { isNonSelectableNet, netByIdMap } from './netKinds';
 import {
   useCallback,
   useEffect,
@@ -148,15 +149,18 @@ export default function BoardCanvas({
       pinIds.add(selectedPinId);
       const sel = board.pins.find((p) => p.id === selectedPinId);
       if (sel?.component) partNames.add(sel.component);
-      // Desktop: all pins on the same net as m_pinSelected use pinSameNetColor;
-      // tracks/vias/arcs on that net also highlight. Ground still highlights pads
-      // (DrawNetWeb skips ground spokes only).
+      // Desktop: same-net highlight for selectable nets only.
+      // GND/GROUND/UNCONNECTED: no net web, no same-net expansion.
       if (sel?.netId != null) {
-        selectedNetId = sel.netId;
-        for (const p of board.pins) {
-          if (p.netId === selectedNetId) {
-            pinIds.add(p.id);
-            if (p.component) partNames.add(p.component);
+        const nets = netByIdMap(board.nets);
+        const net = nets.get(sel.netId);
+        if (net && !isNonSelectableNet(net)) {
+          selectedNetId = sel.netId;
+          for (const p of board.pins) {
+            if (p.netId === selectedNetId) {
+              pinIds.add(p.id);
+              if (p.component) partNames.add(p.component);
+            }
           }
         }
       }
@@ -247,6 +251,8 @@ export default function BoardCanvas({
     const v = viewRef.current;
     if (!v) return;
     const { x, y } = localPoint(ev);
+    // hitTestNearestPin already skips GND/GROUND/UNCONNECTED.
+    // Empty click clears selection.
     const pin = hitTestNearestPin(board, v, x, y, size.w, size.h);
     onSelectPin?.(pin);
   };

@@ -9,6 +9,7 @@ import type {
   Track,
   Via,
 } from '../types/board';
+import { isGroundNet, isUnconnectedNet } from './netKinds';
 import { boardToScreen, type ViewState } from './transform';
 
 export interface DrawHighlight {
@@ -34,6 +35,10 @@ export interface DrawColors {
   pinSelected: string;
   pinHighlight: string;
   pinSameNet: string;
+  /** Desktop pinGroundColor — solid fill for GND/GROUND. */
+  pinGround: string;
+  /** Desktop pinNotConnectedColor — solid fill for UNCONNECTED. */
+  pinUnconnected: string;
   partHighlight: string;
   partText: string;
   pinText: string;
@@ -57,6 +62,9 @@ export const DEFAULT_COLORS: DrawColors = {
   pinSelected: '#ffb74d',
   pinHighlight: '#ff8a80',
   pinSameNet: '#4fc3f7',
+  // Dark theme: deep blue for ground, muted gray for NC (desktop dark scheme).
+  pinGround: '#3030c3',
+  pinUnconnected: '#9e9e9e',
   partHighlight: '#ffe082',
   partText: '#d5dbe6',
   pinText: '#e8eaf0',
@@ -430,6 +438,9 @@ function drawPins(
   colors: DrawColors,
 ): void {
   const pins = board.pins ?? [];
+  const netById = new Map<number, Net>();
+  for (const n of board.nets ?? []) netById.set(n.id, n);
+
   for (const pin of pins) {
     if (!sideVisible(pin.side, view.side)) continue;
     const s = boardToScreen(view, pin.pos.x, pin.pos.y, cssW, cssH);
@@ -437,6 +448,9 @@ function drawPins(
     const selected = highlight.selectedPinId === pin.id;
     const hi = highlight.pinIds?.has(pin.id) ?? false;
     const sameNet = !selected && netForcedVisible(pin.netId, highlight);
+    const net = pin.netId != null ? netById.get(pin.netId) : undefined;
+    const ground = isGroundNet(net);
+    const unconnected = isUnconnectedNet(net);
 
     ctx.beginPath();
     ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
@@ -451,6 +465,14 @@ function drawPins(
       ctx.fill();
     } else if (hi) {
       ctx.fillStyle = colors.pinHighlight;
+      ctx.fill();
+    } else if (ground) {
+      // Desktop: solid pinGroundColor for is_ground nets.
+      ctx.fillStyle = colors.pinGround;
+      ctx.fill();
+    } else if (unconnected) {
+      // Desktop: solid pinNotConnectedColor for NC / UNCONNECTED.
+      ctx.fillStyle = colors.pinUnconnected;
       ctx.fill();
     } else {
       ctx.strokeStyle = colors.pin;
@@ -672,8 +694,8 @@ function drawPinLabels(
         for (const n of nets) netById.set(n.id, n);
       }
       const net = netById.get(pin.netId);
-      // Desktop suppresses net names on ground pins.
-      if (!net || net.isGround) continue;
+      // Desktop suppresses net names on ground / NC pins.
+      if (!net || isGroundNet(net) || isUnconnectedNet(net)) continue;
       const netLabel = netDisplayName(net, overlay);
       if (!netLabel) continue;
       const size = Math.min(11, Math.max(8, r * 0.55));
