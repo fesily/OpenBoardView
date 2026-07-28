@@ -62,7 +62,8 @@ export const DEFAULT_COLORS: DrawColors = {
   boardFill: '#2a3140',
   outline: '#c5cad3',
   track: '#5a7a9a',
-  via: '#90a4ae',
+  // Copper via — must not look like NC gray (#9e9e9e).
+  via: '#d4a017',
   arc: '#5a7a9a',
   partOutline: '#8b93a7',
   partFill: 'rgba(80, 90, 110, 0.35)',
@@ -439,6 +440,50 @@ function pinRadiusPx(pin: Pin, scale: number): number {
   return Math.max(r * scale, 1.5);
 }
 
+/**
+ * Desktop DrawPins size: circle uses diameter as radius; rect uses size.x/y half-extents.
+ * Angle 90/270 swaps w/h; view rotation 1/3 also swaps.
+ */
+function pinHalfExtentsPx(pin: Pin, view: ViewState): { w: number; h: number; r: number } {
+  const r = pinRadiusPx(pin, view.scale);
+  let w = r;
+  let h = r;
+  if ((pin.shape || '').toLowerCase() === 'rect') {
+    const sx = pin.size?.x ?? 0;
+    const sy = pin.size?.y ?? 0;
+    w = Math.max(((sx > 0 ? sx : pin.diameter * 2) * view.scale) / 2, 1.5);
+    h = Math.max(((sy > 0 ? sy : pin.diameter * 2) * view.scale) / 2, 1.5);
+  }
+  const ang = ((pin.angle % 360) + 360) % 360;
+  if (ang === 90 || ang === 270) {
+    const t = w;
+    w = h;
+    h = t;
+  }
+  if (view.rotation === 1 || view.rotation === 3) {
+    const t = w;
+    w = h;
+    h = t;
+  }
+  return { w, h, r };
+}
+
+function pathPinShape(
+  ctx: CanvasRenderingContext2D,
+  pin: Pin,
+  view: ViewState,
+  cx: number,
+  cy: number,
+): void {
+  const { w, h, r } = pinHalfExtentsPx(pin, view);
+  ctx.beginPath();
+  if ((pin.shape || '').toLowerCase() === 'rect') {
+    ctx.rect(cx - w, cy - h, w * 2, h * 2);
+  } else {
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  }
+}
+
 function drawPins(
   ctx: CanvasRenderingContext2D,
   board: BoardDocument,
@@ -455,7 +500,6 @@ function drawPins(
   for (const pin of pins) {
     if (!sideVisible(pin.side, view.side)) continue;
     const s = boardToScreen(view, pin.pos.x, pin.pos.y, cssW, cssH);
-    const r = pinRadiusPx(pin, view.scale);
     const selected = highlight.selectedPinId === pin.id;
     const hi = highlight.pinIds?.has(pin.id) ?? false;
     const sameNet = !selected && netForcedVisible(pin.netId, highlight);
@@ -465,8 +509,7 @@ function drawPins(
     const notConnected = isNotConnectedPin(pin, net);
     const testPad = isTestPadPin(pin);
 
-    ctx.beginPath();
-    ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+    pathPinShape(ctx, pin, view, s.x, s.y);
     if (selected) {
       ctx.fillStyle = colors.pinSelected;
       ctx.fill();
@@ -495,7 +538,11 @@ function drawPins(
       ctx.lineWidth = 1;
       ctx.stroke();
     } else {
-      ctx.strokeStyle = colors.pin;
+      // Signal pin: solid cyan fill so it never looks like hollow NC gray.
+      // Desktop only rings by default; web needs fill to stay distinct from via/NC.
+      ctx.fillStyle = colors.pin;
+      ctx.fill();
+      ctx.strokeStyle = '#b3e5fc';
       ctx.lineWidth = 1;
       ctx.stroke();
     }
