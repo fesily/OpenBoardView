@@ -50,7 +50,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libsqlite3-0 \
       libstdc++6 \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --uid 10001 --create-home --home-dir /app --shell /usr/sbin/nologin obv
+    && mkdir -p /app/data/boards /app/data/overlays /app/data/config /app/boards
 
 WORKDIR /app
 
@@ -58,11 +58,9 @@ COPY --from=server-build /src/build/src/obv_server/obv_server /app/obv_server
 COPY --from=web-build /src/web/dist /app/www
 COPY data/config/keys.example.json /app/data/config/keys.example.json
 
-# Runtime dirs for uploads / overlays (mount over these in production).
-RUN mkdir -p /app/data/boards /app/data/overlays /app/data/config /app/boards \
-    && chown -R obv:obv /app
-
-USER obv
+# Default as root so bind-mounted host board libraries stay readable regardless
+# of host file UID/mode (common LAN deploy). To drop privileges when you own
+# mount permissions: docker compose `user: "10001:10001"` after chown.
 EXPOSE 8080
 
 ENV OBV_HOST=0.0.0.0 \

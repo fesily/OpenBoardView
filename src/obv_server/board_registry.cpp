@@ -2,10 +2,13 @@
 
 #include "sha256.h"
 
+#include "obv_core/core_utils.h"
 #include "obv_core/parse.h"
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
+#include <cstring>
 #include <fstream>
 #include <system_error>
 #include <utility>
@@ -18,23 +21,41 @@ std::vector<char> toBuffer(const std::string &body) {
 	return std::vector<char>(body.begin(), body.end());
 }
 
-std::vector<char> readAll(const filesystem::path &path) {
-	std::ifstream in(path, std::ios::binary);
-	if (!in) {
+// Read whole file; on failure leave err with a human-readable reason (path + errno).
+std::vector<char> readAll(const filesystem::path &path, std::string &err) {
+	err.clear();
+	// Prefer shared IO helper (regular-file check + binary read).
+	std::string ioErr;
+	std::vector<char> buf = obv::file_as_buffer(path, ioErr);
+	if (!buf.empty()) {
+		return buf;
+	}
+	// file_as_buffer leaves empty buffer for empty files too — distinguish.
+	std::error_code ec;
+	const bool exists = filesystem::exists(path, ec) && !ec;
+	const bool regular = exists && filesystem::is_regular_file(path, ec) && !ec;
+	if (!exists) {
+		err = "file not found: " + path.string();
 		return {};
 	}
-	in.seekg(0, std::ios::end);
-	const auto n = in.tellg();
-	if (n <= 0) {
+	if (!regular) {
+		err = "not a regular file: " + path.string();
 		return {};
 	}
-	in.seekg(0, std::ios::beg);
-	std::vector<char> buf(static_cast<size_t>(n));
-	in.read(buf.data(), n);
-	if (!in) {
+	// Empty board files are invalid for parse; keep a distinct message.
+	const auto sz = filesystem::file_size(path, ec);
+	if (!ec && sz == 0) {
+		err = "empty board file: " + path.string();
 		return {};
 	}
-	return buf;
+	// Permission / IO failure (common when Docker UID cannot read host mounts).
+	if (!ioErr.empty()) {
+		err = ioErr + ": " + path.string();
+	} else {
+		err = std::string("failed to read: ") + path.string() + " (" +
+			  (errno ? std::strerror(errno) : "unknown") + ")";
+	}
+	return {};
 }
 
 std::string toLowerAscii(std::string s) {
@@ -292,10 +313,12 @@ BoardRegistry::loadParsedLocked(const std::string &id) {
 		return slot.snap;
 	}
 
-	auto buf = readAll(slot.entry.path);
+	std::string readErr;
+	auto buf = readAll(slot.entry.path, readErr);
 	if (buf.empty()) {
 		slot.entry.ok = false;
-		slot.entry.parseError = "failed to read board file";
+		slot.entry.parseError =
+			readErr.empty() ? "failed to read board file" : readErr;
 		slot.mtime = mt;
 		slot.snap.reset();
 		// Return a failed snapshot so callers can surface the error.
