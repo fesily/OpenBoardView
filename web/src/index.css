@@ -539,9 +539,83 @@ tr.row-selected td {
   cursor: grab;
 }
 
+
 .board-canvas:active {
   cursor: grabbing;
 }
+
+.board-pin-status {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.65rem;
+  min-height: 1.85rem;
+  padding: 0.35rem 0.6rem;
+  border-top: 1px solid #2a2f3a;
+  background: #0f1218;
+  font-size: 0.8rem;
+  color: #d5dbe6;
+}
+
+.pin-status-tag {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.12rem 0.35rem;
+  border-radius: 3px;
+  background: #243044;
+  color: #9ec5fe;
+}
+
+.pin-status-part {
+  color: #e8eaed;
+}
+
+.pin-status-sep {
+  color: #4a5568;
+}
+
+.pin-status-net {
+  color: #7dd3fc;
+}
+
+.pin-status-gnd {
+  color: #93c5fd;
+}
+
+.pin-status-val {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.28rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: #1a2030;
+  border: 1px solid #2a3344;
+}
+
+.pin-status-val-active {
+  border-color: #c9a227;
+  background: #2a2410;
+}
+
+.pin-status-val-k {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #9aa0a6;
+}
+
+.pin-status-val-v {
+  color: #ffe566;
+  font-weight: 600;
+}
+
+.pin-status-val-src {
+  font-size: 0.65rem;
+}
+
 
 /* Info pane fills right column growth area */
 .info-pane {

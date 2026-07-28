@@ -13,8 +13,11 @@ import { collectCopperLayers, drawBoard, LAYER_COPPER } from './draw';
 import { hitTestNearestPin } from './hitTest';
 import { isNonSelectablePin, netByIdMap } from './netKinds';
 import {
+  buildNetPropagatedValues,
+  localPinValue,
   PIN_VALUE_MODE_LABEL,
   PIN_VALUE_MODES,
+  resolvePinValue,
   type PinValueMode,
 } from './pinValues';
 import {
@@ -77,6 +80,8 @@ export default function BoardCanvas({
   const [valueMenuOpen, setValueMenuOpen] = useState(false);
   /** Overlay pin field shown under pad name; propagates across net. */
   const [pinValueMode, setPinValueMode] = useState<PinValueMode>('diode');
+  /** Hover target for bottom status bar (includes GND/NC). */
+  const [hoverPin, setHoverPin] = useState<Pin | null>(null);
   /**
    * null = all copper layers on.
    * Set = explicit filter; default on board open is top+bottom only.
@@ -100,6 +105,7 @@ export default function BoardCanvas({
     setEnabledLayers(preferred.length > 0 ? new Set(preferred) : null);
     setLayerMenuOpen(false);
     setValueMenuOpen(false);
+    setHoverPin(null);
   }, [board, board.boardId]);
 
   const syncView = useCallback((next: ViewState) => {
@@ -243,14 +249,23 @@ export default function BoardCanvas({
   const onPointerMove = (ev: ReactPointerEvent) => {
     const drag = dragRef.current;
     const v = viewRef.current;
-    if (!drag?.active || !v) return;
-    const dsx = ev.clientX - drag.lastX;
-    const dsy = ev.clientY - drag.lastY;
-    if (!drag.moved && Math.hypot(dsx, dsy) < 3) return;
-    drag.moved = true;
-    drag.lastX = ev.clientX;
-    drag.lastY = ev.clientY;
-    syncView(panByScreen(v, dsx, dsy, size.w, size.h));
+    if (!v) return;
+    if (drag?.active) {
+      const dsx = ev.clientX - drag.lastX;
+      const dsy = ev.clientY - drag.lastY;
+      if (!drag.moved && Math.hypot(dsx, dsy) < 3) return;
+      drag.moved = true;
+      drag.lastX = ev.clientX;
+      drag.lastY = ev.clientY;
+      syncView(panByScreen(v, dsx, dsy, size.w, size.h));
+      return;
+    }
+    // Hover hit-test for status bar (allow GND/NC so their info still shows).
+    const { x, y } = localPoint(ev);
+    const pin = hitTestNearestPin(board, v, x, y, size.w, size.h, {
+      allowNonSelectable: true,
+    });
+    setHoverPin((prev) => (prev?.id === pin?.id ? prev : pin));
   };
 
   const endDrag = (ev: ReactPointerEvent) => {
@@ -262,10 +277,13 @@ export default function BoardCanvas({
     const v = viewRef.current;
     if (!v) return;
     const { x, y } = localPoint(ev);
-    // hitTestNearestPin already skips GND/GROUND/UNCONNECTED.
-    // Empty click clears selection.
+    // Selection still skips GND/GROUND/UNCONNECTED.
     const pin = hitTestNearestPin(board, v, x, y, size.w, size.h);
     onSelectPin?.(pin);
+  };
+
+  const onPointerLeave = () => {
+    setHoverPin(null);
   };
 
   const onContextMenu = (ev: ReactMouseEvent<HTMLCanvasElement>) => {
@@ -320,6 +338,53 @@ export default function BoardCanvas({
 
   const onCount =
     enabledLayers === null ? copperLayers.length : enabledLayers.size;
+
+  const nets = useMemo(() => netByIdMap(board.nets), [board.nets]);
+
+  const selectedPin = useMemo(
+    () =>
+      selectedPinId
+        ? (board.pins.find((p) => p.id === selectedPinId) ?? null)
+        : null,
+    [board.pins, selectedPinId],
+  );
+
+  /** Status bar prefers hover; falls back to selection. */
+  const statusPin = hoverPin ?? selectedPin;
+
+  const pinStatus = useMemo(() => {
+    if (!statusPin) return null;
+    const net =
+      statusPin.netId != null ? (nets.get(statusPin.netId) ?? null) : null;
+    const values: { mode: PinValueMode; label: string; value: string; source: 'local' | 'net' | '' }[] =
+      [];
+    for (const mode of PIN_VALUE_MODES) {
+      const netMap = buildNetPropagatedValues(board, overlay, mode);
+      const value = resolvePinValue(statusPin, overlay, mode, netMap);
+      const local = localPinValue(statusPin, overlay, mode);
+      values.push({
+        mode,
+        label: PIN_VALUE_MODE_LABEL[mode],
+        value,
+        source: value ? (local ? 'local' : 'net') : '',
+      });
+    }
+    const name =
+      (statusPin.show_name && statusPin.show_name.trim()) ||
+      (statusPin.name && statusPin.name.trim()) ||
+      statusPin.number ||
+      statusPin.id;
+    return {
+      pin: statusPin,
+      name,
+      part: statusPin.component || '—',
+      netName: net?.name ?? (statusPin.netId != null ? `#${statusPin.netId}` : '—'),
+      netId: statusPin.netId,
+      isGround: !!net?.isGround,
+      values,
+      viaHover: hoverPin != null,
+    };
+  }, [statusPin, hoverPin, board, overlay, nets]);
 
   return (
     <div className="board-canvas-root">
@@ -440,8 +505,67 @@ export default function BoardCanvas({
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
+          onPointerLeave={onPointerLeave}
           onContextMenu={onContextMenu}
         />
+      </div>
+
+      <div className="board-pin-status" role="status" aria-live="polite">
+        {!pinStatus ? (
+          <span className="muted">Hover or select a pin for net / diode / voltage / ohm</span>
+        ) : (
+          <>
+            <span className="pin-status-tag" title={pinStatus.viaHover ? 'Hover' : 'Selected'}>
+              {pinStatus.viaHover ? 'Hover' : 'Sel'}
+            </span>
+            <span className="pin-status-part mono" title={pinStatus.pin.id}>
+              {pinStatus.part}
+              <span className="muted">.</span>
+              {pinStatus.name}
+            </span>
+            <span className="pin-status-sep" aria-hidden>
+              ·
+            </span>
+            <span
+              className={
+                'pin-status-net mono' + (pinStatus.isGround ? ' pin-status-gnd' : '')
+              }
+              title={
+                pinStatus.netId != null
+                  ? `netId ${pinStatus.netId}`
+                  : 'no net'
+              }
+            >
+              net {pinStatus.netName}
+              {pinStatus.isGround ? ' (GND)' : ''}
+            </span>
+            {pinStatus.values.map((v) =>
+              v.value ? (
+                <span
+                  key={v.mode}
+                  className={
+                    'pin-status-val' +
+                    (v.mode === pinValueMode ? ' pin-status-val-active' : '')
+                  }
+                  title={
+                    v.source === 'net'
+                      ? `${v.label} via net propagation`
+                      : `${v.label} local`
+                  }
+                >
+                  <span className="pin-status-val-k">{v.mode}</span>
+                  <span className="pin-status-val-v mono">{v.value}</span>
+                  {v.source === 'net' && (
+                    <span className="pin-status-val-src muted">net</span>
+                  )}
+                </span>
+              ) : null,
+            )}
+            {!pinStatus.values.some((v) => v.value) && (
+              <span className="muted">no diode/voltage/ohm</span>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
