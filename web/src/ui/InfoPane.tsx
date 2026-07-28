@@ -32,6 +32,14 @@ function pinOverlayKey(pin: Pin): string {
   return pin.name || pin.number || pin.id;
 }
 
+/** Canvas/desktop display label: show_name (overlay or board) over name/number. */
+function pinDisplayLabel(pin: Pin, overlayShow?: string): string {
+  if (overlayShow && overlayShow.trim()) return overlayShow.trim();
+  if (pin.show_name && pin.show_name.trim()) return pin.show_name.trim();
+  if (pin.name && pin.name.trim()) return pin.name.trim();
+  return pin.number || pin.id;
+}
+
 /** Desktop PartAngle enum integers accepted by ApplyOverlayJson. */
 const PART_ANGLE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
   { value: '0', label: '0°' }, // PartAngle::_0
@@ -353,6 +361,10 @@ export default function InfoPane({
               <dd>{selectedPin.number || '—'}</dd>
               <dt>name</dt>
               <dd>{selectedPin.name || '—'}</dd>
+              <dt>show_name</dt>
+              <dd>
+                {pinDisplayLabel(selectedPin, pinInfo.show_name) || '—'}
+              </dd>
               <dt>net</dt>
               <dd>
                 {net

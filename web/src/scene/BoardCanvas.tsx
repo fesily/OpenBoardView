@@ -7,7 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from 'react';
-import type { BoardDocument, OverlayAnnotation, Pin } from '../types/board';
+import type { BoardDocument, OverlayAnnotation, OverlayDocument, Pin } from '../types/board';
 import { drawBoard } from './draw';
 import { hitTestNearestPin } from './hitTest';
 import {
@@ -33,6 +33,8 @@ export interface BoardCanvasProps {
   focusToken?: number;
   /** Freeform annotations drawn as markers. */
   annotations?: readonly OverlayAnnotation[];
+  /** Overlay show_name overrides for pin/net labels (desktop ReloadPinInfos). */
+  overlay?: OverlayDocument | null;
   /**
    * Right-click at board coordinates. Caller creates annotation (prompt/API).
    * `side` is 0=top, 1=bottom matching desktop SQLite annotations.
@@ -54,6 +56,7 @@ export default function BoardCanvas({
   focusPoint = null,
   focusToken = 0,
   annotations = [],
+  overlay = null,
   onContextAnnotate,
 }: BoardCanvasProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -139,6 +142,7 @@ export default function BoardCanvas({
       },
       undefined,
       annotations,
+      overlay,
     );
   }, [
     board,
@@ -149,6 +153,7 @@ export default function BoardCanvas({
     highlightPartNames,
     highlightPinIds,
     annotations,
+    overlay,
   ]);
 
   const localPoint = (ev: { clientX: number; clientY: number }) => {

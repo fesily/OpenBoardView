@@ -292,6 +292,7 @@ export default function App() {
               focusPoint={searchSel?.focus ?? null}
               focusToken={searchSel?.focusToken ?? 0}
               annotations={overlay?.annotations ?? []}
+              overlay={overlay}
               onContextAnnotate={(pos) => void onContextAnnotate(pos)}
             />
           </div>

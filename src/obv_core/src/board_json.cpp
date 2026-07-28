@@ -401,6 +401,9 @@ std::string ExportBoardJson(const BoardSnapshot &snap, const std::string &boardI
 			const int id = exportNetId(netIds, nextNetId, &n);
 			os << "{\"id\":" << id << ",\"name\":";
 			appendEscaped(os, n.name);
+			// Desktop draws net->show_name; defaults to name at parse, overlay may override later.
+			os << ",\"showName\":";
+			appendEscaped(os, n.show_name.empty() ? n.name : n.show_name);
 			os << ",\"isGround\":" << (n.is_ground ? "true" : "false") << '}';
 		}
 	}
@@ -469,6 +472,9 @@ std::string ExportBoardJson(const BoardSnapshot &snap, const std::string &boardI
 			appendEscaped(os, p.number);
 			os << ",\"name\":";
 			appendEscaped(os, p.name);
+			// Desktop DrawPins uses pin->show_name (prefer overlay, else name).
+			os << ",\"show_name\":";
+			appendEscaped(os, p.show_name.empty() ? p.name : p.show_name);
 			os << ",\"netId\":";
 			if (p.net) {
 				os << exportNetId(netIds, nextNetId, p.net);

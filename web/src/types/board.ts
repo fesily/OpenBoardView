@@ -27,6 +27,8 @@ export interface Outline {
 export interface Net {
   id: number;
   name: string;
+  /** Desktop net->show_name; prefer for labels. */
+  showName?: string;
   isGround: boolean;
 }
 
@@ -51,6 +53,11 @@ export interface Pin {
   component: string | null;
   number: string;
   name: string;
+  /**
+   * Display label (desktop pin->show_name). Prefer over name for canvas text.
+   * Overlay partInfos[part].pins[key].show_name overrides when present.
+   */
+  show_name?: string;
   netId: number | null;
   side: BoardSide;
   pos: Point;
