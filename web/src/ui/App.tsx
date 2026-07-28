@@ -38,6 +38,9 @@ export default function App() {
   const [overlay, setOverlay] = useState<OverlayDocument | null>(null);
   const [overlayLoading, setOverlayLoading] = useState(false);
   const [overlayError, setOverlayError] = useState<string | null>(null);
+  /** Side panels default open; user can collapse for canvas space. */
+  const [leftOpen, setLeftOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(true);
   const openBoardGen = useRef(0);
 
   const onSearchSelection = useCallback((sel: SearchSelection) => {
@@ -195,75 +198,105 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar sidebar-left">
-        <div className="sidebar-header">
-          <h1>OpenBoardView</h1>
-          <p className="sub">Library</p>
-        </div>
+      <aside
+        className={'sidebar sidebar-left' + (leftOpen ? '' : ' sidebar-collapsed')}
+        aria-label="Board library"
+      >
+        {leftOpen ? (
+          <>
+            <div className="sidebar-header row">
+              <div>
+                <h1>OpenBoardView</h1>
+                <p className="sub">Library</p>
+              </div>
+              <button
+                type="button"
+                className="sidebar-toggle"
+                title="Collapse library"
+                aria-label="Collapse library"
+                onClick={() => setLeftOpen(false)}
+              >
+                «
+              </button>
+            </div>
 
-        <div className="sidebar-status">
-          {health.kind === 'loading' && <p className="muted">Checking server…</p>}
-          {health.kind === 'ok' && (
-            <p className="ok">
-              <strong>{health.status}</strong>
-              {health.version ? ` · ${health.version}` : ''}
-            </p>
-          )}
-          {health.kind === 'error' && (
-            <p className="err" title={health.message}>
-              Server offline
-            </p>
-          )}
-          {boardRoot && (
-            <p className="board-root mono" title={boardRoot}>
-              {boardRoot}
-            </p>
-          )}
-          <div className="row sidebar-actions">
-            <button type="button" onClick={() => void refreshHealth()}>
-              Health
-            </button>
-            <button type="button" onClick={() => void refreshBoards()}>
-              Refresh
-            </button>
-          </div>
-        </div>
+            <div className="sidebar-status">
+              {health.kind === 'loading' && <p className="muted">Checking server…</p>}
+              {health.kind === 'ok' && (
+                <p className="ok">
+                  ok · {health.status}
+                  {health.version ? ` ${health.version}` : ''}
+                </p>
+              )}
+              {health.kind === 'error' && <p className="err">{health.message}</p>}
+              {boardRoot && (
+                <p className="board-root mono" title={boardRoot}>
+                  {boardRoot}
+                </p>
+              )}
+              <div className="row sidebar-actions">
+                <button type="button" onClick={() => void refreshHealth()}>
+                  Health
+                </button>
+                <button type="button" onClick={() => void refreshBoards()}>
+                  Refresh
+                </button>
+              </div>
+            </div>
 
-        <div className="file-list-wrap">
-          {listError && <p className="err">{listError}</p>}
-          {!listError && boards.length === 0 && (
-            <p className="muted">No board files under boardRoot.</p>
-          )}
-          <ul className="file-list">
-            {boards.map((b) => {
-              const label = b.path || b.name;
-              const failed = !b.ok && !!b.error;
-              return (
-                <li key={b.id}>
-                  <button
-                    type="button"
-                    className={
-                      'file-item' +
-                      (selectedId === b.id ? ' file-item-selected' : '') +
-                      (failed ? ' file-item-error' : '')
-                    }
-                    title={b.error || label}
-                    onClick={() => void openBoard(b.id)}
-                  >
-                    <span className="file-item-name">{label}</span>
-                    {failed && <span className="file-item-badge">error</span>}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
+            <div className="file-list-wrap">
+              {listError && <p className="err">{listError}</p>}
+              {!listError && boards.length === 0 && (
+                <p className="muted">No board files under boardRoot.</p>
+              )}
+              <ul className="file-list">
+                {boards.map((b) => {
+                  const label = b.path || b.name;
+                  const failed = !b.ok && !!b.error;
+                  return (
+                    <li key={b.id}>
+                      <button
+                        type="button"
+                        className={
+                          'file-item' +
+                          (selectedId === b.id ? ' file-item-selected' : '') +
+                          (failed ? ' file-item-error' : '')
+                        }
+                        title={b.error || label}
+                        onClick={() => void openBoard(b.id)}
+                      >
+                        <span className="file-item-name">{label}</span>
+                        {failed && <span className="file-item-badge">error</span>}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="sidebar-rail-btn"
+            title="Expand library"
+            aria-label="Expand library"
+            onClick={() => setLeftOpen(true)}
+          >
+            <span className="sidebar-rail-label">Library</span>
+            <span aria-hidden>»</span>
+          </button>
+        )}
       </aside>
 
       <main className="main-stage">
         {!selectedId && !boardLoading && (
           <div className="main-placeholder">
             <p>从左侧选择板图</p>
+            {!leftOpen && (
+              <button type="button" onClick={() => setLeftOpen(true)}>
+                打开文件列表
+              </button>
+            )}
           </div>
         )}
         {selectedId && boardLoading && (
@@ -279,9 +312,32 @@ export default function App() {
         {board && !boardLoading && (
           <div className="stage-body">
             <div className="stage-topbar">
+              {!leftOpen && (
+                <button
+                  type="button"
+                  className="sidebar-toggle"
+                  title="Expand library"
+                  aria-label="Expand library"
+                  onClick={() => setLeftOpen(true)}
+                >
+                  ☰
+                </button>
+              )}
               <span className="stage-title mono" title={board.boardId}>
                 {board.sourceName}
               </span>
+              <span className="stage-topbar-spacer" />
+              {!rightOpen && (
+                <button
+                  type="button"
+                  className="sidebar-toggle"
+                  title="Expand search / info"
+                  aria-label="Expand search and info panel"
+                  onClick={() => setRightOpen(true)}
+                >
+                  ☰ Info
+                </button>
+              )}
             </div>
             <BoardCanvas
               board={board}
@@ -300,56 +356,86 @@ export default function App() {
         )}
       </main>
 
-      <aside className="sidebar sidebar-right">
-        {board && !boardLoading ? (
+      <aside
+        className={'sidebar sidebar-right' + (rightOpen ? '' : ' sidebar-collapsed')}
+        aria-label="Search and selection"
+      >
+        {rightOpen ? (
           <>
-            {boardStats && (
-              <div className="right-stats">
-                <div className="stat-cell">
-                  <span className="stat-label">Pins</span>
-                  <span className="stat-value">{boardStats.pins}</span>
+            <div className="sidebar-header row sidebar-header-right">
+              <button
+                type="button"
+                className="sidebar-toggle"
+                title="Collapse panel"
+                aria-label="Collapse search and info panel"
+                onClick={() => setRightOpen(false)}
+              >
+                »
+              </button>
+              <span className="sidebar-header-label muted">Panel</span>
+            </div>
+            {board && !boardLoading ? (
+              <>
+                {boardStats && (
+                  <div className="right-stats">
+                    <div className="stat-cell">
+                      <span className="stat-label">Pins</span>
+                      <span className="stat-value">{boardStats.pins}</span>
+                    </div>
+                    <div className="stat-cell">
+                      <span className="stat-label">Parts</span>
+                      <span className="stat-value">{boardStats.parts}</span>
+                    </div>
+                    <div className="stat-cell">
+                      <span className="stat-label">Nets</span>
+                      <span className="stat-value">{boardStats.nets}</span>
+                    </div>
+                    <div className="stat-cell">
+                      <span className="stat-label">Size</span>
+                      <span className="stat-value mono">{boardStats.size}</span>
+                    </div>
+                  </div>
+                )}
+                <div className="right-section">
+                  <h2 className="right-section-title">Search</h2>
+                  <SearchBox
+                    key={board.boardId}
+                    board={board}
+                    onSelectionChange={onSearchSelection}
+                  />
                 </div>
-                <div className="stat-cell">
-                  <span className="stat-label">Parts</span>
-                  <span className="stat-value">{boardStats.parts}</span>
+                <div className="right-section right-section-grow">
+                  <InfoPane
+                    boardId={board.boardId}
+                    board={board}
+                    selectedPin={selectedPin}
+                    overlay={overlay}
+                    overlayLoading={overlayLoading}
+                    overlayError={overlayError}
+                    onOverlayChange={setOverlay}
+                    onReloadOverlays={() => {
+                      void loadOverlays(board.boardId);
+                    }}
+                  />
                 </div>
-                <div className="stat-cell">
-                  <span className="stat-label">Nets</span>
-                  <span className="stat-value">{boardStats.nets}</span>
-                </div>
-                <div className="stat-cell">
-                  <span className="stat-label">Size</span>
-                  <span className="stat-value mono">{boardStats.size}</span>
-                </div>
+              </>
+            ) : (
+              <div className="right-empty muted">
+                <p>打开板图后在此搜索与查看选中信息</p>
               </div>
             )}
-            <div className="right-section">
-              <h2 className="right-section-title">Search</h2>
-              <SearchBox
-                key={board.boardId}
-                board={board}
-                onSelectionChange={onSearchSelection}
-              />
-            </div>
-            <div className="right-section right-section-grow">
-              <InfoPane
-                boardId={board.boardId}
-                board={board}
-                selectedPin={selectedPin}
-                overlay={overlay}
-                overlayLoading={overlayLoading}
-                overlayError={overlayError}
-                onOverlayChange={setOverlay}
-                onReloadOverlays={() => {
-                  void loadOverlays(board.boardId);
-                }}
-              />
-            </div>
           </>
         ) : (
-          <div className="right-empty muted">
-            <p>打开板图后在此搜索与查看选中信息</p>
-          </div>
+          <button
+            type="button"
+            className="sidebar-rail-btn"
+            title="Expand search / info"
+            aria-label="Expand search and info panel"
+            onClick={() => setRightOpen(true)}
+          >
+            <span className="sidebar-rail-label">Info</span>
+            <span aria-hidden>«</span>
+          </button>
         )}
       </aside>
     </div>

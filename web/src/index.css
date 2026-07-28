@@ -31,12 +31,14 @@ body {
   background: #0e1016;
 }
 
+
 .sidebar {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
   background: #12151c;
+  transition: width 0.15s ease, min-width 0.15s ease, max-width 0.15s ease;
 }
 
 .sidebar-left {
@@ -54,13 +56,77 @@ body {
   overflow: hidden;
 }
 
+.sidebar-collapsed {
+  width: 36px !important;
+  min-width: 36px !important;
+  max-width: 36px !important;
+}
+
 .sidebar-header {
   padding: 0.75rem 0.85rem 0.4rem;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+.sidebar-header-right {
+  justify-content: flex-start;
+  align-items: center;
+  border-bottom: 1px solid #2a2f3a;
+  padding-bottom: 0.5rem;
+}
+
+.sidebar-header-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .sidebar-header h1 {
   margin: 0 0 0.1rem;
   font-size: 1.05rem;
+}
+
+.sidebar-toggle {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0.28rem 0.45rem;
+  min-width: 2rem;
+}
+
+.sidebar-rail-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.55rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.65rem 0.2rem;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: #c5cad3;
+  cursor: pointer;
+}
+
+.sidebar-rail-btn:hover {
+  background: #1a1f2a;
+  color: #e8eaed;
+}
+
+.sidebar-rail-label {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9aa0a6;
+}
+
+.stage-topbar-spacer {
+  flex: 1;
 }
 
 .sidebar-status {
