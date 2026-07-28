@@ -265,6 +265,11 @@ export default function BoardCanvas({
       syncView(panByScreen(v, dsx, dsy, size.w, size.h));
       return;
     }
+    // Once a pin is selected, freeze status on selection — no hover thrashing.
+    if (selectedPinId) {
+      if (hoverPin) setHoverPin(null);
+      return;
+    }
     // Hover hit-test for status bar (allow GND/NC so their info still shows).
     const { x, y } = localPoint(ev);
     const pin = hitTestNearestPin(board, v, x, y, size.w, size.h, {
@@ -284,11 +289,12 @@ export default function BoardCanvas({
     const { x, y } = localPoint(ev);
     // Selection still skips GND/GROUND/UNCONNECTED.
     const pin = hitTestNearestPin(board, v, x, y, size.w, size.h);
+    setHoverPin(null);
     onSelectPin?.(pin);
   };
 
   const onPointerLeave = () => {
-    setHoverPin(null);
+    if (!selectedPinId) setHoverPin(null);
   };
 
   const onContextMenu = (ev: ReactMouseEvent<HTMLCanvasElement>) => {
@@ -354,8 +360,8 @@ export default function BoardCanvas({
     [board.pins, selectedPinId],
   );
 
-  /** Status bar prefers hover; falls back to selection. */
-  const statusPin = hoverPin ?? selectedPin;
+  /** Status bar: selection freezes display; hover only when nothing selected. */
+  const statusPin = selectedPin ?? hoverPin;
 
   const pinStatus = useMemo(() => {
     if (!statusPin) return null;
