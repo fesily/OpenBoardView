@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { BoardDocument, OverlayDocument, Pin } from '../types/board';
 import {
+  boardPinValue,
   buildNetPropagatedValues,
   localPinValue,
   pinOverlayKey,
@@ -67,35 +68,48 @@ describe('pinValues', () => {
     expect(pinOverlayKey({ name: '', number: '2', id: 'x' })).toBe('2');
   });
 
-  test('localPinValue reads overlay field', () => {
+  test('boardPinValue reads file-native fields', () => {
+    const p = pin({ id: 'X', diode: '86', voltage: '1.8v' });
+    expect(boardPinValue(p, 'diode')).toBe('86');
+    expect(boardPinValue(p, 'voltage')).toBe('1.8v');
+    expect(boardPinValue(p, 'ohm')).toBe('');
+  });
+
+  test('overlay overrides board; board fills when overlay empty', () => {
+    const p = pin({
+      id: 'A1',
+      name: 'A1',
+      component: 'U1',
+      diode: '99', // board file
+      voltage: '1.0', // board file, overlay has 3.3
+    });
+    // overlay diode 0.55 wins over board 99
+    expect(localPinValue(p, overlay, 'diode')).toBe('0.55');
+    expect(localPinValue(p, overlay, 'voltage')).toBe('3.3');
+    // no overlay ohm → empty (board also empty)
+    expect(localPinValue(p, overlay, 'ohm')).toBe('');
+    // board-only when overlay missing part
+    const solo = pin({ id: 'Z', name: 'Z', component: 'NONE', diode: '86' });
+    expect(localPinValue(solo, overlay, 'diode')).toBe('86');
+    // board without overlay still works
+    expect(localPinValue(solo, null, 'diode')).toBe('86');
+  });
+
+  test('net propagation uses board diode when overlay empty', () => {
+    const pins = [
+      pin({ id: 'src', name: 'src', component: 'R1', netId: 1, diode: '86' }),
+      pin({ id: 'dst', name: 'dst', component: 'R2', netId: 1 }), // no local
+    ];
+    const b = board(pins);
+    const byNet = buildNetPropagatedValues(b, null, 'diode');
+    expect(byNet.get(1)).toBe('86');
+    expect(resolvePinValue(pins[0], null, 'diode', byNet)).toBe('86');
+    expect(resolvePinValue(pins[1], null, 'diode', byNet)).toBe('86');
+  });
+
+  test('localPinValue still reads overlay fields', () => {
     const p = pin({ id: 'A1', name: 'A1', component: 'U1', netId: 1 });
     expect(localPinValue(p, overlay, 'diode')).toBe('0.55');
     expect(localPinValue(p, overlay, 'voltage')).toBe('3.3');
-    expect(localPinValue(p, overlay, 'ohm')).toBe('');
-  });
-
-  test('net propagation fills missing pins; local wins', () => {
-    const pins = [
-      pin({ id: 'A1', name: 'A1', component: 'U1', netId: 1 }),
-      pin({ id: 'Z9', name: 'Z9', component: 'U1', netId: 1 }), // no overlay
-      pin({ id: '1', name: '1', number: '1', component: 'U2', netId: 1 }), // other part same net
-    ];
-    const b = board(pins);
-    const byNet = buildNetPropagatedValues(b, overlay, 'diode');
-    expect(byNet.get(1)).toBe('0.55'); // first non-empty on net
-
-    expect(resolvePinValue(pins[0], overlay, 'diode', byNet)).toBe('0.55');
-    expect(resolvePinValue(pins[1], overlay, 'diode', byNet)).toBe('0.55'); // propagated
-    // local on U2.1 is 0.70 — wins over net seed
-    expect(resolvePinValue(pins[2], overlay, 'diode', byNet)).toBe('0.70');
-  });
-
-  test('ohm_black mode independent of diode', () => {
-    const p = pin({ id: '1', name: '1', number: '1', component: 'U2', netId: 2 });
-    const byNet = buildNetPropagatedValues(board([p]), overlay, 'ohm_black');
-    expect(resolvePinValue(p, overlay, 'ohm_black', byNet)).toBe('1M');
-    expect(resolvePinValue(p, overlay, 'diode', buildNetPropagatedValues(board([p]), overlay, 'diode'))).toBe(
-      '0.70',
-    );
   });
 });

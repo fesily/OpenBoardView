@@ -78,6 +78,14 @@ export interface Pin {
   diameter: number;
   size: Point;
   angle: number;
+  /**
+   * Board-file measurement fields (BVR PIN_DIODE_VALUE / PIN_VOLTAGE_VALUE, etc).
+   * Overlay partInfos may override the same keys for display.
+   */
+  diode?: string;
+  voltage?: string;
+  ohm?: string;
+  ohm_black?: string;
 }
 
 export interface Track {

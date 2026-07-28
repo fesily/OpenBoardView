@@ -505,7 +505,26 @@ std::string ExportBoardJson(const BoardSnapshot &snap, const std::string &boardI
 			appendNumber(os, p.diameter);
 			os << ",\"size\":";
 			appendPoint(os, p.size.x, p.size.y);
-			os << ",\"angle\":" << p.angle << '}';
+			os << ",\"angle\":" << p.angle;
+			// Board-file / desktop pin measurement fields (PIN_DIODE_VALUE etc).
+			// Overlay may still override via partInfos; export both so web can merge.
+			if (!p.diode_value.empty()) {
+				os << ",\"diode\":";
+				appendEscaped(os, p.diode_value);
+			}
+			if (!p.voltage_value.empty()) {
+				os << ",\"voltage\":";
+				appendEscaped(os, p.voltage_value);
+			}
+			if (!p.ohm_value.empty()) {
+				os << ",\"ohm\":";
+				appendEscaped(os, p.ohm_value);
+			}
+			if (!p.ohm_black_value.empty()) {
+				os << ",\"ohm_black\":";
+				appendEscaped(os, p.ohm_black_value);
+			}
+			os << '}';
 		}
 	}
 	os << ']';
