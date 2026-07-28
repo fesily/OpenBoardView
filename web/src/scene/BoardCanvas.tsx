@@ -113,10 +113,15 @@ export default function BoardCanvas({
     setView(next);
   }, []);
 
-  // Fit view when board or canvas size changes (reset rotation/side)
+  // Fit once per board (when size is known). Do NOT re-fit on canvas resize —
+  // hover status bar content used to change wrap height → ResizeObserver →
+  // size change → centerOnBounds reset (felt like hover resets the view).
+  const fittedBoardIdRef = useRef<string | null>(null);
   useEffect(() => {
-    const v = centerOnBounds(board.bounds, size.w, size.h);
-    syncView(v);
+    if (size.w < 2 || size.h < 2) return;
+    if (fittedBoardIdRef.current === board.boardId) return;
+    fittedBoardIdRef.current = board.boardId;
+    syncView(centerOnBounds(board.bounds, size.w, size.h));
   }, [board.boardId, board.bounds, size.w, size.h, syncView]);
 
   // Center view on search result click (preserve scale/rotation/side).
