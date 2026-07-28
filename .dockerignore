@@ -1,0 +1,31 @@
+# Keep docker context small for server image builds.
+.git
+.github
+**/.vs
+**/.vscode
+**/node_modules
+web/dist
+web/node_modules
+build
+build-web
+build-*
+release_build
+bin
+*.deb
+*.rpm
+*.dmg
+*.exe
+tmp-data-*
+data/boards
+data/overlays
+# desktop vendored trees not needed for ENABLE_OPENBOARDVIEW=OFF
+src/SDL2
+src/imgui
+src/glad
+src/android
+android
+asset/screenshot*.png
+# docs / plans
+docs
+*.md
+!README.md

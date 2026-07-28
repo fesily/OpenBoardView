@@ -1,0 +1,121 @@
+name: obv-server Docker (GHCR)
+
+on:
+  push:
+    branches: [web-support, master, main]
+    tags: ["v*"]
+    paths:
+      - "src/obv_core/**"
+      - "src/obv_server/**"
+      - "src/openboardview/**"
+      - "src/CMakeLists.txt"
+      - "src/sqlite3/**"
+      - "src/mpc/**"
+      - "src/utf8/**"
+      - "src/zlib/**"
+      - "web/**"
+      - "CMakeLists.txt"
+      - "version.cmake"
+      - "utilities/**"
+      - "Dockerfile.server"
+      - ".dockerignore"
+      - ".github/workflows/obv-server-docker.yml"
+  pull_request:
+    paths:
+      - "src/obv_core/**"
+      - "src/obv_server/**"
+      - "src/openboardview/**"
+      - "src/CMakeLists.txt"
+      - "web/**"
+      - "Dockerfile.server"
+      - ".dockerignore"
+      - ".github/workflows/obv-server-docker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: obv-server-docker-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: obv-server
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Image name (lowercase for GHCR)
+        id: meta_name
+        shell: bash
+        run: |
+          owner_lc="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          repo_lc="$(echo '${{ github.event.repository.name }}' | tr '[:upper:]' '[:lower:]')"
+          echo "image=ghcr.io/${owner_lc}/${repo_lc}/${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.meta_name.outputs.image }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.server
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=obv-server
+          cache-to: type=gha,mode=max,scope=obv-server
+        env:
+          DOCKER_BUILD_CHECKS_ANNOTATIONS: false
+          DOCKER_BUILD_SUMMARY: false
+          DOCKER_BUILD_RECORD_UPLOAD: false
+
+      - name: Smoke health (PR load only)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          img="$(echo '${{ steps.meta.outputs.tags }}' | head -n1)"
+          cid="$(docker run -d -p 18080:8080 "$img")"
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:18080/api/v1/health" | grep -q ok; then
+              echo "health ok"
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs "$cid" || true
+          echo "health check failed" >&2
+          exit 1

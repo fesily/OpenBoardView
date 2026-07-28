@@ -1,0 +1,77 @@
+# syntax=docker/dockerfile:1.7
+# Multi-stage image for obv_server + web SPA.
+# Push target: ghcr.io/<owner>/<repo>/obv-server
+
+# ---------- web SPA ----------
+FROM node:22-bookworm-slim AS web-build
+WORKDIR /src/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
+
+# ---------- C++ server ----------
+FROM debian:bookworm-slim AS server-build
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential \
+      cmake \
+      ninja-build \
+      git \
+      python3 \
+      ca-certificates \
+      zlib1g-dev \
+      libsqlite3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+# Copy only what the server / core need (avoid desktop SDL/imgui bulk where possible).
+COPY CMakeLists.txt version.cmake LICENSE ./
+COPY CMakeModules ./CMakeModules
+COPY utilities ./utilities
+COPY asset ./asset
+COPY src ./src
+
+RUN cmake -S . -B build \
+      -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DENABLE_OPENBOARDVIEW=OFF \
+      -DENABLE_OBV_CORE=ON \
+      -DENABLE_OBV_SERVER=ON \
+      -DENABLE_SQLITE3=ON \
+    && cmake --build build --target obv_server -j"$(nproc)"
+
+# ---------- runtime ----------
+FROM debian:bookworm-slim AS runtime
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      zlib1g \
+      libsqlite3-0 \
+      libstdc++6 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --uid 10001 --create-home --home-dir /app --shell /usr/sbin/nologin obv
+
+WORKDIR /app
+
+COPY --from=server-build /src/build/src/obv_server/obv_server /app/obv_server
+COPY --from=web-build /src/web/dist /app/www
+COPY data/config/keys.example.json /app/data/config/keys.example.json
+
+# Runtime dirs for uploads / overlays (mount over these in production).
+RUN mkdir -p /app/data/boards /app/data/overlays /app/data/config /app/boards \
+    && chown -R obv:obv /app
+
+USER obv
+EXPOSE 8080
+
+ENV OBV_HOST=0.0.0.0 \
+    OBV_PORT=8080 \
+    OBV_DATA=/app/data \
+    OBV_BOARDS=/app/boards \
+    OBV_WWW=/app/www
+
+# Default: listen on all interfaces inside the container, serve SPA + API.
+# Mount board library at /app/boards and optionally /app/data for persistence.
+ENTRYPOINT ["/app/obv_server"]
+CMD ["--host", "0.0.0.0", "--port", "8080", "--data", "/app/data", "--boards", "/app/boards", "--www", "/app/www"]
