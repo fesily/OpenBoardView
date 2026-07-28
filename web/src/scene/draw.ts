@@ -623,9 +623,9 @@ function drawHighlights(
 }
 
 /**
- * Part name centered in the part's screen bbox — port of DrawParts showPartName:
- * font fitted to bbox, skipped when too small (desktop skips at maxfontsize <= 1).
- * Zoom-gated: nothing renders until the part is ~30px wide on screen.
+ * Part name centered in the part's screen bbox — port of DrawParts showPartName.
+ * Desktop skips dummy parts (`is_dummy`) and single-pin devices don't show pad
+ * text; we also skip part names for those (nails / test pads clutter the view).
  */
 function drawPartLabels(
   ctx: CanvasRenderingContext2D,
@@ -643,6 +643,12 @@ function drawPartLabels(
   for (const part of parts) {
     if (!part.name) continue;
     if (!sideVisible(part.side, view.side)) continue;
+    // Desktop DrawParts: if (part->is_dummy()) continue;
+    // Single-pin parts (test pads / nails) — no part name label.
+    const pinCount = part.pins?.length ?? 0;
+    if (pinCount <= 1) continue;
+    const ptype = (part.type || '').toLowerCase();
+    if (ptype === 'dummy' || ptype === 'board') continue;
     const outline = part.outline;
     if (!outline || outline.length < 2) continue;
 
