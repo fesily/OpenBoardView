@@ -70,7 +70,7 @@ describe('hitTestNearestPin', () => {
     expect(miss).toBeNull();
   });
 
-  test('skips GND / GROUND / UNCONNECTED pins', () => {
+  test('skips GND and true NC pins; keeps signal and test pads', () => {
     const nets: Net[] = [
       { id: 1, name: 'VCC', isGround: false },
       { id: 2, name: 'GND', isGround: true },
@@ -79,22 +79,35 @@ describe('hitTestNearestPin', () => {
     ];
     const board = boardWith(
       [
-        makePin({ id: 'gnd', pos: { x: 0, y: 0 }, diameter: 20, netId: 2 }),
-        makePin({ id: 'gnd2', pos: { x: 0, y: 0 }, diameter: 20, netId: 3 }),
-        makePin({ id: 'nc', pos: { x: 0, y: 0 }, diameter: 20, netId: 4 }),
-        makePin({ id: 'sig', pos: { x: 5, y: 0 }, diameter: 20, netId: 1 }),
+        makePin({ id: 'gnd', pos: { x: 0, y: 0 }, diameter: 20, netId: 2, type: 'component' }),
+        makePin({ id: 'gnd2', pos: { x: 0, y: 0 }, diameter: 20, netId: 3, type: 'component' }),
+        makePin({ id: 'nc', pos: { x: 0, y: 0 }, diameter: 20, netId: 4, type: 'not_connected' }),
+        // Missing PIN_NET bucket: same UNCONNECTED net name but type component → selectable.
+        makePin({ id: 'bucket', pos: { x: 0, y: 0 }, diameter: 20, netId: 4, type: 'component' }),
+        makePin({ id: 'sig', pos: { x: 5, y: 0 }, diameter: 20, netId: 1, type: 'component' }),
       ],
       nets,
     );
     const scale = view.scale;
-    // Click near origin — only signal pin should be selectable (slightly offset).
     const hit = hitTestNearestPin(board, view, 100 + 5 * scale, 100, 200, 200);
     expect(hit?.id).toBe('sig');
-    // Pure GND pad under cursor with no signal nearby → null
+    // Pure GND pad under cursor → null
     const onlyGnd = boardWith(
-      [makePin({ id: 'g', pos: { x: 0, y: 0 }, diameter: 20, netId: 2 })],
+      [makePin({ id: 'g', pos: { x: 0, y: 0 }, diameter: 20, netId: 2, type: 'component' })],
       nets,
     );
     expect(hitTestNearestPin(onlyGnd, view, 100, 100, 200, 200)).toBeNull();
+    // True NC → null
+    const onlyNc = boardWith(
+      [makePin({ id: 'n', pos: { x: 0, y: 0 }, diameter: 20, netId: 4, type: 'not_connected' })],
+      nets,
+    );
+    expect(hitTestNearestPin(onlyNc, view, 100, 100, 200, 200)).toBeNull();
+    // Bucket component on UNCONNECTED net (not typed NC) → selectable
+    const bucket = boardWith(
+      [makePin({ id: 'b', pos: { x: 0, y: 0 }, diameter: 20, netId: 4, type: 'component' })],
+      nets,
+    );
+    expect(hitTestNearestPin(bucket, view, 100, 100, 200, 200)?.id).toBe('b');
   });
 });

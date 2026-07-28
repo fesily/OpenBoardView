@@ -1,5 +1,5 @@
 import type { BoardDocument, Pin } from '../types/board';
-import { isNonSelectableNet, netByIdMap } from './netKinds';
+import { isNonSelectablePin, netByIdMap } from './netKinds';
 import { screenToBoard, type ViewState } from './transform';
 
 /**
@@ -22,7 +22,7 @@ export function pinPickRadius(pin: Pick<Pin, 'diameter'>, fallback = DEFAULT_PIN
 /**
  * Nearest pin within threshold in board space.
  * Threshold: pin.diameter when > 0 (radius), else DEFAULT_PIN_RADIUS.
- * GND / GROUND / UNCONNECTED pins are not selectable (skipped).
+ * GND and true NC (pin.type not_connected) are not selectable.
  */
 export function hitTestNearestPin(
   board: BoardDocument,
@@ -43,8 +43,7 @@ export function hitTestNearestPin(
     if (!sideVisible(pin.side, view.side)) continue;
     if (nets) {
       const net = pin.netId != null ? nets.get(pin.netId) : undefined;
-      // No net / special nets: not selectable for highlight.
-      if (!net || isNonSelectableNet(net)) continue;
+      if (isNonSelectablePin(pin, net)) continue;
     }
     const dx = pin.pos.x - pos.x;
     const dy = pin.pos.y - pos.y;

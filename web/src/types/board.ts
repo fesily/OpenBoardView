@@ -48,6 +48,14 @@ export interface Component {
   pins: string[];
 }
 
+export type PinType =
+  | 'unknown'
+  | 'not_connected'
+  | 'component'
+  | 'via'
+  | 'test_pad'
+  | string;
+
 export interface Pin {
   id: string;
   component: string | null;
@@ -58,6 +66,11 @@ export interface Pin {
    * Overlay partInfos[part].pins[key].show_name overrides when present.
    */
   show_name?: string;
+  /**
+   * Desktop Pin::EPinType. Preferred for NC / test-pad coloring over net name alone.
+   * Missing PIN_NET in BVR used to look like NC via default net string — type is authoritative.
+   */
+  type?: PinType;
   netId: number | null;
   side: BoardSide;
   pos: Point;

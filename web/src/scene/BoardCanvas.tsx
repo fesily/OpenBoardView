@@ -11,7 +11,7 @@ import {
 import type { BoardDocument, OverlayAnnotation, OverlayDocument, Pin } from '../types/board';
 import { collectCopperLayers, drawBoard, LAYER_COPPER } from './draw';
 import { hitTestNearestPin } from './hitTest';
-import { isNonSelectableNet, netByIdMap } from './netKinds';
+import { isNonSelectablePin, netByIdMap } from './netKinds';
 import {
   PIN_VALUE_MODE_LABEL,
   PIN_VALUE_MODES,
@@ -159,11 +159,11 @@ export default function BoardCanvas({
       const sel = board.pins.find((p) => p.id === selectedPinId);
       if (sel?.component) partNames.add(sel.component);
       // Desktop: same-net highlight for selectable nets only.
-      // GND/GROUND/UNCONNECTED: no net web, no same-net expansion.
+      // GND and true NC (pin.type not_connected): no net web / same-net expand.
       if (sel?.netId != null) {
         const nets = netByIdMap(board.nets);
         const net = nets.get(sel.netId);
-        if (net && !isNonSelectableNet(net)) {
+        if (net && !isNonSelectablePin(sel, net)) {
           selectedNetId = sel.netId;
           for (const p of board.pins) {
             if (p.netId === selectedNetId) {

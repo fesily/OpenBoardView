@@ -9,7 +9,7 @@ import type {
   Track,
   Via,
 } from '../types/board';
-import { isGroundNet, isUnconnectedNet } from './netKinds';
+import { isGroundNet, isNotConnectedPin, isTestPadPin } from './netKinds';
 import {
   buildNetPropagatedValues,
   resolvePinValue,
@@ -42,8 +42,11 @@ export interface DrawColors {
   pinSameNet: string;
   /** Desktop pinGroundColor — solid fill for GND/GROUND. */
   pinGround: string;
-  /** Desktop pinNotConnectedColor — solid fill for UNCONNECTED. */
+  /** Desktop pinNotConnectedColor — solid fill for true NC only. */
   pinUnconnected: string;
+  /** Desktop pinTestPadColor / pinTestPadFillColor. */
+  pinTestPad: string;
+  pinTestPadFill: string;
   partHighlight: string;
   partText: string;
   pinText: string;
@@ -70,6 +73,8 @@ export const DEFAULT_COLORS: DrawColors = {
   // Dark theme: deep blue for ground, muted gray for NC (desktop dark scheme).
   pinGround: '#3030c3',
   pinUnconnected: '#9e9e9e',
+  pinTestPad: '#888888',
+  pinTestPadFill: '#6c5b1f',
   partHighlight: '#ffe082',
   partText: '#d5dbe6',
   pinText: '#e8eaf0',
@@ -456,7 +461,9 @@ function drawPins(
     const sameNet = !selected && netForcedVisible(pin.netId, highlight);
     const net = pin.netId != null ? netById.get(pin.netId) : undefined;
     const ground = isGroundNet(net);
-    const unconnected = isUnconnectedNet(net);
+    // Prefer pin.type (export) — missing PIN_NET must not look like NC.
+    const notConnected = isNotConnectedPin(pin, net);
+    const testPad = isTestPadPin(pin);
 
     ctx.beginPath();
     ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
@@ -476,10 +483,17 @@ function drawPins(
       // Desktop: solid pinGroundColor for is_ground nets.
       ctx.fillStyle = colors.pinGround;
       ctx.fill();
-    } else if (unconnected) {
-      // Desktop: solid pinNotConnectedColor for NC / UNCONNECTED.
+    } else if (notConnected) {
+      // Desktop: solid pinNotConnectedColor only for kPinTypeNotConnected.
       ctx.fillStyle = colors.pinUnconnected;
       ctx.fill();
+    } else if (testPad) {
+      // Desktop test pad: brown fill + gray ring (not NC gray).
+      ctx.fillStyle = colors.pinTestPadFill;
+      ctx.fill();
+      ctx.strokeStyle = colors.pinTestPad;
+      ctx.lineWidth = 1;
+      ctx.stroke();
     } else {
       ctx.strokeStyle = colors.pin;
       ctx.lineWidth = 1;

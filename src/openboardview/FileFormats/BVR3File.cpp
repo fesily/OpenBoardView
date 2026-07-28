@@ -56,11 +56,15 @@ BVR3File::BVR3File(std::vector<char> &buf) {
 
 	BRDPart blank_part;
 	BRDPin blank_pin;
+	// Missing PIN_NET must not inherit the BRDPin default "UNCONNECTED" string —
+	// that made every omitted net look like explicit NC (gray). Empty → getNet
+	// still attaches the shared UNCONNECTED net, but pin type stays component/testpad.
+	blank_pin.net.clear();
 	BRDTrack blank_track;
 	BRDVia blank_via;
 	BRDArc blank_arc;
 	BRDPart part;
-	BRDPin pin;
+	BRDPin pin = blank_pin;
 	BRDTrack track;
 	BRDVia via;
 	BRDArc arc;

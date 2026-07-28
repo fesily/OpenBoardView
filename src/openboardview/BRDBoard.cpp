@@ -141,14 +141,23 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 	};
 
 	auto getNet = [&](auto &t) {
+		// Keep the raw name from the file element for NC detection.
+		// Mapping empty → shared UNCONNECTED net must NOT rewrite net_name to
+		// "UNCONNECTED", or missing PIN_NET would be treated as explicit NC.
+		// IMPORTANT: use find(), never operator[] on a missing key — map of
+		// shared_ptr default-inserts nullptr and later nets_ iteration crashes.
 		std::string net_name = std::string{t.net};
 		std::shared_ptr<Net> net;
-		if (t.netId > 0) net = netid_map[t.netId];
+		if (t.netId > 0) {
+			auto it = netid_map.find(t.netId);
+			if (it != netid_map.end()) net = it->second;
+		}
 		if (!net) {
-			net = net_map[net_name];
+			auto it = net_map.find(net_name);
+			if (it != net_map.end()) net = it->second;
 			if (!net) {
 				if (net_name.empty() || is_prefix(kNetUnconnectedPrefix, net_name)) {
-					net = net_map[kNetUnconnectedPrefix];
+					net = net_map[kNetUnconnectedPrefix]; // pre-inserted
 				} else {
 					net            = std::make_shared<Net>();
 					net->name      = net_name;
@@ -158,7 +167,7 @@ BRDBoard::BRDBoard(const BRDFileBase * const boardFile)
 				}
 			}
 		}
-		return std::make_pair(net, net->name);
+		return std::make_pair(net, net_name);
 	};
 
 	// Populate pins

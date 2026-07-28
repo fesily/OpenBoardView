@@ -130,6 +130,18 @@ const char *shapeToString(EShapeType t) {
 	}
 }
 
+/** Desktop Pin::EPinType — frontend uses this for NC/testpad coloring. */
+const char *pinTypeToString(Pin::EPinType t) {
+	switch (t) {
+		case Pin::kPinTypeNotConnected: return "not_connected";
+		case Pin::kPinTypeComponent: return "component";
+		case Pin::kPinTypeVia: return "via";
+		case Pin::kPinTypeTestPad: return "test_pad";
+		case Pin::kPinTypeUnkown:
+		default: return "unknown";
+	}
+}
+
 // Nail/test-pad pins must not use ".<number>" when dummy component name is empty.
 std::string pinId(const Pin &pin, size_t globalIndex) {
 	const bool nailLike = !pin.component || pin.component->name.empty() ||
@@ -475,6 +487,8 @@ std::string ExportBoardJson(const BoardSnapshot &snap, const std::string &boardI
 			// Desktop DrawPins uses pin->show_name (prefer overlay, else name).
 			os << ",\"show_name\":";
 			appendEscaped(os, p.show_name.empty() ? p.name : p.show_name);
+			os << ",\"type\":";
+			appendEscaped(os, pinTypeToString(p.type));
 			os << ",\"netId\":";
 			if (p.net) {
 				os << exportNetId(netIds, nextNetId, p.net);
