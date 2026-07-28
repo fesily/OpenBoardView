@@ -3,6 +3,8 @@ import type { BoardDocument, OverlayDocument, Pin } from '../types/board';
 import {
   boardPinValue,
   buildNetPropagatedValues,
+  editTargetPin,
+  findNetSourcePin,
   localPinValue,
   pinOverlayKey,
   resolvePinValue,
@@ -111,5 +113,16 @@ describe('pinValues', () => {
     const p = pin({ id: 'A1', name: 'A1', component: 'U1', netId: 1 });
     expect(localPinValue(p, overlay, 'diode')).toBe('0.55');
     expect(localPinValue(p, overlay, 'voltage')).toBe('3.3');
+  });
+
+  test('findNetSourcePin / editTargetPin: net_source vs local', () => {
+    const src = pin({ id: 'src', name: 'src', component: 'R1', netId: 1, diode: '86' });
+    const dst = pin({ id: 'dst', name: 'dst', component: 'R2', netId: 1 });
+    const b = board([src, dst]);
+    expect(findNetSourcePin(b, null, 1, 'diode')?.id).toBe('src');
+    expect(editTargetPin(dst, b, null, 'diode', 'net_source').id).toBe('src');
+    expect(editTargetPin(dst, b, null, 'diode', 'local').id).toBe('dst');
+    // no source → write on selected
+    expect(editTargetPin(dst, b, null, 'voltage', 'net_source').id).toBe('dst');
   });
 });

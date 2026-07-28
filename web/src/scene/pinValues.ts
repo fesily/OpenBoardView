@@ -93,3 +93,34 @@ export function resolvePinValue(
   if (pin.netId != null) return netValues.get(pin.netId) ?? '';
   return '';
 }
+
+/**
+ * First pin on `netId` that has a non-empty local value for `mode`
+ * (same order as buildNetPropagatedValues seed). Used as default overlay edit target.
+ */
+export function findNetSourcePin(
+  board: BoardDocument,
+  overlay: OverlayDocument | null | undefined,
+  netId: number | null | undefined,
+  mode: PinValueMode,
+): Pin | null {
+  if (netId == null) return null;
+  for (const pin of board.pins ?? []) {
+    if (pin.netId !== netId) continue;
+    if (localPinValue(pin, overlay, mode)) return pin;
+  }
+  return null;
+}
+
+/** Overlay write target for a measurement field under net_source vs local edit mode. */
+export function editTargetPin(
+  selected: Pin,
+  board: BoardDocument,
+  overlay: OverlayDocument | null | undefined,
+  mode: PinValueMode,
+  editMode: 'net_source' | 'local',
+): Pin {
+  if (editMode === 'local') return selected;
+  // Prefer the propagation seed; if none yet, write on the selected pin.
+  return findNetSourcePin(board, overlay, selected.netId, mode) ?? selected;
+}

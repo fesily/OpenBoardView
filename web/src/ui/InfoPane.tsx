@@ -5,6 +5,11 @@ import {
   patchAnnotation,
   putOverlays,
 } from '../api/client';
+import {
+  editTargetPin,
+  localPinValue,
+  type PinValueMode,
+} from '../scene/pinValues';
 import type {
   BoardDocument,
   Net,
@@ -102,6 +107,13 @@ export default function InfoPane({
   const partInfo = partName ? overlay?.partInfos[partName] : undefined;
   const netInfo = net ? overlay?.netInfos[net.name] : undefined;
 
+  /**
+   * net_source (default): measurement fields edit the pin that seeds net propagation.
+   * local: always write overlay on the selected pin.
+   * show_name / note always stay on the selected pin.
+   */
+  const [pinEditMode, setPinEditMode] = useState<'net_source' | 'local'>('net_source');
+
   const [note, setNote] = useState(pinInfo.note ?? '');
   const [showName, setShowName] = useState(pinInfo.show_name ?? '');
   const [voltage, setVoltage] = useState(pinInfo.voltage ?? '');
@@ -124,47 +136,58 @@ export default function InfoPane({
   const [annBusy, setAnnBusy] = useState<number | null>(null);
   const [annMsg, setAnnMsg] = useState<string | null>(null);
 
-  // Sync local editors when selection or overlay reloads.
+  const measureTargets = useMemo((): Record<PinValueMode, Pin> | null => {
+    if (!selectedPin) return null;
+    const modes: PinValueMode[] = ['diode', 'voltage', 'ohm', 'ohm_black'];
+    const out: Record<PinValueMode, Pin> = {
+      diode: selectedPin,
+      voltage: selectedPin,
+      ohm: selectedPin,
+      ohm_black: selectedPin,
+    };
+    for (const m of modes) {
+      out[m] = editTargetPin(selectedPin, board, overlay, m, pinEditMode);
+    }
+    return out;
+  }, [selectedPin, board, overlay, pinEditMode]);
+
+  // Sync local editors when selection, mode, or overlay reloads.
   useEffect(() => {
-    setNote(pinInfo.note ?? '');
-    setShowName(pinInfo.show_name ?? '');
-    setVoltage(pinInfo.voltage ?? '');
-    setDiode(pinInfo.diode ?? '');
-    setOhm(pinInfo.ohm ?? '');
-    setOhmBlack(pinInfo.ohm_black ?? '');
+    if (!selectedPin || !measureTargets) {
+      setNote('');
+      setShowName('');
+      setVoltage('');
+      setDiode('');
+      setOhm('');
+      setOhmBlack('');
+      setPinMsg(null);
+      return;
+    }
+    // Identity fields always on selected pin.
+    const localOv = partName
+      ? (overlay?.partInfos[partName]?.pins?.[pinKey] ?? {})
+      : ({} as PinInfo);
+    setNote(localOv.note ?? '');
+    setShowName(localOv.show_name ?? '');
+    // Measurement fields load from edit target (net source or local).
+    setDiode(localPinValue(measureTargets.diode, overlay, 'diode'));
+    setVoltage(localPinValue(measureTargets.voltage, overlay, 'voltage'));
+    setOhm(localPinValue(measureTargets.ohm, overlay, 'ohm'));
+    setOhmBlack(localPinValue(measureTargets.ohm_black, overlay, 'ohm_black'));
     setPinMsg(null);
   }, [
+    selectedPin,
     selectedPin?.id,
-    pinInfo.note,
-    pinInfo.show_name,
-    pinInfo.voltage,
-    pinInfo.diode,
-    pinInfo.ohm,
-    pinInfo.ohm_black,
+    partName,
+    pinKey,
+    pinEditMode,
+    overlay,
+    measureTargets,
   ]);
 
-  useEffect(() => {
-    setPartType(partInfo?.part_type ?? '');
-    setPartAngle(partInfo?.angle != null ? String(partInfo.angle) : '');
-    setPartMsg(null);
-  }, [partName, partInfo?.part_type, partInfo?.angle]);
-
-  useEffect(() => {
-    setNetShowName(netInfo?.showname ?? '');
-    setNetNote(netInfo?.note ?? '');
-    setNetMsg(null);
-  }, [net?.name, netInfo?.showname, netInfo?.note]);
-
-  useEffect(() => {
-    const next: Record<number, string> = {};
-    for (const a of overlay?.annotations ?? []) next[a.id] = a.note;
-    setAnnDrafts(next);
-    setAnnMsg(null);
-  }, [overlay]);
-
   const savePinOverlay = async () => {
-    if (!selectedPin || !partName) {
-      setPinMsg('Select a pin on a part to edit overlay fields.');
+    if (!selectedPin || !measureTargets) {
+      setPinMsg('Select a pin to edit overlay fields.');
       return;
     }
     setSavingPin(true);
@@ -173,41 +196,87 @@ export default function InfoPane({
       const base = cloneOverlay(
         overlay ?? { annotations: [], partInfos: {}, netInfos: {} },
       );
-      const partEntry: PartInfo = { ...(base.partInfos[partName] ?? {}) };
-      const pins = { ...(partEntry.pins ?? {}) };
-      const prev = { ...(pins[pinKey] ?? {}) };
-      const nextPin: PinInfo = { ...prev };
-      const setField = (key: keyof PinInfo, value: string) => {
-        const t = value.trim();
-        if (t) (nextPin as Record<string, string>)[key] = t;
-        else delete (nextPin as Record<string, string | undefined>)[key];
+
+      const writePinFields = (
+        target: Pin,
+        fields: Partial<Record<keyof PinInfo, string>>,
+      ) => {
+        const tPart = target.component;
+        if (!tPart) {
+          throw new Error(`Pin ${target.id} has no part; cannot store PartInfos.`);
+        }
+        const tKey = pinOverlayKey(target);
+        const partEntry: PartInfo = { ...(base.partInfos[tPart] ?? {}) };
+        const pins = { ...(partEntry.pins ?? {}) };
+        const nextPin: PinInfo = { ...(pins[tKey] ?? {}) };
+        for (const [k, value] of Object.entries(fields)) {
+          const t = (value ?? '').trim();
+          if (t) (nextPin as Record<string, string>)[k] = t;
+          else delete (nextPin as Record<string, string | undefined>)[k];
+        }
+        const hasAny = Object.values(nextPin).some((v) => v != null && String(v).length > 0);
+        if (hasAny) pins[tKey] = nextPin;
+        else delete pins[tKey];
+        partEntry.pins = pins;
+        if (
+          Object.keys(pins).length === 0 &&
+          !partEntry.part_type &&
+          partEntry.angle == null
+        ) {
+          delete base.partInfos[tPart];
+        } else {
+          base.partInfos[tPart] = partEntry;
+        }
       };
-      setField('note', note);
-      setField('show_name', showName);
-      setField('voltage', voltage);
-      setField('diode', diode);
-      setField('ohm', ohm);
-      setField('ohm_black', ohmBlack);
-      // Drop empty pin entries to keep YAML small.
-      const hasAny = Object.values(nextPin).some((v) => v != null && String(v).length > 0);
-      if (hasAny) pins[pinKey] = nextPin;
-      else delete pins[pinKey];
-      partEntry.pins = pins;
-      if (
-        Object.keys(pins).length === 0 &&
-        !partEntry.part_type &&
-        partEntry.angle == null
-      ) {
-        delete base.partInfos[partName];
-      } else {
-        base.partInfos[partName] = partEntry;
+
+      // show_name / note always on selected pin.
+      if (!selectedPin.component) {
+        setPinMsg('Selected pin has no part; cannot store PartInfos entry.');
+        return;
       }
+      writePinFields(selectedPin, {
+        note,
+        show_name: showName,
+      });
+
+      // Merge measurement writes per target pin (may differ in net_source mode).
+      type Meas = { pin: Pin; fields: Partial<Record<PinValueMode, string>> };
+      const buckets = new Map<string, Meas>();
+      const addMeas = (mode: PinValueMode, value: string) => {
+        const t = measureTargets[mode];
+        if (!t.component) {
+          throw new Error(`Target pin ${t.id} has no part for ${mode}.`);
+        }
+        const id = t.id;
+        const bucket = buckets.get(id) ?? { pin: t, fields: {} };
+        bucket.fields[mode] = value;
+        buckets.set(id, bucket);
+      };
+      addMeas('diode', diode);
+      addMeas('voltage', voltage);
+      addMeas('ohm', ohm);
+      addMeas('ohm_black', ohmBlack);
+
+      for (const { pin: t, fields } of buckets.values()) {
+        writePinFields(t, fields);
+      }
+
       const updated = await putOverlays(boardId, {
         partInfos: base.partInfos,
         netInfos: base.netInfos,
       });
       onOverlayChange(updated);
-      setPinMsg('Saved pin overlay.');
+      const remote =
+        pinEditMode === 'net_source' &&
+        (measureTargets.diode.id !== selectedPin.id ||
+          measureTargets.voltage.id !== selectedPin.id ||
+          measureTargets.ohm.id !== selectedPin.id ||
+          measureTargets.ohm_black.id !== selectedPin.id);
+      setPinMsg(
+        remote
+          ? 'Saved pin overlay (measurements wrote to net source pin(s)).'
+          : 'Saved pin overlay.',
+      );
     } catch (e) {
       const msg = e instanceof ApiError ? `${e.code}: ${e.message}` : String(e);
       setPinMsg(`Save failed: ${msg}`);
@@ -444,7 +513,13 @@ export default function InfoPane({
                 </button>
               </div>
               {partMsg && (
-                <p className={partMsg.startsWith('Save failed') || partMsg.startsWith('Angle') ? 'err' : 'msg'}>
+                <p
+                  className={
+                    partMsg.startsWith('Save failed') || partMsg.startsWith('Angle')
+                      ? 'err'
+                      : 'msg'
+                  }
+                >
                   {partMsg}
                 </p>
               )}
@@ -494,15 +569,66 @@ export default function InfoPane({
 
           <section className="info-section">
             <h4>Pin overlay</h4>
-            {!partName ? (
+            {!selectedPin.component ? (
               <p className="muted">Pin has no part; cannot store PartInfos entry.</p>
             ) : (
               <>
-                <p className="muted mono">
-                  key: {partName} / {pinKey}
+                <div
+                  className="pin-edit-modes"
+                  role="radiogroup"
+                  aria-label="Pin overlay edit target"
+                >
+                  <label className="pin-edit-mode">
+                    <input
+                      type="radio"
+                      name="pin-edit-mode"
+                      checked={pinEditMode === 'net_source'}
+                      onChange={() => setPinEditMode('net_source')}
+                      disabled={savingPin}
+                    />
+                    <span>Net source</span>
+                  </label>
+                  <label className="pin-edit-mode">
+                    <input
+                      type="radio"
+                      name="pin-edit-mode"
+                      checked={pinEditMode === 'local'}
+                      onChange={() => setPinEditMode('local')}
+                      disabled={savingPin}
+                    />
+                    <span>Local pin</span>
+                  </label>
+                </div>
+                <p className="muted pin-edit-hint">
+                  {pinEditMode === 'net_source'
+                    ? 'Default: diode/voltage/ohm write to the pin that seeds net propagation (or this pin if none). show_name/note always local.'
+                    : 'Local: all fields write only on the selected pin.'}
                 </p>
+                <p className="muted mono">
+                  selected: {partName} / {pinKey}
+                </p>
+                {pinEditMode === 'net_source' && measureTargets && (
+                  <p className="muted mono pin-edit-targets">
+                    meas targets: d=
+                    {measureTargets.diode.id === selectedPin.id
+                      ? 'self'
+                      : `${measureTargets.diode.component}/${pinOverlayKey(measureTargets.diode)}`}
+                    {' · '}v=
+                    {measureTargets.voltage.id === selectedPin.id
+                      ? 'self'
+                      : `${measureTargets.voltage.component}/${pinOverlayKey(measureTargets.voltage)}`}
+                    {' · '}Ω=
+                    {measureTargets.ohm.id === selectedPin.id
+                      ? 'self'
+                      : `${measureTargets.ohm.component}/${pinOverlayKey(measureTargets.ohm)}`}
+                    {' · '}Ωb=
+                    {measureTargets.ohm_black.id === selectedPin.id
+                      ? 'self'
+                      : `${measureTargets.ohm_black.component}/${pinOverlayKey(measureTargets.ohm_black)}`}
+                  </p>
+                )}
                 <label className="info-field">
-                  <span>show_name</span>
+                  <span>show_name (local)</span>
                   <input
                     type="text"
                     value={showName}
@@ -511,7 +637,7 @@ export default function InfoPane({
                   />
                 </label>
                 <label className="info-field">
-                  <span>note</span>
+                  <span>note (local)</span>
                   <textarea
                     rows={2}
                     value={note}

@@ -558,6 +558,29 @@ tr.row-selected td {
   font: inherit;
 }
 
+
+.pin-edit-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-bottom: 0.25rem;
+}
+
+.pin-edit-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: #c5cad3;
+  cursor: pointer;
+}
+
+.pin-edit-hint,
+.pin-edit-targets {
+  font-size: 0.75rem;
+  margin: 0.2rem 0 0.45rem;
+}
+
 .info-subhead {
   margin-top: 0.65rem !important;
 }
