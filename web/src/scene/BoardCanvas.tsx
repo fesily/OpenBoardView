@@ -66,7 +66,10 @@ export default function BoardCanvas({
   const [view, setView] = useState<ViewState | null>(null);
   const [size, setSize] = useState({ w: 640, h: 480 });
   const [layerMenuOpen, setLayerMenuOpen] = useState(false);
-  /** null = all copper layers on (default). Set = explicit toggles. */
+  /**
+   * null = all copper layers on.
+   * Set = explicit filter; default on board open is top+bottom only.
+   */
   const [enabledLayers, setEnabledLayers] = useState<Set<string> | null>(null);
   const dragRef = useRef<{
     active: boolean;
@@ -78,11 +81,14 @@ export default function BoardCanvas({
 
   const copperLayers = useMemo(() => collectCopperLayers(board), [board]);
 
-  // Reset layer filter when board changes (default: all on).
+  // Reset layer filter when board changes: default top + bottom (if present).
   useEffect(() => {
-    setEnabledLayers(null);
+    const layers = collectCopperLayers(board);
+    const preferred = layers.filter((l) => l === 'top' || l === 'bottom');
+    // If board has neither top nor bottom copper, fall back to all layers.
+    setEnabledLayers(preferred.length > 0 ? new Set(preferred) : null);
     setLayerMenuOpen(false);
-  }, [board.boardId]);
+  }, [board, board.boardId]);
 
   const syncView = useCallback((next: ViewState) => {
     viewRef.current = next;
