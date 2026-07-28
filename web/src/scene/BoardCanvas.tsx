@@ -1,4 +1,3 @@
-import { isNonSelectableNet, netByIdMap } from './netKinds';
 import {
   useCallback,
   useEffect,
@@ -12,6 +11,12 @@ import {
 import type { BoardDocument, OverlayAnnotation, OverlayDocument, Pin } from '../types/board';
 import { collectCopperLayers, drawBoard, LAYER_COPPER } from './draw';
 import { hitTestNearestPin } from './hitTest';
+import { isNonSelectableNet, netByIdMap } from './netKinds';
+import {
+  PIN_VALUE_MODE_LABEL,
+  PIN_VALUE_MODES,
+  type PinValueMode,
+} from './pinValues';
 import {
   centerOnBounds,
   flipBoard,
@@ -69,6 +74,9 @@ export default function BoardCanvas({
   const [view, setView] = useState<ViewState | null>(null);
   const [size, setSize] = useState({ w: 640, h: 480 });
   const [layerMenuOpen, setLayerMenuOpen] = useState(false);
+  const [valueMenuOpen, setValueMenuOpen] = useState(false);
+  /** Overlay pin field shown under pad name; propagates across net. */
+  const [pinValueMode, setPinValueMode] = useState<PinValueMode>('diode');
   /**
    * null = all copper layers on.
    * Set = explicit filter; default on board open is top+bottom only.
@@ -91,6 +99,7 @@ export default function BoardCanvas({
     // If board has neither top nor bottom copper, fall back to all layers.
     setEnabledLayers(preferred.length > 0 ? new Set(preferred) : null);
     setLayerMenuOpen(false);
+    setValueMenuOpen(false);
   }, [board, board.boardId]);
 
   const syncView = useCallback((next: ViewState) => {
@@ -182,6 +191,7 @@ export default function BoardCanvas({
       annotations,
       overlay,
       enabledLayers,
+      pinValueMode,
     );
   }, [
     board,
@@ -195,6 +205,7 @@ export default function BoardCanvas({
     annotations,
     overlay,
     enabledLayers,
+    pinValueMode,
   ]);
 
   const localPoint = (ev: { clientX: number; clientY: number }) => {
@@ -331,7 +342,10 @@ export default function BoardCanvas({
             <button
               type="button"
               className={layerMenuOpen ? 'layer-menu-btn open' : 'layer-menu-btn'}
-              onClick={() => setLayerMenuOpen((o) => !o)}
+              onClick={() => {
+                setLayerMenuOpen((o) => !o);
+                setValueMenuOpen(false);
+              }}
               title="Select copper layers to render"
             >
               Layers ({onCount}/{copperLayers.length})
@@ -373,6 +387,45 @@ export default function BoardCanvas({
             )}
           </div>
         )}
+
+        <div className="layer-menu">
+          <button
+            type="button"
+            className={valueMenuOpen ? 'layer-menu-btn open' : 'layer-menu-btn'}
+            onClick={() => {
+              setValueMenuOpen((o) => !o);
+              setLayerMenuOpen(false);
+            }}
+            title="Pin pad value field (propagates on net)"
+          >
+            Pin: {PIN_VALUE_MODE_LABEL[pinValueMode]}
+          </button>
+          {valueMenuOpen && (
+            <div className="layer-menu-panel" role="menu" aria-label="Pin value mode">
+              <ul className="layer-menu-list">
+                {PIN_VALUE_MODES.map((mode) => (
+                  <li key={mode}>
+                    <label className="layer-menu-item">
+                      <input
+                        type="radio"
+                        name="pin-value-mode"
+                        checked={pinValueMode === mode}
+                        onChange={() => {
+                          setPinValueMode(mode);
+                          setValueMenuOpen(false);
+                        }}
+                      />
+                      <span className="layer-name">{PIN_VALUE_MODE_LABEL[mode]}</span>
+                      <span className="muted mono" style={{ marginLeft: 'auto', fontSize: '0.72rem' }}>
+                        {mode}
+                      </span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
 
         <span className="board-toolbar-meta muted">
           scale {view ? view.scale.toFixed(3) : '—'} · rot {view?.rotation ?? 0}

@@ -106,6 +106,8 @@ export default function InfoPane({
   const [showName, setShowName] = useState(pinInfo.show_name ?? '');
   const [voltage, setVoltage] = useState(pinInfo.voltage ?? '');
   const [diode, setDiode] = useState(pinInfo.diode ?? '');
+  const [ohm, setOhm] = useState(pinInfo.ohm ?? '');
+  const [ohmBlack, setOhmBlack] = useState(pinInfo.ohm_black ?? '');
   const [savingPin, setSavingPin] = useState(false);
   const [pinMsg, setPinMsg] = useState<string | null>(null);
   const [partType, setPartType] = useState(partInfo?.part_type ?? '');
@@ -128,8 +130,18 @@ export default function InfoPane({
     setShowName(pinInfo.show_name ?? '');
     setVoltage(pinInfo.voltage ?? '');
     setDiode(pinInfo.diode ?? '');
+    setOhm(pinInfo.ohm ?? '');
+    setOhmBlack(pinInfo.ohm_black ?? '');
     setPinMsg(null);
-  }, [selectedPin?.id, pinInfo.note, pinInfo.show_name, pinInfo.voltage, pinInfo.diode]);
+  }, [
+    selectedPin?.id,
+    pinInfo.note,
+    pinInfo.show_name,
+    pinInfo.voltage,
+    pinInfo.diode,
+    pinInfo.ohm,
+    pinInfo.ohm_black,
+  ]);
 
   useEffect(() => {
     setPartType(partInfo?.part_type ?? '');
@@ -174,6 +186,8 @@ export default function InfoPane({
       setField('show_name', showName);
       setField('voltage', voltage);
       setField('diode', diode);
+      setField('ohm', ohm);
+      setField('ohm_black', ohmBlack);
       // Drop empty pin entries to keep YAML small.
       const hasAny = Object.values(nextPin).some((v) => v != null && String(v).length > 0);
       if (hasAny) pins[pinKey] = nextPin;
@@ -520,6 +534,24 @@ export default function InfoPane({
                     type="text"
                     value={diode}
                     onChange={(e) => setDiode(e.target.value)}
+                    disabled={savingPin}
+                  />
+                </label>
+                <label className="info-field">
+                  <span>ohm</span>
+                  <input
+                    type="text"
+                    value={ohm}
+                    onChange={(e) => setOhm(e.target.value)}
+                    disabled={savingPin}
+                  />
+                </label>
+                <label className="info-field">
+                  <span>ohm_black</span>
+                  <input
+                    type="text"
+                    value={ohmBlack}
+                    onChange={(e) => setOhmBlack(e.target.value)}
                     disabled={savingPin}
                   />
                 </label>

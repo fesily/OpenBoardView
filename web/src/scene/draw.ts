@@ -10,6 +10,11 @@ import type {
   Via,
 } from '../types/board';
 import { isGroundNet, isUnconnectedNet } from './netKinds';
+import {
+  buildNetPropagatedValues,
+  resolvePinValue,
+  type PinValueMode,
+} from './pinValues';
 import { boardToScreen, type ViewState } from './transform';
 
 export interface DrawHighlight {
@@ -169,6 +174,7 @@ export function drawBoard(
   annotations: readonly OverlayAnnotation[] = [],
   overlay: OverlayDocument | null = null,
   enabledLayers: ReadonlySet<string> | null = null,
+  pinValueMode: PinValueMode = 'diode',
 ): void {
   ctx.save();
   ctx.clearRect(0, 0, cssW, cssH);
@@ -185,7 +191,7 @@ export function drawBoard(
   drawNetWeb(ctx, board, view, cssW, cssH, highlight, colors);
   drawHighlights(ctx, board, view, cssW, cssH, highlight, colors);
   drawPartLabels(ctx, board, view, cssW, cssH, colors);
-  drawPinLabels(ctx, board, view, cssW, cssH, highlight, colors, overlay);
+  drawPinLabels(ctx, board, view, cssW, cssH, highlight, colors, overlay, pinValueMode);
   drawAnnotations(ctx, annotations, view, cssW, cssH, colors);
 
   ctx.restore();
@@ -613,10 +619,10 @@ function drawPartLabels(
 }
 
 /**
- * Desktop DrawPins text: pin->show_name above net->show_name.
- * show_name priority: overlay pinInfo.show_name → pin.show_name → pin.name → pin.number
- * net label priority: overlay netInfos[name].showname → net.showName → net.name
- * Ground nets suppress net label (desktop).
+ * Pin pad text:
+ * - top: pin show_name / name / number (not net name)
+ * - bottom: overlay field for current mode (diode|voltage|ohm|ohm_black),
+ *   local first, else first non-empty value on the same net.
  */
 function pinDisplayName(pin: Pin, overlay: OverlayDocument | null | undefined): string {
   if (overlay && pin.component) {
@@ -629,15 +635,6 @@ function pinDisplayName(pin: Pin, overlay: OverlayDocument | null | undefined): 
   return (pin.number || '').trim();
 }
 
-function netDisplayName(net: Net, overlay: OverlayDocument | null | undefined): string {
-  if (overlay) {
-    const ov = overlay.netInfos[net.name]?.showname;
-    if (ov && ov.trim()) return ov.trim();
-  }
-  if (net.showName && net.showName.trim()) return net.showName.trim();
-  return (net.name || '').trim();
-}
-
 function drawPinLabels(
   ctx: CanvasRenderingContext2D,
   board: BoardDocument,
@@ -647,19 +644,17 @@ function drawPinLabels(
   highlight: DrawHighlight,
   colors: DrawColors,
   overlay: OverlayDocument | null = null,
+  pinValueMode: PinValueMode = 'diode',
 ): void {
   const pins = board.pins ?? [];
   if (!pins.length) return;
-  // netId→Net Map built lazily — only paid once the first pin clears the
-  // net-name zoom gate, so fit-zoom frames on dense boards skip it entirely.
-  const nets = board.nets ?? [];
-  let netById: Map<number, Net> | null = null;
+
+  const netValues = buildNetPropagatedValues(board, overlay, pinValueMode);
 
   ctx.textAlign = 'center';
   for (const pin of pins) {
     if (!sideVisible(pin.side, view.side)) continue;
     const r = pinRadiusPx(pin, view.scale);
-    // Desktop: show_text for selection, search hits, and same-net pads.
     const selected = highlight.selectedPinId === pin.id;
     const hi = highlight.pinIds?.has(pin.id) ?? false;
     const sameNet = !selected && netForcedVisible(pin.netId, highlight);
@@ -668,41 +663,31 @@ function drawPinLabels(
     const s = boardToScreen(view, pin.pos.x, pin.pos.y, cssW, cssH);
     if (s.x < -r || s.x > cssW + r || s.y < -r || s.y > cssH + r) continue;
 
-    const label = pinDisplayName(pin, overlay);
+    const nameLabel = pinDisplayName(pin, overlay);
+    const valueLabel = resolvePinValue(pin, overlay, pinValueMode, netValues);
     const filled = selected || hi || sameNet;
-    if (label) {
-      // Font scales with pad; ensure readable when forced (selection).
+    const showValue = !!(valueLabel && (r >= 6 || forceText || !nameLabel));
+
+    if (nameLabel) {
       let size = Math.min(2 * Math.max(r, forceText ? 6 : r) * 0.75, 14);
       if (forceText) size = Math.max(size, 9);
       ctx.font = `${size}px sans-serif`;
-      // Pin name sits slightly above center; net name below (desktop layout).
-      ctx.textBaseline = 'bottom';
       ctx.fillStyle = filled ? colors.pinTextDark : colors.pinText;
-      // When only pin name (no net), center it in the pad.
-      const showNet = r >= 8 || forceText;
-      if (!showNet) {
+      if (!showValue) {
         ctx.textBaseline = 'middle';
-        ctx.fillText(label, s.x, s.y);
+        ctx.fillText(nameLabel, s.x, s.y);
       } else {
-        ctx.fillText(label, s.x, s.y - 1);
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(nameLabel, s.x, s.y - 1);
       }
     }
 
-    if ((r >= 8 || forceText) && pin.netId != null) {
-      if (netById === null) {
-        netById = new Map();
-        for (const n of nets) netById.set(n.id, n);
-      }
-      const net = netById.get(pin.netId);
-      // Desktop suppresses net names on ground / NC pins.
-      if (!net || isGroundNet(net) || isUnconnectedNet(net)) continue;
-      const netLabel = netDisplayName(net, overlay);
-      if (!netLabel) continue;
+    if (showValue) {
       const size = Math.min(11, Math.max(8, r * 0.55));
       ctx.font = `${size}px sans-serif`;
-      ctx.textBaseline = 'top';
+      ctx.textBaseline = nameLabel ? 'top' : 'middle';
       ctx.fillStyle = colors.netText;
-      ctx.fillText(netLabel, s.x, s.y + 1);
+      ctx.fillText(valueLabel, s.x, nameLabel ? s.y + 1 : s.y);
     }
   }
 }
