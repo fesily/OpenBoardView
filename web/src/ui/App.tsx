@@ -182,32 +182,41 @@ export default function App() {
     [board, boardLoading],
   );
 
+  const boardStats = board
+    ? {
+        pins: board.pins?.length ?? 0,
+        parts: board.components?.length ?? 0,
+        nets: board.nets?.length ?? 0,
+        size: board.bounds
+          ? `${((board.bounds.maxX - board.bounds.minX) / 1000).toFixed(2)} × ${((board.bounds.maxY - board.bounds.minY) / 1000).toFixed(2)}"`
+          : '—',
+      }
+    : null;
+
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <aside className="sidebar sidebar-left">
         <div className="sidebar-header">
           <h1>OpenBoardView</h1>
-          <p className="sub">Library mode</p>
+          <p className="sub">Library</p>
         </div>
 
         <div className="sidebar-status">
           {health.kind === 'loading' && <p className="muted">Checking server…</p>}
           {health.kind === 'ok' && (
             <p className="ok">
-              Health: <strong>{health.status}</strong>
+              <strong>{health.status}</strong>
               {health.version ? ` · ${health.version}` : ''}
             </p>
           )}
           {health.kind === 'error' && (
-            <p className="err">
-              Unreachable: {health.message}
-              <br />
-              <span className="muted">Start obv_server (Vite proxies /api).</span>
+            <p className="err" title={health.message}>
+              Server offline
             </p>
           )}
           {boardRoot && (
             <p className="board-root mono" title={boardRoot}>
-              boardRoot: {boardRoot}
+              {boardRoot}
             </p>
           )}
           <div className="row sidebar-actions">
@@ -215,7 +224,7 @@ export default function App() {
               Health
             </button>
             <button type="button" onClick={() => void refreshBoards()}>
-              Refresh list
+              Refresh
             </button>
           </div>
         </div>
@@ -251,59 +260,96 @@ export default function App() {
         </div>
       </aside>
 
-      <main className="main">
+      <main className="main-stage">
         {!selectedId && !boardLoading && (
           <div className="main-placeholder">
             <p>从左侧选择板图</p>
           </div>
         )}
-        {selectedId && (
-          <section className="board-view-card card">
-            <div className="row">
-              <h2>Board view</h2>
-              {board && (
-                <span className="muted mono" title={board.boardId}>
-                  {board.sourceName}
-                </span>
-              )}
+        {selectedId && boardLoading && (
+          <div className="main-placeholder">
+            <p className="muted">Loading board…</p>
+          </div>
+        )}
+        {selectedId && boardError && !boardLoading && (
+          <div className="main-placeholder">
+            <p className="err">{boardError}</p>
+          </div>
+        )}
+        {board && !boardLoading && (
+          <div className="stage-body">
+            <div className="stage-topbar">
+              <span className="stage-title mono" title={board.boardId}>
+                {board.sourceName}
+              </span>
             </div>
-            {boardLoading && <p className="muted">Loading board…</p>}
-            {boardError && <p className="err">{boardError}</p>}
-            {board && !boardLoading && (
-              <>
-                <SearchBox
-                  key={board.boardId}
-                  board={board}
-                  onSelectionChange={onSearchSelection}
-                />
-                <BoardCanvas
-                  board={board}
-                  selectedPinId={selectedPin?.id ?? null}
-                  onSelectPin={setSelectedPin}
-                  highlightPartNames={searchSel?.highlight.partNames}
-                  highlightPinIds={searchSel?.highlight.pinIds}
-                  focusPoint={searchSel?.focus ?? null}
-                  focusToken={searchSel?.focusToken ?? 0}
-                  annotations={overlay?.annotations ?? []}
-                  onContextAnnotate={(pos) => void onContextAnnotate(pos)}
-                />
-                <InfoPane
-                  boardId={board.boardId}
-                  board={board}
-                  selectedPin={selectedPin}
-                  overlay={overlay}
-                  overlayLoading={overlayLoading}
-                  overlayError={overlayError}
-                  onOverlayChange={setOverlay}
-                  onReloadOverlays={() => {
-                    void loadOverlays(board.boardId);
-                  }}
-                />
-              </>
-            )}
-          </section>
+            <BoardCanvas
+              board={board}
+              selectedPinId={selectedPin?.id ?? null}
+              onSelectPin={setSelectedPin}
+              highlightPartNames={searchSel?.highlight.partNames}
+              highlightPinIds={searchSel?.highlight.pinIds}
+              focusPoint={searchSel?.focus ?? null}
+              focusToken={searchSel?.focusToken ?? 0}
+              annotations={overlay?.annotations ?? []}
+              onContextAnnotate={(pos) => void onContextAnnotate(pos)}
+            />
+          </div>
         )}
       </main>
+
+      <aside className="sidebar sidebar-right">
+        {board && !boardLoading ? (
+          <>
+            {boardStats && (
+              <div className="right-stats">
+                <div className="stat-cell">
+                  <span className="stat-label">Pins</span>
+                  <span className="stat-value">{boardStats.pins}</span>
+                </div>
+                <div className="stat-cell">
+                  <span className="stat-label">Parts</span>
+                  <span className="stat-value">{boardStats.parts}</span>
+                </div>
+                <div className="stat-cell">
+                  <span className="stat-label">Nets</span>
+                  <span className="stat-value">{boardStats.nets}</span>
+                </div>
+                <div className="stat-cell">
+                  <span className="stat-label">Size</span>
+                  <span className="stat-value mono">{boardStats.size}</span>
+                </div>
+              </div>
+            )}
+            <div className="right-section">
+              <h2 className="right-section-title">Search</h2>
+              <SearchBox
+                key={board.boardId}
+                board={board}
+                onSelectionChange={onSearchSelection}
+              />
+            </div>
+            <div className="right-section right-section-grow">
+              <InfoPane
+                boardId={board.boardId}
+                board={board}
+                selectedPin={selectedPin}
+                overlay={overlay}
+                overlayLoading={overlayLoading}
+                overlayError={overlayError}
+                onOverlayChange={setOverlay}
+                onReloadOverlays={() => {
+                  void loadOverlays(board.boardId);
+                }}
+              />
+            </div>
+          </>
+        ) : (
+          <div className="right-empty muted">
+            <p>打开板图后在此搜索与查看选中信息</p>
+          </div>
+        )}
+      </aside>
     </div>
   );
 }
