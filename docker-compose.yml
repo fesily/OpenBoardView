@@ -1,0 +1,61 @@
+# OpenBoardView web server (obv_server + SPA)
+#
+# Usage:
+#   # local image built from Dockerfile.server
+#   docker compose up --build
+#
+#   # or pull from GHCR (set image: below, comment out build:)
+#   docker compose pull && docker compose up -d
+#
+# Board library: put .bvr/.brd files under ./boards (or change the volume).
+# Persistent overlays/uploads: ./data
+# Health: curl -fsS http://127.0.0.1:8080/api/v1/health
+
+services:
+  obv-server:
+    # --- build locally ---
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    image: obv-server:local
+    # --- or use GHCR instead of build: ---
+    # image: ghcr.io/fesily/openboardview/obv-server:web-support
+    # image: ghcr.io/fesily/openboardview/obv-server:latest
+
+    container_name: obv-server
+    restart: unless-stopped
+
+    ports:
+      - "8080:8080"
+    # Bind localhost only (optional):
+    # ports:
+    #   - "127.0.0.1:8080:8080"
+
+    # Optional CLI override (defaults match Dockerfile ENTRYPOINT/CMD):
+    # command:
+    #   - --host
+    #   - 0.0.0.0
+    #   - --port
+    #   - "8080"
+    #   - --data
+    #   - /app/data
+    #   - --boards
+    #   - /app/boards
+    #   - --www
+    #   - /app/www
+
+    environment:
+      # Documented for operators; binary uses CLI flags from CMD by default.
+      OBV_HOST: "0.0.0.0"
+      OBV_PORT: "8080"
+      OBV_DATA: /app/data
+      OBV_BOARDS: /app/boards
+      OBV_WWW: /app/www
+
+    volumes:
+      # Board library
+      - ./boards:/app/boards
+      # Runtime data: uploaded boards, overlays, config
+      - ./data:/app/data
+      # Optional decrypt keys:
+      # - ./data/config/keys.json:/app/data/config/keys.json:ro
