@@ -119,6 +119,50 @@ export function copperVisible(
   return enabledLayers.has(elSide);
 }
 
+/**
+ * Stack order for copper layers (desktop EBoardSide ranking).
+ * top=1 … sN=N … bottom=last. Used for via span tests (source→target inclusive).
+ */
+export function layerStackIndex(side: string): number {
+  if (!side) return -1;
+  const s = side.toLowerCase();
+  if (s === 'top' || s === 's1') return 1;
+  if (s === 'bottom') return 1000;
+  if (s === 'both' || s === 'unknown') return -1;
+  const m = /^s(\d+)$/i.exec(s);
+  if (m) return Number(m[1]);
+  return -1;
+}
+
+/**
+ * Via visibility vs Layers menu: show if any enabled layer lies within the
+ * closed span [source, target] in stack order (e.g. top↔s3 shows when s2 is on).
+ * Matches desktop BoardElementIsVisible for vias (minLayer..maxLayer).
+ */
+export function viaTouchesEnabledLayers(
+  sourceSide: string,
+  targetSide: string,
+  enabledLayers?: ReadonlySet<string> | null,
+): boolean {
+  if (!enabledLayers) return true;
+  // No explicit filter / empty set → none visible.
+  if (enabledLayers.size === 0) return false;
+
+  const a = layerStackIndex(sourceSide);
+  const b = layerStackIndex(targetSide);
+  // Unknown / both endpoints: fall back to endpoint membership only.
+  if (a < 0 || b < 0) {
+    return copperVisible(sourceSide, enabledLayers) || copperVisible(targetSide, enabledLayers);
+  }
+  const lo = Math.min(a, b);
+  const hi = Math.max(a, b);
+  for (const layer of enabledLayers) {
+    const i = layerStackIndex(layer);
+    if (i >= 0 && i >= lo && i <= hi) return true;
+  }
+  return false;
+}
+
 /** True when this net is selected or search-highlighted (bypasses layer filter). */
 function netForcedVisible(
   netId: number | null | undefined,
@@ -433,33 +477,20 @@ function drawVias(
   if (!vias.length) return;
   for (const v of vias) {
     const onNet = netForcedVisible(v.netId, highlight);
-    // Layer filter: only show via if it touches at least one enabled copper layer.
-    // (Highlighted-net vias always draw, matching tracks/arcs.)
-    const srcOn = copperVisible(v.side, enabledLayers);
-    const dstOn = copperVisible(v.targetSide, enabledLayers);
-    if (!onNet && !srcOn && !dstOn) continue;
+    // Span test: any enabled layer between source and target (inclusive) → show.
+    // Highlighted-net vias always draw (same as tracks/arcs).
+    if (!onNet && !viaTouchesEnabledLayers(v.side, v.targetSide, enabledLayers)) {
+      continue;
+    }
 
     const s = boardToScreen(view, v.pos.x, v.pos.y, cssW, cssH);
     const r = Math.max((v.size > 0 ? v.size : 4) * view.scale * 0.5, 1.25);
 
-    // Desktop DrawVies: base disc + dual-layer semicircles when large enough.
-    // When a layer is filtered off, omit that half so inner layers don't "show through".
-    const showSrc = onNet || srcOn;
-    const showDst = onNet || dstOn;
-
-    if (showSrc && showDst) {
-      // Full via disc underlay when both ends are visible / forced.
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = onNet ? colors.pinSelected : colors.via;
-      ctx.fill();
-    } else {
-      // Only one end visible: still need a disc underlay for the visible half.
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = onNet ? colors.pinSelected : colors.via;
-      ctx.fill();
-    }
+    // Desktop DrawVies: full disc + dual-layer semicircles (always both ends).
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = onNet ? colors.pinSelected : colors.via;
+    ctx.fill();
 
     if (r > 3) {
       const hr = r * 0.8;
@@ -469,47 +500,26 @@ function drawVias(
       const dstColor = onNet
         ? colors.pinSelected
         : layerCopperColor(v.targetSide, colors.via);
+      // Left half = source (board_side), right half = target_side.
+      fillSemiCircle(ctx, s.x, s.y, hr, false, srcColor);
+      fillSemiCircle(ctx, s.x, s.y, hr, true, dstColor);
 
-      if (showSrc && showDst) {
-        // Left half = source (board_side), right half = target_side.
-        fillSemiCircle(ctx, s.x, s.y, hr, false, srcColor);
-        fillSemiCircle(ctx, s.x, s.y, hr, true, dstColor);
-      } else if (showSrc) {
-        // Only source layer enabled — full pad in source color (not inner target).
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, hr, 0, Math.PI * 2);
-        ctx.fillStyle = srcColor;
-        ctx.fill();
-      } else if (showDst) {
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, hr, 0, Math.PI * 2);
-        ctx.fillStyle = dstColor;
-        ctx.fill();
-      }
-
-      // Layer labels only for ends that are currently shown.
       const fontPx = Math.min(r * 0.95, 11);
-      if (fontPx >= 5 && (showSrc || showDst)) {
+      if (fontPx >= 5) {
         ctx.font = `600 ${fontPx}px sans-serif`;
         ctx.textBaseline = 'middle';
         ctx.fillStyle = '#ffffff';
         ctx.strokeStyle = 'rgba(0,0,0,0.55)';
         ctx.lineWidth = Math.max(1.5, fontPx * 0.18);
         ctx.textAlign = 'center';
-        if (showSrc && showDst) {
-          const left = shortLayerLabel(v.side);
-          const right = shortLayerLabel(v.targetSide);
-          const lx = s.x - r * 0.35;
-          const rx = s.x + r * 0.35;
-          ctx.strokeText(left, lx, s.y);
-          ctx.fillText(left, lx, s.y);
-          ctx.strokeText(right, rx, s.y);
-          ctx.fillText(right, rx, s.y);
-        } else {
-          const label = shortLayerLabel(showSrc ? v.side : v.targetSide);
-          ctx.strokeText(label, s.x, s.y);
-          ctx.fillText(label, s.x, s.y);
-        }
+        const left = shortLayerLabel(v.side);
+        const right = shortLayerLabel(v.targetSide);
+        const lx = s.x - r * 0.35;
+        const rx = s.x + r * 0.35;
+        ctx.strokeText(left, lx, s.y);
+        ctx.fillText(left, lx, s.y);
+        ctx.strokeText(right, rx, s.y);
+        ctx.fillText(right, rx, s.y);
       }
     }
   }
