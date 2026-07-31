@@ -5,6 +5,8 @@
 #include "obv_core/pin_resolve.h"
 
 #include <cctype>
+#include <algorithm>
+#include <functional>
 #include <cstdio>
 #include <optional>
 #include <sstream>
@@ -738,6 +740,317 @@ std::optional<AnnotationJson> findAnnotation(const Annotations &ann, int id) {
 	return std::nullopt;
 }
 
+std::string operatingConditionObjectJson(const OperatingCondition &oc) {
+	std::ostringstream os;
+	os << '{';
+	bool first = true;
+	auto sfield = [&](const char *k, const std::string &v) {
+		if (v.empty()) {
+			return;
+		}
+		if (!first) {
+			os << ',';
+		}
+		first = false;
+		os << '"' << k << "\":\"" << jsonEscape(v) << '"';
+	};
+	auto afield = [&](const char *k, const std::vector<std::string> &arr) {
+		if (!first) {
+			os << ',';
+		}
+		first = false;
+		os << '"' << k << "\":[";
+		for (size_t j = 0; j < arr.size(); ++j) {
+			if (j) {
+				os << ',';
+			}
+			os << '"' << jsonEscape(arr[j]) << '"';
+		}
+		os << ']';
+	};
+	sfield("id", oc.id);
+	sfield("name", oc.name);
+	afield("inputs", oc.inputs);
+	afield("outputs", oc.outputs);
+	afield("enables", oc.enables);
+	sfield("note", oc.note);
+	os << '}';
+	return os.str();
+}
+
+std::string operatingConditionsListJson(const std::string &boardId, const std::string &part,
+										const std::vector<OperatingCondition> &ocs) {
+	std::ostringstream os;
+	os << "{\"boardId\":\"" << jsonEscape(boardId) << "\",\"part\":\"" << jsonEscape(part)
+	   << "\",\"operating_conditions\":[";
+	for (size_t i = 0; i < ocs.size(); ++i) {
+		if (i) {
+			os << ',';
+		}
+		os << operatingConditionObjectJson(ocs[i]);
+	}
+	os << "]}";
+	return os.str();
+}
+
+bool parseStringArray(MiniJson &cur, std::vector<std::string> &out) {
+	out.clear();
+	if (!cur.expect('[')) {
+		return false;
+	}
+	cur.skipWs();
+	if (cur.match(']')) {
+		return true;
+	}
+	for (;;) {
+		std::string item;
+		if (!cur.parseString(item)) {
+			return false;
+		}
+		out.push_back(std::move(item));
+		cur.skipWs();
+		if (cur.match(']')) {
+			return true;
+		}
+		if (!cur.expect(',')) {
+			return false;
+		}
+	}
+}
+
+bool parseOperatingConditionObject(MiniJson &cur, OperatingCondition &out) {
+	out = OperatingCondition{};
+	if (!cur.expect('{')) {
+		return false;
+	}
+	cur.skipWs();
+	if (cur.match('}')) {
+		return true;
+	}
+	for (;;) {
+		std::string key;
+		if (!cur.parseString(key)) {
+			return false;
+		}
+		if (!cur.expect(':')) {
+			return false;
+		}
+		if (key == "id") {
+			if (!cur.parseString(out.id)) {
+				return false;
+			}
+		} else if (key == "name") {
+			if (!cur.parseString(out.name)) {
+				return false;
+			}
+		} else if (key == "note") {
+			if (!cur.parseString(out.note)) {
+				return false;
+			}
+		} else if (key == "inputs") {
+			if (!parseStringArray(cur, out.inputs)) {
+				return false;
+			}
+		} else if (key == "outputs") {
+			if (!parseStringArray(cur, out.outputs)) {
+				return false;
+			}
+		} else if (key == "enables") {
+			if (!parseStringArray(cur, out.enables)) {
+				return false;
+			}
+		} else {
+			if (!cur.skipValue()) {
+				return false;
+			}
+		}
+		cur.skipWs();
+		if (cur.match('}')) {
+			return true;
+		}
+		if (!cur.expect(',')) {
+			return false;
+		}
+	}
+}
+
+bool parseOperatingConditionBody(const std::string &json, OperatingCondition &out, std::string &err) {
+	MiniJson cur(json);
+	if (!parseOperatingConditionObject(cur, out)) {
+		err = cur.err.empty() ? "invalid operating condition JSON" : cur.err;
+		return false;
+	}
+	cur.skipWs();
+	if (cur.i < cur.s.size()) {
+		err = "trailing data after operating condition JSON";
+		return false;
+	}
+	return true;
+}
+
+bool parseOperatingConditionsReplaceBody(const std::string &json, std::vector<OperatingCondition> &out,
+										 std::string &err) {
+	MiniJson cur(json);
+	if (!cur.expect('{')) {
+		err = cur.err.empty() ? "invalid JSON object" : cur.err;
+		return false;
+	}
+	bool got = false;
+	out.clear();
+	cur.skipWs();
+	if (cur.match('}')) {
+		err = "body requires operating_conditions array";
+		return false;
+	}
+	for (;;) {
+		std::string key;
+		if (!cur.parseString(key)) {
+			err = cur.err;
+			return false;
+		}
+		if (!cur.expect(':')) {
+			err = cur.err;
+			return false;
+		}
+		if (key == "operating_conditions") {
+			if (!cur.expect('[')) {
+				err = cur.err.empty() ? "operating_conditions must be array" : cur.err;
+				return false;
+			}
+			cur.skipWs();
+			out.clear();
+			if (!cur.match(']')) {
+				for (;;) {
+					OperatingCondition oc;
+					if (!parseOperatingConditionObject(cur, oc)) {
+						err = cur.err.empty() ? "invalid operating condition" : cur.err;
+						return false;
+					}
+					out.push_back(std::move(oc));
+					cur.skipWs();
+					if (cur.match(']')) {
+						break;
+					}
+					if (!cur.expect(',')) {
+						err = cur.err;
+						return false;
+					}
+				}
+			}
+			got = true;
+		} else {
+			if (!cur.skipValue()) {
+				err = cur.err;
+				return false;
+			}
+		}
+		cur.skipWs();
+		if (cur.match('}')) {
+			break;
+		}
+		if (!cur.expect(',')) {
+			err = cur.err;
+			return false;
+		}
+	}
+	cur.skipWs();
+	if (cur.i < cur.s.size()) {
+		err = "trailing data after operating_conditions JSON";
+		return false;
+	}
+	if (!got) {
+		err = "body requires operating_conditions array";
+		return false;
+	}
+	return true;
+}
+
+// Load overlay under mutex, ensure part exists on board, mutate PartInfo, save YAML.
+// Creates PartInfo entry only when the part is present on the board.
+bool withPartOverlay(BoardRegistry &registry, const std::string &boardId, const std::string &part,
+					 httplib::Response &res, bool requirePartOnBoard,
+					 const std::function<bool(Annotations &, PartInfo &, httplib::Response &)> &fn) {
+	const auto snap = registry.GetParsed(boardId);
+	if (!snap) {
+		setError(res, 404, "NOT_FOUND", "board not found");
+		return false;
+	}
+	if (!snap->ok()) {
+		setError(res, 400, "PARSE_FAILED", snap->error.empty() ? "parse failed" : snap->error);
+		return false;
+	}
+	if (requirePartOnBoard && !obv::FindComponent(*snap->board, part)) {
+		setError(res, 404, "PART_NOT_FOUND", "part not found");
+		return false;
+	}
+	const auto boardPath = registry.BoardPath(boardId);
+	if (boardPath.empty()) {
+		setError(res, 404, "NOT_FOUND", "board not found");
+		return false;
+	}
+	std::lock_guard<std::mutex> lock(registry.OverlayMutex(boardId));
+	Annotations ann;
+	std::string err;
+	if (!obv::LoadOverlayForBoard(boardPath, ann, err)) {
+		setError(res, 500, "OVERLAY_LOAD_FAILED", err.empty() ? "failed to load overlay" : err);
+		ann.Close();
+		return false;
+	}
+	auto &pi = ann.partInfos[part];
+	pi.partName = part;
+	if (!fn(ann, pi, res)) {
+		ann.Close();
+		return false;
+	}
+	if (!obv::SavePartNetYaml(boardPath, ann, err)) {
+		setError(res, 500, "OVERLAY_SAVE_FAILED", err.empty() ? "failed to save overlay yaml" : err);
+		ann.Close();
+		return false;
+	}
+	ann.Close();
+	return true;
+}
+
+// Read-only overlay access for GET condition routes.
+bool withPartOverlayRead(BoardRegistry &registry, const std::string &boardId, const std::string &part,
+						 httplib::Response &res,
+						 const std::function<void(const Annotations &, const PartInfo *)> &fn) {
+	const auto snap = registry.GetParsed(boardId);
+	if (!snap) {
+		setError(res, 404, "NOT_FOUND", "board not found");
+		return false;
+	}
+	if (!snap->ok()) {
+		setError(res, 400, "PARSE_FAILED", snap->error.empty() ? "parse failed" : snap->error);
+		return false;
+	}
+	if (!obv::FindComponent(*snap->board, part)) {
+		setError(res, 404, "PART_NOT_FOUND", "part not found");
+		return false;
+	}
+	const auto boardPath = registry.BoardPath(boardId);
+	if (boardPath.empty()) {
+		setError(res, 404, "NOT_FOUND", "board not found");
+		return false;
+	}
+	std::lock_guard<std::mutex> lock(registry.OverlayMutex(boardId));
+	Annotations ann;
+	std::string err;
+	if (!obv::LoadOverlayForBoard(boardPath, ann, err)) {
+		setError(res, 500, "OVERLAY_LOAD_FAILED", err.empty() ? "failed to load overlay" : err);
+		ann.Close();
+		return false;
+	}
+	const PartInfo *pi = nullptr;
+	const auto it = ann.partInfos.find(part);
+	if (it != ann.partInfos.end()) {
+		pi = &it->second;
+	}
+	fn(ann, pi);
+	ann.Close();
+	return true;
+}
+
 
 #ifndef HAVE_SQLITE3
 void setSqliteRequired(httplib::Response &res) {
@@ -855,6 +1168,253 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 					return;
 				}
 				res.set_content(js, "application/json");
+			});
+
+	// Operating-conditions CRUD (more specific :condId routes first).
+	svr.Get(R"(/api/v1/boards/:ref/parts/:part/operating-conditions/:condId)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string ref = pathParam(req, "ref");
+				const std::string part = pathParam(req, "part");
+				const std::string condId = pathParam(req, "condId");
+				std::string boardId;
+				if (!applyBoardRef(registry, ref, res, boardId)) {
+					return;
+				}
+				if (condId.empty()) {
+					setError(res, 400, "BAD_REQUEST", "missing condition id");
+					return;
+				}
+				withPartOverlayRead(registry, boardId, part, res,
+									[&](const Annotations &, const PartInfo *pi) {
+										const OperatingCondition *found = nullptr;
+										if (pi) {
+											for (const auto &oc : pi->operating_conditions) {
+												if (oc.id == condId) {
+													found = &oc;
+													break;
+												}
+											}
+										}
+										if (!found) {
+											setError(res, 404, "CONDITION_NOT_FOUND",
+													 "operating condition not found");
+											return;
+										}
+										res.set_content(operatingConditionObjectJson(*found),
+														"application/json");
+									});
+			});
+
+	svr.Put(R"(/api/v1/boards/:ref/parts/:part/operating-conditions/:condId)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string ref = pathParam(req, "ref");
+				const std::string part = pathParam(req, "part");
+				const std::string condId = pathParam(req, "condId");
+				std::string boardId;
+				if (!applyBoardRef(registry, ref, res, boardId)) {
+					return;
+				}
+				if (condId.empty()) {
+					setError(res, 400, "BAD_REQUEST", "missing condition id");
+					return;
+				}
+				OperatingCondition body;
+				std::string perr;
+				if (!parseOperatingConditionBody(req.body, body, perr)) {
+					setError(res, 400, "BAD_REQUEST", perr);
+					return;
+				}
+				// Path id wins; ignore body id if present.
+				body.id = condId;
+				OperatingCondition saved;
+				if (!withPartOverlay(registry, boardId, part, res, true,
+									 [&](Annotations &, PartInfo &pi, httplib::Response &r) {
+										 size_t idx = pi.operating_conditions.size();
+										 for (size_t i = 0; i < pi.operating_conditions.size(); ++i) {
+											 if (pi.operating_conditions[i].id == condId) {
+												 idx = i;
+												 break;
+											 }
+										 }
+										 if (idx >= pi.operating_conditions.size()) {
+											 setError(r, 404, "CONDITION_NOT_FOUND",
+													  "operating condition not found");
+											 return false;
+										 }
+										 std::string nerr;
+										 if (!obv::NormalizeOperatingCondition(body, nerr)) {
+											 setError(r, 400, "BAD_REQUEST",
+													  nerr.empty() ? "invalid operating condition"
+																   : nerr);
+											 return false;
+										 }
+										 pi.operating_conditions[idx] = body;
+										 saved = body;
+										 return true;
+									 })) {
+					return;
+				}
+				res.set_content(operatingConditionObjectJson(saved), "application/json");
+			});
+
+	svr.Delete(R"(/api/v1/boards/:ref/parts/:part/operating-conditions/:condId)",
+			   [&registry](const httplib::Request &req, httplib::Response &res) {
+				   const std::string ref = pathParam(req, "ref");
+				   const std::string part = pathParam(req, "part");
+				   const std::string condId = pathParam(req, "condId");
+				   std::string boardId;
+				   if (!applyBoardRef(registry, ref, res, boardId)) {
+					   return;
+				   }
+				   if (condId.empty()) {
+					   setError(res, 400, "BAD_REQUEST", "missing condition id");
+					   return;
+				   }
+				   if (!withPartOverlay(registry, boardId, part, res, true,
+										[&](Annotations &, PartInfo &pi, httplib::Response &r) {
+											const auto it = std::find_if(
+												pi.operating_conditions.begin(),
+												pi.operating_conditions.end(),
+												[&](const OperatingCondition &oc) {
+													return oc.id == condId;
+												});
+											if (it == pi.operating_conditions.end()) {
+												setError(r, 404, "CONDITION_NOT_FOUND",
+														 "operating condition not found");
+												return false;
+											}
+											pi.operating_conditions.erase(it);
+											return true;
+										})) {
+					   return;
+				   }
+				   res.status = 204;
+				   res.set_content("", "application/json");
+			   });
+
+	svr.Get(R"(/api/v1/boards/:ref/parts/:part/operating-conditions)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string ref = pathParam(req, "ref");
+				const std::string part = pathParam(req, "part");
+				std::string boardId;
+				if (!applyBoardRef(registry, ref, res, boardId)) {
+					return;
+				}
+				withPartOverlayRead(registry, boardId, part, res,
+									[&](const Annotations &, const PartInfo *pi) {
+										static const std::vector<OperatingCondition> kEmpty;
+										const auto &ocs =
+											pi ? pi->operating_conditions : kEmpty;
+										res.set_content(operatingConditionsListJson(boardId, part, ocs),
+														"application/json");
+									});
+			});
+
+	svr.Post(R"(/api/v1/boards/:ref/parts/:part/operating-conditions)",
+			 [&registry](const httplib::Request &req, httplib::Response &res) {
+				 const std::string ref = pathParam(req, "ref");
+				 const std::string part = pathParam(req, "part");
+				 std::string boardId;
+				 if (!applyBoardRef(registry, ref, res, boardId)) {
+					 return;
+				 }
+				 OperatingCondition body;
+				 std::string perr;
+				 if (!parseOperatingConditionBody(req.body, body, perr)) {
+					 setError(res, 400, "BAD_REQUEST", perr);
+					 return;
+				 }
+				 OperatingCondition created;
+				 if (!withPartOverlay(registry, boardId, part, res, true,
+									  [&](Annotations &, PartInfo &pi, httplib::Response &r) {
+										  if (body.id.empty()) {
+											  body.id = obv::AllocateConditionId(pi);
+										  } else {
+											  for (const auto &x : pi.operating_conditions) {
+												  if (x.id == body.id) {
+													  setError(r, 409, "CONDITION_ID_CONFLICT",
+															   "operating condition id already exists");
+													  return false;
+												  }
+											  }
+										  }
+										  std::string nerr;
+										  if (!obv::NormalizeOperatingCondition(body, nerr)) {
+											  setError(r, 400, "BAD_REQUEST",
+													   nerr.empty() ? "invalid operating condition"
+																	: nerr);
+											  return false;
+										  }
+										  if (pi.operating_conditions.size() >= 256) {
+											  setError(r, 400, "BAD_REQUEST",
+													   "operating_conditions limit is 256");
+											  return false;
+										  }
+										  pi.operating_conditions.push_back(body);
+										  created = body;
+										  return true;
+									  })) {
+					 return;
+				 }
+				 res.status = 201;
+				 res.set_content(operatingConditionObjectJson(created), "application/json");
+			 });
+
+	svr.Put(R"(/api/v1/boards/:ref/parts/:part/operating-conditions)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string ref = pathParam(req, "ref");
+				const std::string part = pathParam(req, "part");
+				std::string boardId;
+				if (!applyBoardRef(registry, ref, res, boardId)) {
+					return;
+				}
+				std::vector<OperatingCondition> body;
+				std::string perr;
+				if (!parseOperatingConditionsReplaceBody(req.body, body, perr)) {
+					setError(res, 400, "BAD_REQUEST", perr);
+					return;
+				}
+				if (body.size() > 256) {
+					setError(res, 400, "BAD_REQUEST", "operating_conditions limit is 256");
+					return;
+				}
+				std::vector<OperatingCondition> saved;
+				if (!withPartOverlay(registry, boardId, part, res, true,
+									 [&](Annotations &, PartInfo &pi, httplib::Response &r) {
+										 std::vector<OperatingCondition> normalized;
+										 normalized.reserve(body.size());
+										 for (auto oc : body) {
+											 std::string nerr;
+											 if (!obv::NormalizeOperatingCondition(oc, nerr)) {
+												 setError(r, 400, "BAD_REQUEST",
+														  nerr.empty()
+															  ? "invalid operating condition"
+															  : nerr);
+												 return false;
+											 }
+											 if (oc.id.empty()) {
+												 setError(r, 400, "BAD_REQUEST",
+														  "operating condition id is required");
+												 return false;
+											 }
+											 for (const auto &prev : normalized) {
+												 if (prev.id == oc.id) {
+													 setError(r, 409, "CONDITION_ID_CONFLICT",
+															  "duplicate operating condition id in body");
+													 return false;
+												 }
+											 }
+											 normalized.push_back(std::move(oc));
+										 }
+										 // Replace conditions only; leave pins/part_type/angle.
+										 pi.operating_conditions = std::move(normalized);
+										 saved = pi.operating_conditions;
+										 return true;
+									 })) {
+					return;
+				}
+				res.set_content(operatingConditionsListJson(boardId, part, saved),
+								"application/json");
 			});
 
 	svr.Get("/api/v1/boards/:id/meta",
