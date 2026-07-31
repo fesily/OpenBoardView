@@ -154,6 +154,95 @@ export default function BoardCanvas({
     return () => ro.disconnect();
   }, []);
 
+  // Native touch listeners (non-passive) — multi-touch pinch is more reliable
+  // than React pointer events alone on some browsers/tablets.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const localFromTouch = (t: Touch) => {
+      const r = canvas.getBoundingClientRect();
+      return { x: t.clientX - r.left, y: t.clientY - r.top };
+    };
+
+    const onTouchStart = (ev: TouchEvent) => {
+      // Prevent browser page zoom / scroll while interacting with board.
+      if (ev.touches.length >= 1) ev.preventDefault();
+      if (ev.touches.length >= 2) {
+        const a = localFromTouch(ev.touches[0]);
+        const b = localFromTouch(ev.touches[1]);
+        pinchRef.current = {
+          lastDist: Math.max(Math.hypot(b.x - a.x, b.y - a.y), 1),
+          lastMidX: (a.x + b.x) / 2,
+          lastMidY: (a.y + b.y) / 2,
+        };
+        // Abort single-finger drag so click-select won't fire after pinch.
+        if (dragRef.current) {
+          dragRef.current.moved = true;
+          dragRef.current = null;
+        }
+        // Clear pointer map so React pointer path doesn't fight touch path.
+        pointersRef.current.clear();
+      }
+    };
+
+    const onTouchMove = (ev: TouchEvent) => {
+      if (ev.touches.length >= 2) {
+        ev.preventDefault();
+        const v = viewRef.current;
+        if (!v) return;
+        const a = localFromTouch(ev.touches[0]);
+        const b = localFromTouch(ev.touches[1]);
+        const dist = Math.max(Math.hypot(b.x - a.x, b.y - a.y), 1);
+        const midX = (a.x + b.x) / 2;
+        const midY = (a.y + b.y) / 2;
+        let pinch = pinchRef.current;
+        if (!pinch) {
+          pinchRef.current = { lastDist: dist, lastMidX: midX, lastMidY: midY };
+          return;
+        }
+        const factor = dist / pinch.lastDist;
+        let next = v;
+        if (Number.isFinite(factor) && factor > 0 && Math.abs(factor - 1) > 0.002) {
+          next = zoomAt(next, midX, midY, size.w, size.h, factor);
+        }
+        const dsx = midX - pinch.lastMidX;
+        const dsy = midY - pinch.lastMidY;
+        if (Math.hypot(dsx, dsy) > 0.5) {
+          next = panByScreen(next, dsx, dsy, size.w, size.h);
+        }
+        pinch.lastDist = dist;
+        pinch.lastMidX = midX;
+        pinch.lastMidY = midY;
+        if (next !== v) {
+          viewRef.current = next;
+          setView(next);
+        }
+      }
+    };
+
+    const onTouchEnd = (ev: TouchEvent) => {
+      if (ev.touches.length < 2) {
+        pinchRef.current = null;
+      }
+      if (ev.touches.length === 0) {
+        pointersRef.current.clear();
+      }
+    };
+
+    canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+    canvas.addEventListener('touchend', onTouchEnd, { passive: false });
+    canvas.addEventListener('touchcancel', onTouchEnd, { passive: false });
+    return () => {
+      canvas.removeEventListener('touchstart', onTouchStart);
+      canvas.removeEventListener('touchmove', onTouchMove);
+      canvas.removeEventListener('touchend', onTouchEnd);
+      canvas.removeEventListener('touchcancel', onTouchEnd);
+    };
+  }, [size.w, size.h]);
+
+
   // Draw
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -251,13 +340,19 @@ export default function BoardCanvas({
   const onPointerDown = (ev: ReactPointerEvent) => {
     // Primary button or touch/pen.
     if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+    // Touch: block default gestures; needed for some WebViews.
+    if (ev.pointerType === 'touch') ev.preventDefault();
     const canvas = canvasRef.current;
     if (!canvas) return;
     const pt = localPoint(ev);
-    try {
-      canvas.setPointerCapture(ev.pointerId);
-    } catch {
-      // ignore capture failures
+    // Only capture for single-finger / mouse. Capturing the first finger can
+    // prevent the second finger's pointer events on some platforms.
+    if (pointersRef.current.size === 0 && ev.pointerType !== 'touch') {
+      try {
+        canvas.setPointerCapture(ev.pointerId);
+      } catch {
+        // ignore capture failures
+      }
     }
     pointersRef.current.set(ev.pointerId, pt);
 
