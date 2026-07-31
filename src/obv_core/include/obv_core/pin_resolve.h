@@ -33,6 +33,9 @@ struct PinResolveResult {
 	const Pin *pin = nullptr; // non-owning, points into snapshot board
 	std::string pinKey;
 	std::string netName;
+	// Sequential export id matching board_json ExportBoardJson (not Net::number).
+	// 0 means no net / null in JSON.
+	int netId = 0;
 	MeasureField diode, voltage, ohm, ohm_black;
 	// overlay pin meta
 	std::string overlayNote;

@@ -9,6 +9,8 @@
 #include <set>
 #include <sstream>
 #include <utility>
+#include <unordered_map>
+
 
 namespace obv {
 namespace {
@@ -190,6 +192,39 @@ const Pin *findNetSourcePin(const Board &board, const Annotations &ann, const Ne
 	}
 	return nullptr;
 }
+// Match board_json.cpp: sequential export ids in Nets() order, then first
+// encounter on pins/tracks/vias/arcs for nets missing from Nets().
+int computeExportNetId(const Board &board, const Net *target) {
+	if (!target) return 0;
+	std::unordered_map<const Net *, int> netIds;
+	int nextNetId = 1;
+	auto assign = [&](const Net *n) {
+		if (!n) return;
+		if (netIds.find(n) != netIds.end()) return;
+		netIds.emplace(n, nextNetId++);
+	};
+
+	Board &b = mutableBoard(board);
+	for (const auto &n : b.Nets()) {
+		if (n) assign(n.get());
+	}
+	for (const auto &p : b.Pins()) {
+		if (p && p->net) assign(p->net);
+	}
+	for (const auto &t : b.Tracks()) {
+		if (t && t->net) assign(t->net);
+	}
+	for (const auto &v : b.Vias()) {
+		if (v && v->net) assign(v->net);
+	}
+	for (const auto &a : b.arcs()) {
+		if (a && a->net) assign(a->net);
+	}
+
+	const auto it = netIds.find(target);
+	return it != netIds.end() ? it->second : 0;
+}
+
 
 void normalizeLabelArray(std::vector<std::string> &arr, std::string &err, bool &ok) {
 	if (!ok) return;
@@ -335,6 +370,8 @@ void ResolvePinMeasurements(const Board &board, const Annotations &ann,
 	out.pin = &pin;
 	out.pinKey = PinOverlayKey(pin);
 	out.netName = pin.net ? pin.net->name : std::string{};
+	out.netId = pin.net ? computeExportNetId(board, pin.net) : 0;
+
 
 	const PinInfo *info = lookupOverlayPin(ann, pin);
 	if (info) {
@@ -431,7 +468,7 @@ std::string ExportPinResolveJson(const std::string &boardId,
 	appendEscaped(os, pinTypeToString(p.type));
 	os << ",\"netId\":";
 	if (p.net) {
-		os << p.net->number;
+		os << r.netId;
 	} else {
 		os << "null";
 	}
