@@ -75,7 +75,8 @@ export const DEFAULT_COLORS: DrawColors = {
   pin: '#6ec6ff',
   pinSelected: '#ffb74d',
   pinHighlight: '#ff8a80',
-  pinSameNet: '#4fc3f7',
+  // Must contrast with default pin cyan — desktop pinSameNet is vivid.
+  pinSameNet: '#ff66cc',
   // Dark theme: deep blue for ground, muted gray for NC (desktop dark scheme).
   pinGround: '#3030c3',
   pinUnconnected: '#9e9e9e',
@@ -91,7 +92,8 @@ export const DEFAULT_COLORS: DrawColors = {
   // Bright amber value text + dark halo for legibility on cyan/blue pads.
   pinValue: '#ffe566',
   pinValueStroke: 'rgba(10, 12, 18, 0.92)',
-  netWeb: 'rgba(255, 183, 77, 0.55)',
+  // Stronger than previous 0.55 amber so spokes read clearly.
+  netWeb: 'rgba(255, 230, 80, 0.9)',
   trackSelected: '#ffcc80',
   annotation: '#ce93d8',
 };
@@ -553,8 +555,13 @@ function drawPins(
       ctx.lineWidth = 1.5;
       ctx.stroke();
     } else if (sameNet) {
+      // Same-net peers of the selected pin — vivid fill + ring so they don't
+      // blend into default cyan pads.
       ctx.fillStyle = colors.pinSameNet;
       ctx.fill();
+      ctx.strokeStyle = '#ffe066';
+      ctx.lineWidth = 1.75;
+      ctx.stroke();
     } else if (hi) {
       ctx.fillStyle = colors.pinHighlight;
       ctx.fill();
@@ -618,10 +625,11 @@ function drawNetWeb(
 
   const origin = boardToScreen(view, sel.pos.x, sel.pos.y, cssW, cssH);
   ctx.strokeStyle = colors.netWeb;
-  ctx.lineWidth = Math.max(1, 1.25 * Math.min(view.scale, 2));
+  ctx.lineWidth = Math.max(1.5, 2 * Math.min(view.scale, 3));
   ctx.lineCap = 'round';
   for (const pin of board.pins) {
     if (pin.id === selId || pin.netId !== netId) continue;
+    // Still draw spokes to off-side pads so net membership is obvious.
     const t = boardToScreen(view, pin.pos.x, pin.pos.y, cssW, cssH);
     ctx.beginPath();
     ctx.moveTo(origin.x, origin.y);
