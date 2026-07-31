@@ -149,8 +149,49 @@ void appendPartInfo(std::ostringstream &os, const PartInfo &pi) {
 		}
 		os << '}';
 	}
+	if (!pi.operating_conditions.empty()) {
+		if (!first) os << ',';
+		first = false;
+		appendEscaped(os, "operating_conditions");
+		os << ":[";
+		for (size_t i = 0; i < pi.operating_conditions.size(); ++i) {
+			if (i) os << ',';
+			const auto &oc = pi.operating_conditions[i];
+			os << '{';
+			bool of = true;
+			auto sfield = [&](const char *k, const std::string &v) {
+				if (v.empty()) return;
+				if (!of) os << ',';
+				of = false;
+				appendEscaped(os, k);
+				os << ':';
+				appendEscaped(os, v);
+			};
+			auto afield = [&](const char *k, const std::vector<std::string> &arr) {
+				if (!of) os << ',';
+				of = false;
+				appendEscaped(os, k);
+				os << ":[";
+				for (size_t j = 0; j < arr.size(); ++j) {
+					if (j) os << ',';
+					appendEscaped(os, arr[j]);
+				}
+				os << ']';
+			};
+			sfield("id", oc.id);
+			sfield("name", oc.name);
+			// Always emit arrays (even empty) so clients see stable shape
+			afield("inputs", oc.inputs);
+			afield("outputs", oc.outputs);
+			afield("enables", oc.enables);
+			sfield("note", oc.note);
+			os << '}';
+		}
+		os << ']';
+	}
 	(void)first;
 	os << '}';
+
 }
 
 void appendNetInfo(std::ostringstream &os, const NetInfo &ni) {
@@ -362,6 +403,84 @@ struct JsonCursor {
 		return fail("unknown value");
 	}
 
+	bool parseStringArray(std::vector<std::string> &out) {
+		out.clear();
+		if (!expect('[')) return false;
+		skipWs();
+		if (peek(']')) {
+			++i;
+			return true;
+		}
+		for (;;) {
+			std::string elem;
+			if (!parseString(elem)) return false;
+			out.push_back(std::move(elem));
+			skipWs();
+			if (peek(']')) {
+				++i;
+				return true;
+			}
+			if (!expect(',')) return false;
+		}
+	}
+
+	bool parseOperatingCondition(OperatingCondition &oc) {
+		if (!expect('{')) return false;
+		skipWs();
+		if (peek('}')) {
+			++i;
+			return true;
+		}
+		for (;;) {
+			std::string key;
+			if (!parseString(key)) return false;
+			if (!expect(':')) return false;
+			if (key == "id") {
+				if (!parseString(oc.id)) return false;
+			} else if (key == "name") {
+				if (!parseString(oc.name)) return false;
+			} else if (key == "note") {
+				if (!parseString(oc.note)) return false;
+			} else if (key == "inputs") {
+				if (!parseStringArray(oc.inputs)) return false;
+			} else if (key == "outputs") {
+				if (!parseStringArray(oc.outputs)) return false;
+			} else if (key == "enables") {
+				if (!parseStringArray(oc.enables)) return false;
+			} else {
+				if (!skipValue()) return false;
+			}
+			skipWs();
+			if (peek('}')) {
+				++i;
+				return true;
+			}
+			if (!expect(',')) return false;
+		}
+	}
+
+	bool parseOperatingConditions(std::vector<OperatingCondition> &out) {
+		out.clear();
+		if (!expect('[')) return false;
+		skipWs();
+		if (peek(']')) {
+			++i;
+			return true;
+		}
+		for (;;) {
+			OperatingCondition oc;
+			if (!parseOperatingCondition(oc)) return false;
+			out.push_back(std::move(oc));
+			skipWs();
+			if (peek(']')) {
+				++i;
+				return true;
+			}
+			if (!expect(',')) return false;
+		}
+	}
+
+
 	bool parsePinInfo(PinInfo &pi) {
 		if (!expect('{')) return false;
 		skipWs();
@@ -445,6 +564,11 @@ struct JsonCursor {
 					return fail("bad part angle");
 			} else if (key == "pins") {
 				if (!parsePinsMap(pi.pins, pi.partName)) return false;
+			} else if (key == "operating_conditions") {
+				// Bulk PUT /overlays clients that omit this field wipe conditions:
+				// parsePartInfo starts from a default PartInfo, and ApplyOverlayJson
+				// replaces partInfos wholesale, so missing operating_conditions => empty.
+				if (!parseOperatingConditions(pi.operating_conditions)) return false;
 			} else {
 				if (!skipValue()) return false;
 			}
@@ -715,6 +839,38 @@ bool SavePartNetYaml(const filesystem::path &boardPath, const Annotations &ann, 
 			}
 			if (gp.voltage_flag != wp.voltage_flag) {
 				err = "incomplete write " + yamlPath + " (pin voltage_flag mismatch: " + key + "/" + pkv.first + ")";
+				return false;
+			}
+		}
+		if (got.operating_conditions.size() != want.operating_conditions.size()) {
+			err = "incomplete write " + yamlPath + " (PartInfos operating_conditions size mismatch: " + key + ")";
+			return false;
+		}
+		for (size_t oi = 0; oi < want.operating_conditions.size(); ++oi) {
+			const auto &woc = want.operating_conditions[oi];
+			const auto &goc = got.operating_conditions[oi];
+			if (goc.id != woc.id) {
+				err = "incomplete write " + yamlPath + " (operating_conditions id mismatch: " + key + ")";
+				return false;
+			}
+			if (goc.name != woc.name) {
+				err = "incomplete write " + yamlPath + " (operating_conditions name mismatch: " + key + ")";
+				return false;
+			}
+			if (goc.note != woc.note) {
+				err = "incomplete write " + yamlPath + " (operating_conditions note mismatch: " + key + ")";
+				return false;
+			}
+			if (goc.inputs != woc.inputs) {
+				err = "incomplete write " + yamlPath + " (operating_conditions inputs mismatch: " + key + ")";
+				return false;
+			}
+			if (goc.outputs != woc.outputs) {
+				err = "incomplete write " + yamlPath + " (operating_conditions outputs mismatch: " + key + ")";
+				return false;
+			}
+			if (goc.enables != woc.enables) {
+				err = "incomplete write " + yamlPath + " (operating_conditions enables mismatch: " + key + ")";
 				return false;
 			}
 		}

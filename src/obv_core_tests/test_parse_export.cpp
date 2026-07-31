@@ -270,6 +270,34 @@ static void test_operating_conditions_yaml_roundtrip() {
 	std::cout << "operating_conditions yaml ok\n";
 }
 
+static void test_operating_conditions_json_roundtrip() {
+	Annotations ann;
+	auto &part = ann.NewPartInfo("U12");
+	OperatingCondition oc;
+	oc.id = "oc_01";
+	oc.name = "g1";
+	oc.inputs = {"A"};
+	oc.outputs = {"B", "C"};
+	oc.enables = {"EN"};
+	oc.note = "n";
+	part.operating_conditions.push_back(oc);
+
+	std::string js = obv::ExportOverlayJson(ann);
+	assert(js.find("\"operating_conditions\"") != std::string::npos);
+	assert(js.find("\"oc_01\"") != std::string::npos);
+	assert(js.find("\"EN\"") != std::string::npos);
+
+	Annotations applied;
+	std::string err;
+	assert(obv::ApplyOverlayJson(applied, js, err));
+	assert(err.empty());
+	assert(applied.partInfos["U12"].operating_conditions.size() == 1);
+	assert(applied.partInfos["U12"].operating_conditions[0].outputs.size() == 2);
+	assert(applied.partInfos["U12"].operating_conditions[0].outputs[1] == "C");
+	std::cout << "operating_conditions json ok\n";
+}
+
+
 
 int main() {
 	test_unrecognized_fails();
@@ -278,6 +306,7 @@ int main() {
 	test_export_has_schema();
 	test_overlay_yaml_roundtrip();
 	test_operating_conditions_yaml_roundtrip();
+	test_operating_conditions_json_roundtrip();
 	std::cout << "ok\n";
 	return 0;
 }
