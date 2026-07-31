@@ -295,6 +295,90 @@ std::vector<BoardRegistry::Entry> BoardRegistry::List() const {
 	return out;
 }
 
+BoardRegistry::BoardRefResult BoardRegistry::ResolveRef(const std::string &ref) const {
+	BoardRefResult r;
+	if (ref.empty()) {
+		r.status = BoardRefStatus::NotFound;
+		return r;
+	}
+	// Ensure index fresh
+	const auto entries = List(); // rescans
+	if (IsValidBoardId(ref)) {
+		for (const auto &e : entries) {
+			if (e.id == ref) {
+				r.status = BoardRefStatus::Ok;
+				r.boardId = e.id;
+				return r;
+			}
+		}
+		r.status = BoardRefStatus::NotFound;
+		return r;
+	}
+	// normalize ref: replace \\ with / for comparison against displayPath which uses preferred separators
+	auto norm = [](std::string s) {
+		for (char &c : s) {
+			if (c == '\\') {
+				c = '/';
+			}
+		}
+		return s;
+	};
+	const std::string want = norm(ref);
+	std::vector<const Entry *> pathHits;
+	std::vector<const Entry *> nameHits;
+	for (const auto &e : entries) {
+		if (norm(e.displayPath) == want) {
+			pathHits.push_back(&e);
+		}
+		if (e.name == ref || norm(e.name) == want) {
+			nameHits.push_back(&e);
+		}
+	}
+	if (pathHits.size() == 1) {
+		r.status = BoardRefStatus::Ok;
+		r.boardId = pathHits[0]->id;
+		return r;
+	}
+	if (pathHits.size() > 1) {
+		r.status = BoardRefStatus::Ambiguous;
+		for (auto *e : pathHits) {
+			r.candidates.push_back(e->id + " " + e->displayPath);
+		}
+		return r;
+	}
+	if (nameHits.size() == 1) {
+		r.status = BoardRefStatus::Ok;
+		r.boardId = nameHits[0]->id;
+		return r;
+	}
+	if (nameHits.size() > 1) {
+		r.status = BoardRefStatus::Ambiguous;
+		for (auto *e : nameHits) {
+			r.candidates.push_back(e->id + " " + e->displayPath);
+		}
+		return r;
+	}
+	r.status = BoardRefStatus::NotFound;
+	return r;
+}
+
+bool BoardRegistry::TryGetEntry(const std::string &id, Entry &out) const {
+	if (!isHexId(id)) {
+		return false;
+	}
+	std::lock_guard<std::mutex> lock(mu_);
+	auto it = byId_.find(id);
+	if (it == byId_.end()) {
+		const_cast<BoardRegistry *>(this)->scanDiskLocked();
+		it = byId_.find(id);
+		if (it == byId_.end()) {
+			return false;
+		}
+	}
+	out = it->second.entry;
+	return true;
+}
+
 std::shared_ptr<const obv::BoardSnapshot>
 BoardRegistry::loadParsedLocked(const std::string &id) {
 	auto it = byId_.find(id);

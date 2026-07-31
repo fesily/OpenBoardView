@@ -27,6 +27,21 @@ public:
 		bool ok = false; // true when listed / parse ok; false after failed open/parse
 	};
 
+	enum class BoardRefStatus { Ok, NotFound, Ambiguous, InvalidId };
+
+	struct BoardRefResult {
+		BoardRefStatus status = BoardRefStatus::NotFound;
+		std::string boardId; // set when Ok
+		// Ambiguous: "id displayPath" lines for message only (no absolute paths)
+		std::vector<std::string> candidates;
+	};
+
+	// Resolve boardId | unique displayPath | unique basename (see §3.2).
+	BoardRefResult ResolveRef(const std::string &ref) const;
+
+	// Lookup Entry by id after resolve; rescans when missing from cache.
+	bool TryGetEntry(const std::string &id, Entry &out) const;
+
 	// Re-scan boardRoot (clears index and rebuilds). List() always rescans.
 	void Rescan();
 
