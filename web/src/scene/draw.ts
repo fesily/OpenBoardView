@@ -433,48 +433,83 @@ function drawVias(
   if (!vias.length) return;
   for (const v of vias) {
     const onNet = netForcedVisible(v.netId, highlight);
-    // Highlighted net vias always draw regardless of layer menu.
-    if (
-      !onNet &&
-      !copperVisible(v.side, enabledLayers) &&
-      !copperVisible(v.targetSide, enabledLayers)
-    ) {
-      continue;
-    }
+    // Layer filter: only show via if it touches at least one enabled copper layer.
+    // (Highlighted-net vias always draw, matching tracks/arcs.)
+    const srcOn = copperVisible(v.side, enabledLayers);
+    const dstOn = copperVisible(v.targetSide, enabledLayers);
+    if (!onNet && !srcOn && !dstOn) continue;
+
     const s = boardToScreen(view, v.pos.x, v.pos.y, cssW, cssH);
     const r = Math.max((v.size > 0 ? v.size : 4) * view.scale * 0.5, 1.25);
 
     // Desktop DrawVies: base disc + dual-layer semicircles when large enough.
-    ctx.beginPath();
-    ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = onNet ? colors.pinSelected : colors.via;
-    ctx.fill();
+    // When a layer is filtered off, omit that half so inner layers don't "show through".
+    const showSrc = onNet || srcOn;
+    const showDst = onNet || dstOn;
+
+    if (showSrc && showDst) {
+      // Full via disc underlay when both ends are visible / forced.
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = onNet ? colors.pinSelected : colors.via;
+      ctx.fill();
+    } else {
+      // Only one end visible: still need a disc underlay for the visible half.
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = onNet ? colors.pinSelected : colors.via;
+      ctx.fill();
+    }
 
     if (r > 3) {
       const hr = r * 0.8;
-      const srcColor = layerCopperColor(v.side, colors.via);
-      const dstColor = layerCopperColor(v.targetSide, colors.via);
-      // Left half = source (board_side), right half = target_side.
-      fillSemiCircle(ctx, s.x, s.y, hr, false, srcColor);
-      fillSemiCircle(ctx, s.x, s.y, hr, true, dstColor);
+      const srcColor = onNet
+        ? colors.pinSelected
+        : layerCopperColor(v.side, colors.via);
+      const dstColor = onNet
+        ? colors.pinSelected
+        : layerCopperColor(v.targetSide, colors.via);
 
-      // Layer labels (desktop BoardSideName abbreviated).
+      if (showSrc && showDst) {
+        // Left half = source (board_side), right half = target_side.
+        fillSemiCircle(ctx, s.x, s.y, hr, false, srcColor);
+        fillSemiCircle(ctx, s.x, s.y, hr, true, dstColor);
+      } else if (showSrc) {
+        // Only source layer enabled — full pad in source color (not inner target).
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, hr, 0, Math.PI * 2);
+        ctx.fillStyle = srcColor;
+        ctx.fill();
+      } else if (showDst) {
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, hr, 0, Math.PI * 2);
+        ctx.fillStyle = dstColor;
+        ctx.fill();
+      }
+
+      // Layer labels only for ends that are currently shown.
       const fontPx = Math.min(r * 0.95, 11);
-      if (fontPx >= 5) {
+      if (fontPx >= 5 && (showSrc || showDst)) {
         ctx.font = `600 ${fontPx}px sans-serif`;
         ctx.textBaseline = 'middle';
         ctx.fillStyle = '#ffffff';
         ctx.strokeStyle = 'rgba(0,0,0,0.55)';
         ctx.lineWidth = Math.max(1.5, fontPx * 0.18);
-        const left = shortLayerLabel(v.side);
-        const right = shortLayerLabel(v.targetSide);
         ctx.textAlign = 'center';
-        const lx = s.x - r * 0.35;
-        const rx = s.x + r * 0.35;
-        ctx.strokeText(left, lx, s.y);
-        ctx.fillText(left, lx, s.y);
-        ctx.strokeText(right, rx, s.y);
-        ctx.fillText(right, rx, s.y);
+        if (showSrc && showDst) {
+          const left = shortLayerLabel(v.side);
+          const right = shortLayerLabel(v.targetSide);
+          const lx = s.x - r * 0.35;
+          const rx = s.x + r * 0.35;
+          ctx.strokeText(left, lx, s.y);
+          ctx.fillText(left, lx, s.y);
+          ctx.strokeText(right, rx, s.y);
+          ctx.fillText(right, rx, s.y);
+        } else {
+          const label = shortLayerLabel(showSrc ? v.side : v.targetSide);
+          ctx.strokeText(label, s.x, s.y);
+          ctx.fillText(label, s.x, s.y);
+        }
       }
     }
   }
