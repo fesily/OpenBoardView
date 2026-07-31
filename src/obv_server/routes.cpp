@@ -2,6 +2,7 @@
 
 #include "obv_core/board_json.h"
 #include "obv_core/overlay_store.h"
+#include "obv_core/pin_resolve.h"
 
 #include <cctype>
 #include <cstdio>
@@ -220,6 +221,38 @@ bool requireBoardId(const std::string &id, httplib::Response &res) {
 		return false;
 	}
 	return true;
+}
+
+// Resolve boardId | unique displayPath | unique basename; writes error on failure.
+bool applyBoardRef(BoardRegistry &registry, const std::string &ref, httplib::Response &res,
+				   std::string &boardId) {
+	auto r = registry.ResolveRef(ref);
+	if (r.status == BoardRegistry::BoardRefStatus::Ambiguous) {
+		std::string msg = "ambiguous board ref";
+		for (const auto &c : r.candidates) {
+			msg += "; ";
+			msg += c;
+		}
+		setError(res, 409, "BOARD_REF_AMBIGUOUS", msg);
+		return false;
+	}
+	if (r.status != BoardRegistry::BoardRefStatus::Ok) {
+		setError(res, 404, "NOT_FOUND", "board not found");
+		return false;
+	}
+	boardId = r.boardId;
+	return true;
+}
+
+std::string publicSourceName(BoardRegistry &registry, const std::string &boardId) {
+	BoardRegistry::Entry e;
+	if (registry.TryGetEntry(boardId, e) && !e.displayPath.empty()) {
+		return e.displayPath;
+	}
+	if (registry.TryGetEntry(boardId, e)) {
+		return e.name;
+	}
+	return boardId;
 }
 
 // Lowercase file extension including leading '.' (empty if none).
@@ -715,6 +748,7 @@ void setSqliteRequired(httplib::Response &res) {
 
 } // namespace
 
+
 void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 	svr.Get("/api/v1/config", [&registry](const httplib::Request &, httplib::Response &res) {
 		const auto &cfg = registry.config();
@@ -736,6 +770,93 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 			 });
 
 	// More specific paths first.
+	// Agent pin resolve + part summary (use :ref — id | displayPath | unique name).
+	svr.Get(R"(/api/v1/boards/:ref/parts/:part/pins/:pin)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string ref = pathParam(req, "ref");
+				const std::string part = pathParam(req, "part");
+				const std::string pin = pathParam(req, "pin");
+				std::string boardId;
+				if (!applyBoardRef(registry, ref, res, boardId)) {
+					return;
+				}
+				const auto snap = registry.GetParsed(boardId);
+				if (!snap) {
+					setError(res, 404, "NOT_FOUND", "board not found");
+					return;
+				}
+				if (!snap->ok()) {
+					setError(res, 400, "PARSE_FAILED",
+							 snap->error.empty() ? "parse failed" : snap->error);
+					return;
+				}
+				const auto boardPath = registry.BoardPath(boardId);
+				std::lock_guard<std::mutex> lock(registry.OverlayMutex(boardId));
+				Annotations ann;
+				std::string err;
+				if (!obv::LoadOverlayForBoard(boardPath, ann, err)) {
+					setError(res, 500, "OVERLAY_LOAD_FAILED",
+							 err.empty() ? "failed to load overlay" : err);
+					ann.Close();
+					return;
+				}
+				obv::PinResolveResult pr;
+				std::string code;
+				if (!obv::ResolvePartPin(*snap->board, ann, part, pin, pr, code)) {
+					setError(res, 404, code.c_str(),
+							 code == "PART_NOT_FOUND" ? "part not found" : "pin not found");
+					ann.Close();
+					return;
+				}
+				const std::string js = obv::ExportPinResolveJson(
+					boardId, publicSourceName(registry, boardId), part, pr);
+				ann.Close();
+				res.set_content(js, "application/json");
+			});
+
+	svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string ref = pathParam(req, "ref");
+				const std::string part = pathParam(req, "part");
+				std::string boardId;
+				if (!applyBoardRef(registry, ref, res, boardId)) {
+					return;
+				}
+				const auto snap = registry.GetParsed(boardId);
+				if (!snap) {
+					setError(res, 404, "NOT_FOUND", "board not found");
+					return;
+				}
+				if (!snap->ok()) {
+					setError(res, 400, "PARSE_FAILED",
+							 snap->error.empty() ? "parse failed" : snap->error);
+					return;
+				}
+				const auto boardPath = registry.BoardPath(boardId);
+				std::lock_guard<std::mutex> lock(registry.OverlayMutex(boardId));
+				Annotations ann;
+				std::string err;
+				if (!obv::LoadOverlayForBoard(boardPath, ann, err)) {
+					setError(res, 500, "OVERLAY_LOAD_FAILED",
+							 err.empty() ? "failed to load overlay" : err);
+					ann.Close();
+					return;
+				}
+				if (!obv::FindComponent(*snap->board, part)) {
+					setError(res, 404, "PART_NOT_FOUND", "part not found");
+					ann.Close();
+					return;
+				}
+				const std::string js = obv::ExportPartSummaryJson(
+					*snap->board, ann, boardId, publicSourceName(registry, boardId), part);
+				ann.Close();
+				if (js.empty()) {
+					setError(res, 404, "PART_NOT_FOUND", "part not found");
+					return;
+				}
+				res.set_content(js, "application/json");
+			});
+
 	svr.Get("/api/v1/boards/:id/meta",
 			[&registry](const httplib::Request &req, httplib::Response &res) {
 				const std::string id = pathParam(req, "id");

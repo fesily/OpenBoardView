@@ -3,6 +3,7 @@
 
 #include "obv_core/pin_resolve.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <iomanip>
@@ -508,6 +509,224 @@ std::string ExportPinResolveJson(const std::string &boardId,
 	os << "}}";
 	return os.str();
 }
+
+std::string ExportPartSummaryJson(const Board &board, const Annotations &ann,
+                                  const std::string &boardId,
+                                  const std::string &sourceName,
+                                  const std::string &part) {
+	const Component *comp = FindComponent(board, part);
+	if (!comp) return {};
+	const Component &c = *comp;
+
+	// Center: prefer stored centerpoint when set; else pin bbox midpoint.
+	float cx = c.centerpoint.x;
+	float cy = c.centerpoint.y;
+	const bool centerUnset = (cx == 0.f && cy == 0.f);
+	if (centerUnset && !c.pins.empty()) {
+		float minX = c.pins[0] ? c.pins[0]->position.x : 0.f;
+		float minY = c.pins[0] ? c.pins[0]->position.y : 0.f;
+		float maxX = minX, maxY = minY;
+		bool any = false;
+		for (const auto &pp : c.pins) {
+			if (!pp) continue;
+			if (!any) {
+				minX = maxX = pp->position.x;
+				minY = maxY = pp->position.y;
+				any = true;
+			} else {
+				minX = std::min(minX, pp->position.x);
+				minY = std::min(minY, pp->position.y);
+				maxX = std::max(maxX, pp->position.x);
+				maxY = std::max(maxY, pp->position.y);
+			}
+		}
+		if (any) {
+			cx = (minX + maxX) * 0.5f;
+			cy = (minY + maxY) * 0.5f;
+		}
+	}
+
+	const char *mountStr = "unknown";
+	switch (c.mount_type) {
+		case Component::kMountTypeSMD: mountStr = "smd"; break;
+		case Component::kMountTypeDIP: mountStr = "dip"; break;
+		default: break;
+	}
+	const char *typeStr = "unknown";
+	switch (c.component_type) {
+		case Component::kComponentTypeDummy: typeStr = "dummy"; break;
+		case Component::kComponentTypeConnector: typeStr = "connector"; break;
+		case Component::kComponentTypeIC: typeStr = "ic"; break;
+		case Component::kComponentTypeResistor: typeStr = "resistor"; break;
+		case Component::kComponentTypeCapacitor: typeStr = "capacitor"; break;
+		case Component::kComponentTypeDiode: typeStr = "diode"; break;
+		case Component::kComponentTypeTransistor: typeStr = "transistor"; break;
+		case Component::kComponentTypeCrystal: typeStr = "crystal"; break;
+		case Component::kComponentTypeJellyBean: typeStr = "jellybean"; break;
+		case Component::kComponentTypeBoard: typeStr = "board"; break;
+		case Component::kComponentTypeInductor: typeStr = "inductor"; break;
+		default: break;
+	}
+
+	// Global pin index for export ids (component pins ignore index for non-nails).
+	std::unordered_map<const Pin *, size_t> pinGlobalIndex;
+	{
+		const auto &allPins = mutableBoard(board).Pins();
+		pinGlobalIndex.reserve(allPins.size());
+		for (size_t i = 0; i < allPins.size(); ++i) {
+			pinGlobalIndex.emplace(allPins[i].get(), i);
+		}
+	}
+
+	// Export net ids matching board JSON order.
+	std::unordered_map<const Net *, int> netIds;
+	int nextNetId = 1;
+	auto assignNet = [&](const Net *n) {
+		if (!n) return;
+		if (netIds.find(n) != netIds.end()) return;
+		netIds.emplace(n, nextNetId++);
+	};
+	{
+		Board &b = mutableBoard(board);
+		for (const auto &n : b.Nets()) {
+			if (n) assignNet(n.get());
+		}
+		for (const auto &p : b.Pins()) {
+			if (p && p->net) assignNet(p->net);
+		}
+		for (const auto &t : b.Tracks()) {
+			if (t && t->net) assignNet(t->net);
+		}
+		for (const auto &v : b.Vias()) {
+			if (v && v->net) assignNet(v->net);
+		}
+		for (const auto &a : b.arcs()) {
+			if (a && a->net) assignNet(a->net);
+		}
+	}
+
+	auto exportNetIdOf = [&](const Net *n) -> int {
+		if (!n) return 0;
+		const auto it = netIds.find(n);
+		return it != netIds.end() ? it->second : 0;
+	};
+
+	std::ostringstream os;
+	os << "{\"boardId\":";
+	appendEscaped(os, boardId);
+	os << ",\"sourceName\":";
+	appendEscaped(os, sourceName);
+	os << ",\"part\":{";
+	os << "\"name\":";
+	appendEscaped(os, c.name);
+	os << ",\"side\":";
+	appendEscaped(os, sideToString(c.board_side));
+	os << ",\"mount\":";
+	appendEscaped(os, mountStr);
+	os << ",\"type\":";
+	appendEscaped(os, typeStr);
+	os << ",\"mfgcode\":";
+	appendEscaped(os, c.mfgcode);
+	os << ",\"center\":{\"x\":";
+	appendNumber(os, cx);
+	os << ",\"y\":";
+	appendNumber(os, cy);
+	os << "},\"pins\":[";
+	for (size_t pi = 0; pi < c.pins.size(); ++pi) {
+		if (pi) os << ',';
+		if (!c.pins[pi]) {
+			appendEscaped(os, "");
+			continue;
+		}
+		size_t globalIdx = pi;
+		auto git = pinGlobalIndex.find(c.pins[pi].get());
+		if (git != pinGlobalIndex.end()) globalIdx = git->second;
+		appendEscaped(os, ExportPinId(*c.pins[pi], globalIdx));
+	}
+	os << "]}";
+
+	// Detailed pin list (netId + netName).
+	os << ",\"pins\":[";
+	{
+		bool first = true;
+		for (size_t pi = 0; pi < c.pins.size(); ++pi) {
+			if (!c.pins[pi]) continue;
+			const Pin &p = *c.pins[pi];
+			if (!first) os << ',';
+			first = false;
+			size_t globalIdx = pi;
+			auto git = pinGlobalIndex.find(&p);
+			if (git != pinGlobalIndex.end()) globalIdx = git->second;
+			os << "{\"id\":";
+			appendEscaped(os, ExportPinId(p, globalIdx));
+			os << ",\"number\":";
+			appendEscaped(os, p.number);
+			os << ",\"name\":";
+			appendEscaped(os, p.name);
+			os << ",\"type\":";
+			appendEscaped(os, pinTypeToString(p.type));
+			os << ",\"netId\":";
+			if (p.net) {
+				os << exportNetIdOf(p.net);
+			} else {
+				os << "null";
+			}
+			os << ",\"netName\":";
+			appendEscaped(os, p.net ? p.net->name : std::string{});
+			os << '}';
+		}
+	}
+	os << ']';
+
+	// Overlay partInfo (defaults when missing).
+	const PartInfo *pi = nullptr;
+	{
+		const auto it = ann.partInfos.find(part);
+		if (it != ann.partInfos.end()) pi = &it->second;
+	}
+	os << ",\"partInfo\":{";
+	os << "\"part_type\":";
+	appendEscaped(os, pi ? pi->part_type : std::string{});
+	os << ",\"angle\":" << static_cast<int>(pi ? pi->angle : PartAngle::_0);
+	os << ",\"operating_conditions\":[";
+	if (pi) {
+		for (size_t i = 0; i < pi->operating_conditions.size(); ++i) {
+			if (i) os << ',';
+			const auto &oc = pi->operating_conditions[i];
+			os << '{';
+			bool of = true;
+			auto sfield = [&](const char *k, const std::string &v) {
+				if (v.empty()) return;
+				if (!of) os << ',';
+				of = false;
+				appendEscaped(os, k);
+				os << ':';
+				appendEscaped(os, v);
+			};
+			auto afield = [&](const char *k, const std::vector<std::string> &arr) {
+				if (!of) os << ',';
+				of = false;
+				appendEscaped(os, k);
+				os << ":[";
+				for (size_t j = 0; j < arr.size(); ++j) {
+					if (j) os << ',';
+					appendEscaped(os, arr[j]);
+				}
+				os << ']';
+			};
+			sfield("id", oc.id);
+			sfield("name", oc.name);
+			afield("inputs", oc.inputs);
+			afield("outputs", oc.outputs);
+			afield("enables", oc.enables);
+			sfield("note", oc.note);
+			os << '}';
+		}
+	}
+	os << "]}}";
+	return os.str();
+}
+
 
 std::string AllocateConditionId(const PartInfo &part) {
 	std::set<std::string> used;
