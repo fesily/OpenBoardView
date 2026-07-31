@@ -383,6 +383,42 @@ function drawArcs(
   }
 }
 
+/** Desktop DrawFilledSemiCircle: left half = source side, right half = target. */
+function fillSemiCircle(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  radius: number,
+  rightHalf: boolean,
+  color: string,
+): void {
+  // Desktop: left half starts at π/2 → 3π/2; right at 3π/2 → 5π/2.
+  // Canvas arc angles are clockwise-from-east by default with the usual
+  // math angles (y down flips visual), but we match desktop cos/sin path.
+  const start = rightHalf ? (3 * Math.PI) / 2 : Math.PI / 2;
+  const end = rightHalf ? (5 * Math.PI) / 2 : (3 * Math.PI) / 2;
+  const n = 24;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  for (let i = 0; i <= n; i++) {
+    const a = start + ((end - start) * i) / n;
+    ctx.lineTo(cx + Math.cos(a) * radius, cy + Math.sin(a) * radius);
+  }
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+function shortLayerLabel(side: string): string {
+  if (!side) return '?';
+  if (side === 'top') return 'T';
+  if (side === 'bottom') return 'B';
+  if (side === 'both') return 'A';
+  const m = /^s(\d+)$/i.exec(side);
+  if (m) return m[1];
+  return side.slice(0, 2).toUpperCase();
+}
+
 function drawVias(
   ctx: CanvasRenderingContext2D,
   board: BoardDocument,
@@ -407,10 +443,40 @@ function drawVias(
     }
     const s = boardToScreen(view, v.pos.x, v.pos.y, cssW, cssH);
     const r = Math.max((v.size > 0 ? v.size : 4) * view.scale * 0.5, 1.25);
+
+    // Desktop DrawVies: base disc + dual-layer semicircles when large enough.
     ctx.beginPath();
     ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
     ctx.fillStyle = onNet ? colors.pinSelected : colors.via;
     ctx.fill();
+
+    if (r > 3) {
+      const hr = r * 0.8;
+      const srcColor = layerCopperColor(v.side, colors.via);
+      const dstColor = layerCopperColor(v.targetSide, colors.via);
+      // Left half = source (board_side), right half = target_side.
+      fillSemiCircle(ctx, s.x, s.y, hr, false, srcColor);
+      fillSemiCircle(ctx, s.x, s.y, hr, true, dstColor);
+
+      // Layer labels (desktop BoardSideName abbreviated).
+      const fontPx = Math.min(r * 0.95, 11);
+      if (fontPx >= 5) {
+        ctx.font = `600 ${fontPx}px sans-serif`;
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+        ctx.lineWidth = Math.max(1.5, fontPx * 0.18);
+        const left = shortLayerLabel(v.side);
+        const right = shortLayerLabel(v.targetSide);
+        ctx.textAlign = 'center';
+        const lx = s.x - r * 0.35;
+        const rx = s.x + r * 0.35;
+        ctx.strokeText(left, lx, s.y);
+        ctx.fillText(left, lx, s.y);
+        ctx.strokeText(right, rx, s.y);
+        ctx.fillText(right, rx, s.y);
+      }
+    }
   }
 }
 
