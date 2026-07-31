@@ -205,12 +205,79 @@ static void test_overlay_yaml_roundtrip() {
 	std::cout << "overlay yaml ok\n";
 }
 
+static void test_operating_conditions_yaml_roundtrip() {
+	const auto dir = filesystem::temp_directory_path() / "obv_core_oc_test";
+	std::error_code ec;
+	filesystem::create_directories(dir, ec);
+	assert(!ec);
+	const auto boardPath = dir / "board.brd";
+	{
+		std::ofstream touch(boardPath.string(), std::ios::trunc);
+		assert(touch.good());
+		touch << "x";
+	}
+
+	Annotations ann;
+	ann.SetFilename(boardPath.string());
+	auto &part = ann.NewPartInfo("U12");
+	OperatingCondition oc;
+	oc.id = "oc_01";
+	oc.name = "UART0 TX path";
+	oc.inputs = {"RXD0"};
+	oc.outputs = {"TXD0"};
+	oc.enables = {"UART_EN"};
+	oc.note = "EN high, VCC 3.3";
+	part.operating_conditions.push_back(oc);
+
+	// Part with ONLY conditions (no pins/type) must still persist.
+	auto &part2 = ann.NewPartInfo("U99");
+	OperatingCondition oc2;
+	oc2.id = "oc_a";
+	oc2.outputs = {"Y"};
+	part2.operating_conditions.push_back(oc2);
+
+	std::string err;
+	assert(obv::SavePartNetYaml(boardPath, ann, err));
+	assert(err.empty());
+
+	const auto yamlPath = boardPath.string() + ".yaml";
+	{
+		std::ifstream in(yamlPath);
+		std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+		assert(content.find("operating_conditions") != std::string::npos);
+		assert(content.find("oc_01") != std::string::npos);
+		assert(content.find("UART_EN") != std::string::npos);
+		assert(content.find("U99") != std::string::npos);
+	}
+
+	Annotations loaded;
+	assert(obv::LoadOverlayForBoard(boardPath, loaded, err));
+	assert(loaded.partInfos.count("U12") == 1);
+	assert(loaded.partInfos["U12"].operating_conditions.size() == 1);
+	const auto &got = loaded.partInfos["U12"].operating_conditions[0];
+	assert(got.id == "oc_01");
+	assert(got.name == "UART0 TX path");
+	assert(got.inputs.size() == 1 && got.inputs[0] == "RXD0");
+	assert(got.outputs.size() == 1 && got.outputs[0] == "TXD0");
+	assert(got.enables.size() == 1 && got.enables[0] == "UART_EN");
+	assert(got.note == "EN high, VCC 3.3");
+	assert(loaded.partInfos.count("U99") == 1);
+	assert(loaded.partInfos["U99"].operating_conditions.size() == 1);
+	assert(loaded.partInfos["U99"].operating_conditions[0].id == "oc_a");
+
+	// Cleanup best-effort
+	filesystem::remove_all(dir, ec);
+	std::cout << "operating_conditions yaml ok\n";
+}
+
+
 int main() {
 	test_unrecognized_fails();
 	test_parse_sample_ok_if_env();
 	test_export_failed_snap_empty();
 	test_export_has_schema();
 	test_overlay_yaml_roundtrip();
+	test_operating_conditions_yaml_roundtrip();
 	std::cout << "ok\n";
 	return 0;
 }

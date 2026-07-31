@@ -86,17 +86,41 @@ namespace c4::yml {
 		return true;
 	}
 
+	void write(c4::yml::NodeRef *node, const OperatingCondition &oc) {
+		(*node) |= c4::yml::MAP;
+		if (!oc.id.empty()) node->append_child() << key("id") << oc.id;
+		if (!oc.name.empty()) node->append_child() << key("name") << oc.name;
+		if (!oc.inputs.empty()) node->append_child() << key("inputs") << oc.inputs;
+		if (!oc.outputs.empty()) node->append_child() << key("outputs") << oc.outputs;
+		if (!oc.enables.empty()) node->append_child() << key("enables") << oc.enables;
+		if (!oc.note.empty()) node->append_child() << key("note") << oc.note;
+	}
+
+	bool read(const c4::yml::ConstNodeRef &node, OperatingCondition *oc) {
+		if (node.has_child("id")) node["id"] >> oc->id;
+		if (node.has_child("name")) node["name"] >> oc->name;
+		if (node.has_child("inputs")) node["inputs"] >> oc->inputs;
+		if (node.has_child("outputs")) node["outputs"] >> oc->outputs;
+		if (node.has_child("enables")) node["enables"] >> oc->enables;
+		if (node.has_child("note")) node["note"] >> oc->note;
+		return true;
+	}
+
 	void write(c4::yml::NodeRef *node, const PartInfo &pi) {
 		(*node) |= c4::yml::MAP;
 		if (!pi.part_type.empty()) node->append_child() << key("part_type") << pi.part_type;
 		if (!pi.pins.empty()) node->append_child() << key("pins") << pi.pins;
 	    if (pi.angle != PartAngle::_0) node->append_child() << key("angle") << pi.angle;
+		if (!pi.operating_conditions.empty())
+			node->append_child() << key("operating_conditions") << pi.operating_conditions;
 	}
 
 	bool read(const c4::yml::ConstNodeRef& node, PartInfo* pi) {
 		if (node.has_child("part_type")) node["part_type"] >> pi->part_type;
 		if (node.has_child("pins")) node["pins"] >> pi->pins;
 		if (node.has_child("angle")) node["angle"] >> pi->angle;
+		if (node.has_child("operating_conditions"))
+			node["operating_conditions"] >> pi->operating_conditions;
 		return true;
 	}
 

@@ -46,13 +46,24 @@ enum class PartAngle {
 	_90,
 	sorted,
 };
+struct OperatingCondition {
+	std::string id;
+	std::string name;
+	std::vector<std::string> inputs;
+	std::vector<std::string> outputs;
+	std::vector<std::string> enables;
+	std::string note;
+};
+
 struct PartInfo {
     std::string partName;
     std::string part_type;
 	PartAngle angle = PartAngle::_0;
     std::map<std::string, PinInfo> pins;
+	std::vector<OperatingCondition> operating_conditions;
 	explicit operator bool() const {
-		return !(part_type.empty() && angle == PartAngle::_0 && pins.empty());
+		return !(part_type.empty() && angle == PartAngle::_0 && pins.empty() &&
+		         operating_conditions.empty());
 	}
 };
 
