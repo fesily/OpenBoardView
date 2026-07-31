@@ -11,6 +11,8 @@
 #include <sstream>
 #include <utility>
 #include <unordered_map>
+#include <limits>
+
 
 
 namespace obv {
@@ -54,6 +56,123 @@ void appendNumber(std::ostringstream &os, double v) {
 		return;
 	}
 	os << v;
+}
+
+void appendPoint(std::ostringstream &os, float x, float y) {
+	os << "{\"x\":";
+	appendNumber(os, x);
+	os << ",\"y\":";
+	appendNumber(os, y);
+	os << '}';
+}
+
+// True when component already has a usable outline from parse/special data.
+// Mirrors board_json.cpp for matching part.outline export shape.
+bool hasUsableOutline(const Component &c) {
+	if (c.is_special_outline) return true;
+	if (c.outline_done) return true;
+	if (!c.hull.empty()) return true;
+	return false;
+}
+
+// Export-time pin-bbox geometry when parse path never ran DrawParts hull/center.
+// Matches board_json::deriveCompGeom so part summary outline matches board JSON.
+struct CompGeom {
+	float cx = 0.f, cy = 0.f;
+	bool hasCenter = false;
+	bool usePinRect = false;
+	float minX = 0.f, minY = 0.f, maxX = 0.f, maxY = 0.f;
+};
+
+CompGeom deriveCompGeom(const Component &c) {
+	CompGeom g;
+	if (c.pins.empty()) {
+		g.cx = c.centerpoint.x;
+		g.cy = c.centerpoint.y;
+		g.hasCenter = true;
+		return g;
+	}
+
+	float minX = std::numeric_limits<float>::max();
+	float minY = std::numeric_limits<float>::max();
+	float maxX = std::numeric_limits<float>::lowest();
+	float maxY = std::numeric_limits<float>::lowest();
+	float margin = 0.f;
+	for (const auto &pp : c.pins) {
+		if (!pp) continue;
+		const float x = pp->position.x;
+		const float y = pp->position.y;
+		minX = std::min(minX, x);
+		minY = std::min(minY, y);
+		maxX = std::max(maxX, x);
+		maxY = std::max(maxY, y);
+		const float r = pp->diameter * 0.5f;
+		if (r > margin) margin = r;
+		const float hx = std::abs(pp->size.x) * 0.5f;
+		const float hy = std::abs(pp->size.y) * 0.5f;
+		if (hx > margin) margin = hx;
+		if (hy > margin) margin = hy;
+	}
+	if (!(minX <= maxX && minY <= maxY)) {
+		g.cx = c.centerpoint.x;
+		g.cy = c.centerpoint.y;
+		g.hasCenter = true;
+		return g;
+	}
+	if (margin <= 0.f) {
+		const float span = std::max(maxX - minX, maxY - minY);
+		margin = span > 0.f ? span * 0.1f : 1.f;
+	}
+
+	const bool centerUnset = (c.centerpoint.x == 0.f && c.centerpoint.y == 0.f);
+	if (!hasUsableOutline(c) || centerUnset) {
+		g.cx = (minX + maxX) * 0.5f;
+		g.cy = (minY + maxY) * 0.5f;
+		g.hasCenter = true;
+	} else {
+		g.cx = c.centerpoint.x;
+		g.cy = c.centerpoint.y;
+		g.hasCenter = true;
+	}
+
+	if (!hasUsableOutline(c)) {
+		g.usePinRect = true;
+		g.minX = minX - margin;
+		g.minY = minY - margin;
+		g.maxX = maxX + margin;
+		g.maxY = maxY + margin;
+	}
+	return g;
+}
+
+// Append outline points: prefer special/outline_done/hull; else pin-rect from geom.
+void appendComponentOutline(std::ostringstream &os, const Component &c, const CompGeom &g) {
+	os << ",\"outline\":[";
+	if (c.is_special_outline) {
+		for (size_t oi = 0; oi < c.special_outline.size(); ++oi) {
+			if (oi) os << ',';
+			appendPoint(os, c.special_outline[oi].x, c.special_outline[oi].y);
+		}
+	} else if (c.outline_done) {
+		for (size_t oi = 0; oi < c.outline.size(); ++oi) {
+			if (oi) os << ',';
+			appendPoint(os, c.outline[oi].x, c.outline[oi].y);
+		}
+	} else if (!c.hull.empty()) {
+		for (size_t oi = 0; oi < c.hull.size(); ++oi) {
+			if (oi) os << ',';
+			appendPoint(os, c.hull[oi].x, c.hull[oi].y);
+		}
+	} else if (g.usePinRect) {
+		appendPoint(os, g.minX, g.minY);
+		os << ',';
+		appendPoint(os, g.maxX, g.minY);
+		os << ',';
+		appendPoint(os, g.maxX, g.maxY);
+		os << ',';
+		appendPoint(os, g.minX, g.maxY);
+	}
+	os << ']';
 }
 
 const char *localSourceString(MeasureSource s) {
@@ -518,33 +637,11 @@ std::string ExportPartSummaryJson(const Board &board, const Annotations &ann,
 	if (!comp) return {};
 	const Component &c = *comp;
 
-	// Center: prefer stored centerpoint when set; else pin bbox midpoint.
-	float cx = c.centerpoint.x;
-	float cy = c.centerpoint.y;
-	const bool centerUnset = (cx == 0.f && cy == 0.f);
-	if (centerUnset && !c.pins.empty()) {
-		float minX = c.pins[0] ? c.pins[0]->position.x : 0.f;
-		float minY = c.pins[0] ? c.pins[0]->position.y : 0.f;
-		float maxX = minX, maxY = minY;
-		bool any = false;
-		for (const auto &pp : c.pins) {
-			if (!pp) continue;
-			if (!any) {
-				minX = maxX = pp->position.x;
-				minY = maxY = pp->position.y;
-				any = true;
-			} else {
-				minX = std::min(minX, pp->position.x);
-				minY = std::min(minY, pp->position.y);
-				maxX = std::max(maxX, pp->position.x);
-				maxY = std::max(maxY, pp->position.y);
-			}
-		}
-		if (any) {
-			cx = (minX + maxX) * 0.5f;
-			cy = (minY + maxY) * 0.5f;
-		}
-	}
+	// Center + outline: match board_json deriveCompGeom / appendComponentOutline.
+	const CompGeom geom = deriveCompGeom(c);
+	const float cx = geom.cx;
+	const float cy = geom.cy;
+
 
 	const char *mountStr = "unknown";
 	switch (c.mount_type) {
@@ -627,11 +724,10 @@ std::string ExportPartSummaryJson(const Board &board, const Annotations &ann,
 	appendEscaped(os, typeStr);
 	os << ",\"mfgcode\":";
 	appendEscaped(os, c.mfgcode);
-	os << ",\"center\":{\"x\":";
-	appendNumber(os, cx);
-	os << ",\"y\":";
-	appendNumber(os, cy);
-	os << "},\"pins\":[";
+	os << ",\"center\":";
+	appendPoint(os, cx, cy);
+	appendComponentOutline(os, c, geom);
+	os << ",\"pins\":[";
 	for (size_t pi = 0; pi < c.pins.size(); ++pi) {
 		if (pi) os << ',';
 		if (!c.pins[pi]) {
