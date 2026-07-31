@@ -1,5 +1,6 @@
 #include "obv_core/board_json.h"
 #include "obv_core/overlay_store.h"
+#include "obv_core/pin_resolve.h"
 #include "obv_core/parse.h"
 #include "obv_core/filesystem_impl.h"
 
@@ -297,7 +298,98 @@ static void test_operating_conditions_json_roundtrip() {
 	std::cout << "operating_conditions json ok\n";
 }
 
+static void test_resolve_one_field_priority() {
+	auto m = obv::ResolveOneField("ov", "bd", "prop", "R1", "2", "id2");
+	assert(m.overlay == "ov");
+	assert(m.board == "bd");
+	assert(m.localValue == "ov");
+	assert(m.localSource == obv::MeasureSource::Overlay);
+	assert(m.effectiveValue == "ov");
+	assert(m.effectiveSource == obv::MeasureSource::Overlay);
 
+	m = obv::ResolveOneField("", "bd", "prop", "R1", "2", "id2");
+	assert(m.localValue == "bd");
+	assert(m.effectiveSource == obv::MeasureSource::Board);
+
+	m = obv::ResolveOneField("", "", "prop", "R1", "2", "id2");
+	assert(m.localSource == obv::MeasureSource::None);
+	assert(m.effectiveValue == "prop");
+	assert(m.effectiveSource == obv::MeasureSource::Propagated);
+	assert(m.fromComponent == "R1");
+	assert(m.fromPinKey == "2");
+	assert(m.fromPinId == "id2");
+
+	m = obv::ResolveOneField("", "", "", "R1", "2", "id2");
+	assert(m.localSource == obv::MeasureSource::None);
+	assert(m.effectiveSource == obv::MeasureSource::None);
+	assert(m.effectiveValue.empty());
+	std::cout << "resolve field priority ok\n";
+}
+
+static void test_normalize_condition() {
+	OperatingCondition oc;
+	oc.id = "  oc_1  ";
+	oc.inputs = {" A ", "", "B"};
+	oc.outputs = {"Y"};
+	std::string err;
+	assert(obv::NormalizeOperatingCondition(oc, err));
+	assert(oc.id == "oc_1");
+	assert(oc.inputs.size() == 2);
+	assert(oc.inputs[0] == "A");
+	assert(oc.inputs[1] == "B");
+	assert(oc.outputs.size() == 1);
+	assert(oc.outputs[0] == "Y");
+
+	OperatingCondition bad;
+	bad.id = std::string(65, 'a');
+	assert(!obv::NormalizeOperatingCondition(bad, err));
+	assert(!err.empty());
+
+	OperatingCondition longLabel;
+	longLabel.id = "ok";
+	longLabel.inputs = {std::string(129, 'x')};
+	assert(!obv::NormalizeOperatingCondition(longLabel, err));
+
+	OperatingCondition tooMany;
+	tooMany.id = "ok";
+	tooMany.inputs.assign(257, "a");
+	assert(!obv::NormalizeOperatingCondition(tooMany, err));
+	std::cout << "normalize condition ok\n";
+}
+
+static void test_allocate_condition_id() {
+	PartInfo p;
+	OperatingCondition a;
+	a.id = "oc_0001";
+	p.operating_conditions.push_back(a);
+	std::string id = obv::AllocateConditionId(p);
+	assert(id != "oc_0001");
+	assert(id.rfind("oc_", 0) == 0);
+
+	// Deterministic next free oc_NNNN style
+	assert(id == "oc_0002");
+
+	OperatingCondition b;
+	b.id = "oc_0002";
+	p.operating_conditions.push_back(b);
+	assert(obv::AllocateConditionId(p) == "oc_0003");
+
+	PartInfo empty;
+	assert(obv::AllocateConditionId(empty) == "oc_0001");
+	std::cout << "allocate condition id ok\n";
+}
+
+static void test_pin_overlay_key() {
+	Pin pin;
+	pin.name = "A1";
+	pin.number = "7";
+	assert(obv::PinOverlayKey(pin) == "A1");
+	pin.name.clear();
+	assert(obv::PinOverlayKey(pin) == "7");
+	pin.number.clear();
+	assert(obv::PinOverlayKey(pin) == pin.UniqueId());
+	std::cout << "pin overlay key ok\n";
+}
 
 int main() {
 	test_unrecognized_fails();
@@ -307,6 +399,10 @@ int main() {
 	test_overlay_yaml_roundtrip();
 	test_operating_conditions_yaml_roundtrip();
 	test_operating_conditions_json_roundtrip();
+	test_resolve_one_field_priority();
+	test_normalize_condition();
+	test_allocate_condition_id();
+	test_pin_overlay_key();
 	std::cout << "ok\n";
 	return 0;
 }
