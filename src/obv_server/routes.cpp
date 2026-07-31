@@ -1327,6 +1327,13 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 				 OperatingCondition created;
 				 if (!withPartOverlay(registry, boardId, part, res, true,
 									  [&](Annotations &, PartInfo &pi, httplib::Response &r) {
+										  std::string nerr;
+										  if (!obv::NormalizeOperatingCondition(body, nerr)) {
+											  setError(r, 400, "BAD_REQUEST",
+													   nerr.empty() ? "invalid operating condition"
+																	: nerr);
+											  return false;
+										  }
 										  if (body.id.empty()) {
 											  body.id = obv::AllocateConditionId(pi);
 										  } else {
@@ -1337,13 +1344,6 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 													  return false;
 												  }
 											  }
-										  }
-										  std::string nerr;
-										  if (!obv::NormalizeOperatingCondition(body, nerr)) {
-											  setError(r, 400, "BAD_REQUEST",
-													   nerr.empty() ? "invalid operating condition"
-																	: nerr);
-											  return false;
 										  }
 										  if (pi.operating_conditions.size() >= 256) {
 											  setError(r, 400, "BAD_REQUEST",
