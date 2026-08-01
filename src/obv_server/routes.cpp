@@ -2,9 +2,11 @@
 
 #include "obv_core/board_json.h"
 #include "obv_core/overlay_store.h"
+#include "obv_core/part_render.h"
 #include "obv_core/pin_resolve.h"
 
 #include <cctype>
+#include <cstdlib>
 #include <algorithm>
 #include <functional>
 #include <cstdio>
@@ -255,6 +257,55 @@ std::string publicSourceName(BoardRegistry &registry, const std::string &boardId
 		return e.name;
 	}
 	return boardId;
+}
+
+bool parsePartRenderOpts(const httplib::Request &req, obv::PartRenderOpts &opts, std::string &err) {
+	opts = {};
+	if (req.has_param("scale")) {
+		opts.scale = std::atof(req.get_param_value("scale").c_str());
+		if (!(opts.scale > 0) || opts.scale > 100) {
+			err = "invalid scale";
+			return false;
+		}
+	}
+	if (req.has_param("padding")) {
+		opts.padding = std::atof(req.get_param_value("padding").c_str());
+		if (opts.padding < 0) {
+			err = "invalid padding";
+			return false;
+		}
+	}
+	if (req.has_param("maxEdge")) {
+		opts.maxEdge = std::atoi(req.get_param_value("maxEdge").c_str());
+		if (opts.maxEdge < 64 || opts.maxEdge > 2048) {
+			err = "invalid maxEdge";
+			return false;
+		}
+	}
+	if (req.has_param("labels")) {
+		opts.labels = req.get_param_value("labels") != "0";
+	}
+	if (req.has_param("partName")) {
+		opts.partName = req.get_param_value("partName") != "0";
+	}
+	return true;
+}
+
+void mapPartRenderError(httplib::Response &res, const std::string &errCode,
+						const std::string &errMessage) {
+	if (errCode == "PART_NOT_FOUND") {
+		setError(res, 404, "PART_NOT_FOUND",
+				 errMessage.empty() ? "part not found" : errMessage);
+	} else if (errCode == "PART_NO_GEOMETRY" || errCode == "BAD_REQUEST") {
+		setError(res, 400, errCode.c_str(),
+				 errMessage.empty() ? "bad request" : errMessage);
+	} else if (errCode == "RENDER_FAILED") {
+		setError(res, 500, "RENDER_FAILED",
+				 errMessage.empty() ? "render failed" : errMessage);
+	} else {
+		setError(res, 500, errCode.empty() ? "RENDER_FAILED" : errCode.c_str(),
+				 errMessage.empty() ? "render failed" : errMessage);
+	}
 }
 
 // Lowercase file extension including leading '.' (empty if none).
@@ -1125,6 +1176,112 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 					boardId, publicSourceName(registry, boardId), part, pr);
 				ann.Close();
 				res.set_content(js, "application/json");
+			});
+
+	// Part screenshot meta (more specific than plain screenshot).
+	svr.Get(R"(/api/v1/boards/:ref/parts/:part/screenshot/meta)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string ref = pathParam(req, "ref");
+				const std::string part = pathParam(req, "part");
+				std::string boardId;
+				if (!applyBoardRef(registry, ref, res, boardId)) {
+					return;
+				}
+				const auto snap = registry.GetParsed(boardId);
+				if (!snap) {
+					setError(res, 404, "NOT_FOUND", "board not found");
+					return;
+				}
+				if (!snap->ok()) {
+					setError(res, 400, "PARSE_FAILED",
+							 snap->error.empty() ? "parse failed" : snap->error);
+					return;
+				}
+				obv::PartRenderOpts opts;
+				std::string optErr;
+				if (!parsePartRenderOpts(req, opts, optErr)) {
+					setError(res, 400, "BAD_REQUEST", optErr);
+					return;
+				}
+				const auto boardPath = registry.BoardPath(boardId);
+				if (boardPath.empty()) {
+					setError(res, 404, "NOT_FOUND", "board not found");
+					return;
+				}
+				std::lock_guard<std::mutex> lock(registry.OverlayMutex(boardId));
+				Annotations ann;
+				std::string err;
+				if (!obv::LoadOverlayForBoard(boardPath, ann, err)) {
+					setError(res, 500, "OVERLAY_LOAD_FAILED",
+							 err.empty() ? "failed to load overlay" : err);
+					ann.Close();
+					return;
+				}
+				obv::PartScreenshotResult result;
+				std::string errCode, errMessage;
+				if (!obv::RenderPartScreenshot(*snap->board, ann, part, opts, result, errCode,
+											   errMessage)) {
+					mapPartRenderError(res, errCode, errMessage);
+					ann.Close();
+					return;
+				}
+				const std::string js = obv::ExportPartScreenshotMetaJson(
+					boardId, publicSourceName(registry, boardId), result.meta);
+				ann.Close();
+				res.set_content(js, "application/json");
+			});
+
+	// Part screenshot PNG.
+	svr.Get(R"(/api/v1/boards/:ref/parts/:part/screenshot)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string ref = pathParam(req, "ref");
+				const std::string part = pathParam(req, "part");
+				std::string boardId;
+				if (!applyBoardRef(registry, ref, res, boardId)) {
+					return;
+				}
+				const auto snap = registry.GetParsed(boardId);
+				if (!snap) {
+					setError(res, 404, "NOT_FOUND", "board not found");
+					return;
+				}
+				if (!snap->ok()) {
+					setError(res, 400, "PARSE_FAILED",
+							 snap->error.empty() ? "parse failed" : snap->error);
+					return;
+				}
+				obv::PartRenderOpts opts;
+				std::string optErr;
+				if (!parsePartRenderOpts(req, opts, optErr)) {
+					setError(res, 400, "BAD_REQUEST", optErr);
+					return;
+				}
+				const auto boardPath = registry.BoardPath(boardId);
+				if (boardPath.empty()) {
+					setError(res, 404, "NOT_FOUND", "board not found");
+					return;
+				}
+				std::lock_guard<std::mutex> lock(registry.OverlayMutex(boardId));
+				Annotations ann;
+				std::string err;
+				if (!obv::LoadOverlayForBoard(boardPath, ann, err)) {
+					setError(res, 500, "OVERLAY_LOAD_FAILED",
+							 err.empty() ? "failed to load overlay" : err);
+					ann.Close();
+					return;
+				}
+				obv::PartScreenshotResult result;
+				std::string errCode, errMessage;
+				if (!obv::RenderPartScreenshot(*snap->board, ann, part, opts, result, errCode,
+											   errMessage)) {
+					mapPartRenderError(res, errCode, errMessage);
+					ann.Close();
+					return;
+				}
+				ann.Close();
+				res.set_header("X-Image-Width", std::to_string(result.meta.transform.width));
+				res.set_header("X-Image-Height", std::to_string(result.meta.transform.height));
+				res.set_content(result.png, "image/png");
 			});
 
 	svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
