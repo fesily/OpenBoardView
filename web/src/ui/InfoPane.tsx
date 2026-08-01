@@ -654,6 +654,17 @@ export default function InfoPane({
               </div>
               {conditionsLoading && <p className="muted">Loading conditions…</p>}
               {conditionsError && <p className="err">{conditionsError}</p>}
+              {!conditionsLoading && conditionsError && (
+                <div className="row oc-actions">
+                  <button
+                    type="button"
+                    onClick={() => reloadConditions()}
+                    disabled={conditionsLoading || promoting}
+                  >
+                    Refresh
+                  </button>
+                </div>
+              )}
               {!conditionsLoading && !conditionsError && conditions && (
                 <>
                   {(() => {
