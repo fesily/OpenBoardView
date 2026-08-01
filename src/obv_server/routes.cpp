@@ -1486,6 +1486,218 @@ bool normalizeConditionList(std::vector<OperatingCondition> &body, std::string &
 }
 
 
+// Query scope=chip is primary. Optional JSON "scope":"chip" sibling is accepted for
+// collection-style bodies (PUT replace); single OC POST should use query only.
+bool wantsChipScope(const httplib::Request &req) {
+	if (req.has_param("scope") && req.get_param_value("scope") == "chip") {
+		return true;
+	}
+	// Lightweight scan for a top-level "scope":"chip" without full re-parse of OC bodies.
+	// Only used as secondary signal; query remains authoritative for POST OC objects.
+	const std::string &b = req.body;
+	const char *needle = "\"scope\"";
+	size_t pos = b.find(needle);
+	while (pos != std::string::npos) {
+		size_t i = pos + 7;
+		while (i < b.size() && std::isspace(static_cast<unsigned char>(b[i]))) {
+			++i;
+		}
+		if (i < b.size() && b[i] == ':') {
+			++i;
+			while (i < b.size() && std::isspace(static_cast<unsigned char>(b[i]))) {
+				++i;
+			}
+			if (i + 6 <= b.size() && b.compare(i, 6, "\"chip\"") == 0) {
+				return true;
+			}
+		}
+		pos = b.find(needle, pos + 1);
+	}
+	return false;
+}
+
+// Append ,"scope":"chip" into a JSON object string (before final '}').
+std::string withChipScopeField(const std::string &objectJson) {
+	if (objectJson.empty() || objectJson.back() != '}') {
+		return objectJson;
+	}
+	std::string out = objectJson;
+	out.pop_back();
+	out += ",\"scope\":\"chip\"}";
+	return out;
+}
+
+// Load board overlay under OverlayMutex, resolve part_type for chip writes.
+// Does not save board YAML (chip scope must not mutate board override).
+// On success holds no locks; returns part_type via outPartType. Sets res on failure.
+bool resolvePartTypeForChipWrite(BoardRegistry &registry, const std::string &boardId,
+								 const std::string &part, httplib::Response &res,
+								 std::string &outPartType) {
+	outPartType.clear();
+	const auto snap = registry.GetParsed(boardId);
+	if (!snap) {
+		setError(res, 404, "NOT_FOUND", "board not found");
+		return false;
+	}
+	if (!snap->ok()) {
+		setError(res, 400, "PARSE_FAILED", snap->error.empty() ? "parse failed" : snap->error);
+		return false;
+	}
+	if (!obv::FindComponent(*snap->board, part)) {
+		setError(res, 404, "PART_NOT_FOUND", "part not found");
+		return false;
+	}
+	const auto boardPath = registry.BoardPath(boardId);
+	if (boardPath.empty()) {
+		setError(res, 404, "NOT_FOUND", "board not found");
+		return false;
+	}
+	std::lock_guard<std::mutex> lock(registry.OverlayMutex(boardId));
+	Annotations ann;
+	std::string err;
+	if (!obv::LoadOverlayForBoard(boardPath, ann, err)) {
+		setError(res, 500, "OVERLAY_LOAD_FAILED", err.empty() ? "failed to load overlay" : err);
+		ann.Close();
+		return false;
+	}
+	const auto it = ann.partInfos.find(part);
+	if (it != ann.partInfos.end()) {
+		outPartType = trimWs(it->second.part_type);
+	}
+	ann.Close();
+	if (outPartType.empty()) {
+		setError(res, 400, "PART_TYPE_REQUIRED", "part_type is required for chip scope writes");
+		return false;
+	}
+	return true;
+}
+
+// Body: { "clearBoard"?: bool } — default false; empty body ok.
+bool parsePromoteBody(const std::string &json, bool &clearBoard, std::string &err) {
+	clearBoard = false;
+	if (json.empty()) {
+		return true;
+	}
+	MiniJson cur(json);
+	if (!cur.expect('{')) {
+		err = cur.err.empty() ? "invalid JSON object" : cur.err;
+		return false;
+	}
+	cur.skipWs();
+	if (cur.match('}')) {
+		return true;
+	}
+	for (;;) {
+		std::string key;
+		if (!cur.parseString(key)) {
+			err = cur.err;
+			return false;
+		}
+		if (!cur.expect(':')) {
+			err = cur.err;
+			return false;
+		}
+		if (key == "clearBoard") {
+			cur.skipWs();
+			if (cur.i < cur.s.size() &&
+				(cur.s[cur.i] == 't' || cur.s[cur.i] == 'f')) {
+				// parse true/false literals
+				if (cur.i + 4 <= cur.s.size() && cur.s.compare(cur.i, 4, "true") == 0) {
+					clearBoard = true;
+					cur.i += 4;
+				} else if (cur.i + 5 <= cur.s.size() && cur.s.compare(cur.i, 5, "false") == 0) {
+					clearBoard = false;
+					cur.i += 5;
+				} else {
+					err = "clearBoard must be boolean";
+					return false;
+				}
+			} else {
+				err = "clearBoard must be boolean";
+				return false;
+			}
+		} else {
+			if (!cur.skipValue()) {
+				err = cur.err;
+				return false;
+			}
+		}
+		cur.skipWs();
+		if (cur.match('}')) {
+			break;
+		}
+		if (!cur.expect(',')) {
+			err = cur.err;
+			return false;
+		}
+	}
+	cur.skipWs();
+	if (cur.i < cur.s.size()) {
+		err = "trailing data after promote JSON";
+		return false;
+	}
+	return true;
+}
+
+// Body: { "part_type": "..." } — key required; empty string clears bind.
+bool parsePartTypePatch(const std::string &json, std::string &partType, std::string &err) {
+	partType.clear();
+	MiniJson cur(json);
+	if (!cur.expect('{')) {
+		err = cur.err.empty() ? "invalid JSON object" : cur.err;
+		return false;
+	}
+	cur.skipWs();
+	if (cur.match('}')) {
+		err = "body requires part_type";
+		return false;
+	}
+	bool got = false;
+	for (;;) {
+		std::string key;
+		if (!cur.parseString(key)) {
+			err = cur.err;
+			return false;
+		}
+		if (!cur.expect(':')) {
+			err = cur.err;
+			return false;
+		}
+		if (key == "part_type") {
+			if (!cur.parseString(partType)) {
+				err = cur.err.empty() ? "part_type must be string" : cur.err;
+				return false;
+			}
+			partType = trimWs(partType);
+			got = true;
+		} else {
+			if (!cur.skipValue()) {
+				err = cur.err;
+				return false;
+			}
+		}
+		cur.skipWs();
+		if (cur.match('}')) {
+			break;
+		}
+		if (!cur.expect(',')) {
+			err = cur.err;
+			return false;
+		}
+	}
+	cur.skipWs();
+	if (cur.i < cur.s.size()) {
+		err = "trailing data after part patch JSON";
+		return false;
+	}
+	if (!got) {
+		err = "body requires part_type";
+		return false;
+	}
+	return true;
+}
+
+
 } // namespace
 
 
@@ -1953,6 +2165,46 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 				}
 				// Path id wins; ignore body id if present.
 				body.id = condId;
+				std::string nerr;
+				if (!obv::NormalizeOperatingCondition(body, nerr)) {
+					setError(res, 400, "BAD_REQUEST",
+							 nerr.empty() ? "invalid operating condition" : nerr);
+					return;
+				}
+
+				if (wantsChipScope(req)) {
+					std::string partType;
+					if (!resolvePartTypeForChipWrite(registry, boardId, part, res, partType)) {
+						return;
+					}
+					obv::ChipRecord rec;
+					std::string code, msg;
+					if (!registry.chips().Get(partType, rec, code, msg)) {
+						mapChipStoreError(res, code, msg);
+						return;
+					}
+					size_t idx = rec.operating_conditions.size();
+					for (size_t i = 0; i < rec.operating_conditions.size(); ++i) {
+						if (rec.operating_conditions[i].id == condId) {
+							idx = i;
+							break;
+						}
+					}
+					if (idx >= rec.operating_conditions.size()) {
+						setError(res, 404, "CONDITION_NOT_FOUND",
+								 "operating condition not found");
+						return;
+					}
+					rec.operating_conditions[idx] = body;
+					if (!registry.chips().Put(rec, true, code, msg)) {
+						mapChipStoreError(res, code, msg);
+						return;
+					}
+					res.set_content(withChipScopeField(operatingConditionObjectJson(body)),
+									"application/json");
+					return;
+				}
+
 				OperatingCondition saved;
 				if (!withPartOverlay(registry, boardId, part, res, true,
 									 [&](Annotations &, PartInfo &pi, httplib::Response &r) {
@@ -1966,13 +2218,6 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 										 if (idx >= pi.operating_conditions.size()) {
 											 setError(r, 404, "CONDITION_NOT_FOUND",
 													  "operating condition not found");
-											 return false;
-										 }
-										 std::string nerr;
-										 if (!obv::NormalizeOperatingCondition(body, nerr)) {
-											 setError(r, 400, "BAD_REQUEST",
-													  nerr.empty() ? "invalid operating condition"
-																   : nerr);
 											 return false;
 										 }
 										 pi.operating_conditions[idx] = body;
@@ -1997,6 +2242,36 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 					   setError(res, 400, "BAD_REQUEST", "missing condition id");
 					   return;
 				   }
+
+				   if (wantsChipScope(req)) {
+					   std::string partType;
+					   if (!resolvePartTypeForChipWrite(registry, boardId, part, res, partType)) {
+						   return;
+					   }
+					   obv::ChipRecord rec;
+					   std::string code, msg;
+					   if (!registry.chips().Get(partType, rec, code, msg)) {
+						   mapChipStoreError(res, code, msg);
+						   return;
+					   }
+					   const auto it = std::find_if(
+						   rec.operating_conditions.begin(), rec.operating_conditions.end(),
+						   [&](const OperatingCondition &oc) { return oc.id == condId; });
+					   if (it == rec.operating_conditions.end()) {
+						   setError(res, 404, "CONDITION_NOT_FOUND",
+									"operating condition not found");
+						   return;
+					   }
+					   rec.operating_conditions.erase(it);
+					   if (!registry.chips().Put(rec, true, code, msg)) {
+						   mapChipStoreError(res, code, msg);
+						   return;
+					   }
+					   res.status = 204;
+					   res.set_content("", "application/json");
+					   return;
+				   }
+
 				   if (!withPartOverlay(registry, boardId, part, res, true,
 										[&](Annotations &, PartInfo &pi, httplib::Response &r) {
 											const auto it = std::find_if(
@@ -2047,6 +2322,105 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 									});
 			});
 
+	// Slash form (httplib-safe). Spec `:promote` is equivalent; slash is plan-locked.
+	svr.Post(R"(/api/v1/boards/:ref/parts/:part/operating-conditions/promote)",
+			 [&registry](const httplib::Request &req, httplib::Response &res) {
+				 const std::string ref = pathParam(req, "ref");
+				 const std::string part = pathParam(req, "part");
+				 std::string boardId;
+				 if (!applyBoardRef(registry, ref, res, boardId)) {
+					 return;
+				 }
+				 bool clearBoard = false;
+				 std::string perr;
+				 if (!parsePromoteBody(req.body, clearBoard, perr)) {
+					 setError(res, 400, "BAD_REQUEST", perr);
+					 return;
+				 }
+
+				 const auto snap = registry.GetParsed(boardId);
+				 if (!snap) {
+					 setError(res, 404, "NOT_FOUND", "board not found");
+					 return;
+				 }
+				 if (!snap->ok()) {
+					 setError(res, 400, "PARSE_FAILED",
+							  snap->error.empty() ? "parse failed" : snap->error);
+					 return;
+				 }
+				 if (!obv::FindComponent(*snap->board, part)) {
+					 setError(res, 404, "PART_NOT_FOUND", "part not found");
+					 return;
+				 }
+				 const auto boardPath = registry.BoardPath(boardId);
+				 if (boardPath.empty()) {
+					 setError(res, 404, "NOT_FOUND", "board not found");
+					 return;
+				 }
+
+				 // Lock order: board OverlayMutex first, then ChipStore (locks internally).
+				 std::lock_guard<std::mutex> lock(registry.OverlayMutex(boardId));
+				 Annotations ann;
+				 std::string err;
+				 if (!obv::LoadOverlayForBoard(boardPath, ann, err)) {
+					 setError(res, 500, "OVERLAY_LOAD_FAILED",
+							  err.empty() ? "failed to load overlay" : err);
+					 ann.Close();
+					 return;
+				 }
+				 auto pit = ann.partInfos.find(part);
+				 if (pit == ann.partInfos.end()) {
+					 setError(res, 400, "PART_TYPE_REQUIRED",
+							  "part_type is required to promote conditions");
+					 ann.Close();
+					 return;
+				 }
+				 PartInfo &pi = pit->second;
+				 const std::string partType = trimWs(pi.part_type);
+				 if (partType.empty()) {
+					 setError(res, 400, "PART_TYPE_REQUIRED",
+							  "part_type is required to promote conditions");
+					 ann.Close();
+					 return;
+				 }
+				 if (pi.operating_conditions.empty()) {
+					 setError(res, 400, "BAD_REQUEST", "nothing to promote: board override empty");
+					 ann.Close();
+					 return;
+				 }
+
+				 std::vector<OperatingCondition> promoted = pi.operating_conditions;
+				 std::string code, msg;
+				 if (!registry.chips().ReplaceConditions(partType, promoted, code, msg)) {
+					 mapChipStoreError(res, code, msg);
+					 ann.Close();
+					 return;
+				 }
+
+				 if (clearBoard) {
+					 pi.operating_conditions.clear();
+					 if (!obv::SavePartNetYaml(boardPath, ann, err)) {
+						 setError(res, 500, "OVERLAY_SAVE_FAILED",
+								  err.empty() ? "failed to save overlay yaml" : err);
+						 ann.Close();
+						 return;
+					 }
+				 }
+
+				 std::vector<OperatingCondition> chipOcs;
+				 if (!loadChipConditions(registry, partType, chipOcs)) {
+					 setError(res, 500, "CHIP_STORE_FAILED", "failed to load chip conditions");
+					 ann.Close();
+					 return;
+				 }
+				 const auto merged =
+					 obv::MergeOperatingConditions(&pi.operating_conditions, &chipOcs);
+				 const std::string js =
+					 operatingConditionsMergedListJson(boardId, part, partType, merged);
+				 ann.Close();
+				 res.set_content(js, "application/json");
+			 });
+
 	svr.Post(R"(/api/v1/boards/:ref/parts/:part/operating-conditions)",
 			 [&registry](const httplib::Request &req, httplib::Response &res) {
 				 const std::string ref = pathParam(req, "ref");
@@ -2061,16 +2435,58 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 					 setError(res, 400, "BAD_REQUEST", perr);
 					 return;
 				 }
+				 std::string nerr;
+				 if (!obv::NormalizeOperatingCondition(body, nerr)) {
+					 setError(res, 400, "BAD_REQUEST",
+							  nerr.empty() ? "invalid operating condition" : nerr);
+					 return;
+				 }
+
+				 if (wantsChipScope(req)) {
+					 std::string partType;
+					 if (!resolvePartTypeForChipWrite(registry, boardId, part, res, partType)) {
+						 return;
+					 }
+					 obv::ChipRecord rec;
+					 std::string code, msg;
+					 const bool exists = registry.chips().Get(partType, rec, code, msg);
+					 if (!exists) {
+						 if (code != "CHIP_NOT_FOUND") {
+							 mapChipStoreError(res, code, msg);
+							 return;
+						 }
+						 rec = obv::ChipRecord{};
+						 rec.part_type = partType;
+					 }
+					 if (body.id.empty()) {
+						 body.id = obv::AllocateConditionId(rec.operating_conditions);
+					 } else {
+						 for (const auto &x : rec.operating_conditions) {
+							 if (x.id == body.id) {
+								 setError(res, 409, "CONDITION_ID_CONFLICT",
+										  "operating condition id already exists");
+								 return;
+							 }
+						 }
+					 }
+					 if (rec.operating_conditions.size() >= 256) {
+						 setError(res, 400, "BAD_REQUEST", "operating_conditions limit is 256");
+						 return;
+					 }
+					 rec.operating_conditions.push_back(body);
+					 if (!registry.chips().Put(rec, true, code, msg)) {
+						 mapChipStoreError(res, code, msg);
+						 return;
+					 }
+					 res.status = 201;
+					 res.set_content(withChipScopeField(operatingConditionObjectJson(body)),
+									 "application/json");
+					 return;
+				 }
+
 				 OperatingCondition created;
 				 if (!withPartOverlay(registry, boardId, part, res, true,
 									  [&](Annotations &, PartInfo &pi, httplib::Response &r) {
-										  std::string nerr;
-										  if (!obv::NormalizeOperatingCondition(body, nerr)) {
-											  setError(r, 400, "BAD_REQUEST",
-													   nerr.empty() ? "invalid operating condition"
-																	: nerr);
-											  return false;
-										  }
 										  if (body.id.empty()) {
 											  body.id = obv::AllocateConditionId(pi);
 										  } else {
@@ -2111,40 +2527,37 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 					setError(res, 400, "BAD_REQUEST", perr);
 					return;
 				}
-				if (body.size() > 256) {
-					setError(res, 400, "BAD_REQUEST", "operating_conditions limit is 256");
+				std::string ncode, nmsg;
+				if (!normalizeConditionList(body, ncode, nmsg)) {
+					if (ncode == "CONDITION_ID_CONFLICT") {
+						setError(res, 409, "CONDITION_ID_CONFLICT", nmsg);
+					} else {
+						setError(res, 400, "BAD_REQUEST", nmsg);
+					}
 					return;
 				}
+
+				if (wantsChipScope(req)) {
+					std::string partType;
+					if (!resolvePartTypeForChipWrite(registry, boardId, part, res, partType)) {
+						return;
+					}
+					std::string code, msg;
+					if (!registry.chips().ReplaceConditions(partType, body, code, msg)) {
+						mapChipStoreError(res, code, msg);
+						return;
+					}
+					res.set_content(
+						withChipScopeField(operatingConditionsListJson(boardId, part, body)),
+						"application/json");
+					return;
+				}
+
 				std::vector<OperatingCondition> saved;
 				if (!withPartOverlay(registry, boardId, part, res, true,
-									 [&](Annotations &, PartInfo &pi, httplib::Response &r) {
-										 std::vector<OperatingCondition> normalized;
-										 normalized.reserve(body.size());
-										 for (auto oc : body) {
-											 std::string nerr;
-											 if (!obv::NormalizeOperatingCondition(oc, nerr)) {
-												 setError(r, 400, "BAD_REQUEST",
-														  nerr.empty()
-															  ? "invalid operating condition"
-															  : nerr);
-												 return false;
-											 }
-											 if (oc.id.empty()) {
-												 setError(r, 400, "BAD_REQUEST",
-														  "operating condition id is required");
-												 return false;
-											 }
-											 for (const auto &prev : normalized) {
-												 if (prev.id == oc.id) {
-													 setError(r, 409, "CONDITION_ID_CONFLICT",
-															  "duplicate operating condition id in body");
-													 return false;
-												 }
-											 }
-											 normalized.push_back(std::move(oc));
-										 }
+									 [&](Annotations &, PartInfo &pi, httplib::Response &) {
 										 // Replace conditions only; leave pins/part_type/angle.
-										 pi.operating_conditions = std::move(normalized);
+										 pi.operating_conditions = body;
 										 saved = pi.operating_conditions;
 										 return true;
 									 })) {
@@ -2153,6 +2566,38 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 				res.set_content(operatingConditionsListJson(boardId, part, saved),
 								"application/json");
 			});
+
+	// Bind / rebind part_type only; preserves pins, conditions, angle.
+	svr.Patch(R"(/api/v1/boards/:ref/parts/:part)",
+			  [&registry](const httplib::Request &req, httplib::Response &res) {
+				  const std::string ref = pathParam(req, "ref");
+				  const std::string part = pathParam(req, "part");
+				  std::string boardId;
+				  if (!applyBoardRef(registry, ref, res, boardId)) {
+					  return;
+				  }
+				  std::string partType;
+				  std::string perr;
+				  if (!parsePartTypePatch(req.body, partType, perr)) {
+					  setError(res, 400, "BAD_REQUEST", perr);
+					  return;
+				  }
+				  std::string savedType;
+				  if (!withPartOverlay(registry, boardId, part, res, true,
+									   [&](Annotations &, PartInfo &pi, httplib::Response &) {
+										   pi.part_type = partType;
+										   savedType = pi.part_type;
+										   return true;
+									   })) {
+					  return;
+				  }
+				  std::ostringstream os;
+				  os << "{\"boardId\":\"" << jsonEscape(boardId) << "\",\"part\":\""
+					 << jsonEscape(part) << "\",\"part_type\":\"" << jsonEscape(savedType)
+					 << "\"}";
+				  res.set_content(os.str(), "application/json");
+			  });
+
 
 	svr.Get("/api/v1/boards/:id/meta",
 			[&registry](const httplib::Request &req, httplib::Response &res) {
