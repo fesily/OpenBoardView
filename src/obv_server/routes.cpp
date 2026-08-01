@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <optional>
 #include <sstream>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -1016,6 +1017,159 @@ bool parseOperatingConditionsReplaceBody(const std::string &json, std::vector<Op
 	return true;
 }
 
+std::string trimWs(const std::string &s) {
+	size_t b = 0;
+	while (b < s.size() && std::isspace(static_cast<unsigned char>(s[b]))) {
+		++b;
+	}
+	size_t e = s.size();
+	while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1]))) {
+		--e;
+	}
+	return s.substr(b, e - b);
+}
+
+// { "pins": { "1": { "show_name": "VCC" }, ... } }
+// out: pinKey -> show_name (empty string means clear overlay override).
+bool parsePinsShowNamePatch(const std::string &json, std::map<std::string, std::string> &out,
+							std::string &err) {
+	out.clear();
+	MiniJson cur(json);
+	if (!cur.expect('{')) {
+		err = cur.err.empty() ? "invalid JSON object" : cur.err;
+		return false;
+	}
+	bool gotPins = false;
+	cur.skipWs();
+	if (cur.match('}')) {
+		err = "body requires pins object";
+		return false;
+	}
+	for (;;) {
+		std::string key;
+		if (!cur.parseString(key)) {
+			err = cur.err;
+			return false;
+		}
+		if (!cur.expect(':')) {
+			err = cur.err;
+			return false;
+		}
+		if (key == "pins") {
+			if (!cur.expect('{')) {
+				err = cur.err.empty() ? "pins must be an object" : cur.err;
+				return false;
+			}
+			gotPins = true;
+			cur.skipWs();
+			if (cur.match('}')) {
+				err = "pins object is empty";
+				return false;
+			}
+			for (;;) {
+				std::string pinKey;
+				if (!cur.parseString(pinKey)) {
+					err = cur.err;
+					return false;
+				}
+				if (!cur.expect(':')) {
+					err = cur.err;
+					return false;
+				}
+				if (!cur.expect('{')) {
+					err = cur.err.empty() ? "pin value must be an object" : cur.err;
+					return false;
+				}
+				bool gotShowName = false;
+				std::string showName;
+				cur.skipWs();
+				if (!cur.match('}')) {
+					for (;;) {
+						std::string field;
+						if (!cur.parseString(field)) {
+							err = cur.err;
+							return false;
+						}
+						if (!cur.expect(':')) {
+							err = cur.err;
+							return false;
+						}
+						if (field == "show_name") {
+							if (!cur.parseString(showName)) {
+								err = cur.err;
+								return false;
+							}
+							gotShowName = true;
+						} else {
+							err = "unknown field in pin object: " + field;
+							return false;
+						}
+						cur.skipWs();
+						if (cur.match('}')) {
+							break;
+						}
+						if (!cur.expect(',')) {
+							err = cur.err;
+							return false;
+						}
+					}
+				}
+				if (!gotShowName) {
+					err = "pin object requires show_name";
+					return false;
+				}
+				showName = trimWs(showName);
+				if (showName.size() > 128) {
+					err = "show_name exceeds 128 characters";
+					return false;
+				}
+				if (out.size() >= 512) {
+					err = "pins limit is 512 keys";
+					return false;
+				}
+				// Last write wins on duplicate keys (stable map overwrite).
+				out[pinKey] = std::move(showName);
+				cur.skipWs();
+				if (cur.match('}')) {
+					break;
+				}
+				if (!cur.expect(',')) {
+					err = cur.err;
+					return false;
+				}
+			}
+			if (out.empty()) {
+				err = "pins object is empty";
+				return false;
+			}
+		} else {
+			if (!cur.skipValue()) {
+				err = cur.err;
+				return false;
+			}
+		}
+		cur.skipWs();
+		if (cur.match('}')) {
+			break;
+		}
+		if (!cur.expect(',')) {
+			err = cur.err;
+			return false;
+		}
+	}
+	cur.skipWs();
+	if (cur.i < cur.s.size()) {
+		err = "trailing data after pins patch JSON";
+		return false;
+	}
+	if (!gotPins) {
+		err = "body requires pins object";
+		return false;
+	}
+	return true;
+}
+
+
 // Load overlay under mutex, ensure part exists on board, mutate PartInfo, save YAML.
 // Creates PartInfo entry only when the part is present on the board.
 bool withPartOverlay(BoardRegistry &registry, const std::string &boardId, const std::string &part,
@@ -1283,6 +1437,123 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 				res.set_header("X-Image-Height", std::to_string(result.meta.transform.height));
 				res.set_content(result.png, "image/png");
 			});
+
+	// Batch pin show_name overlay write (agent rename).
+	svr.Patch(R"(/api/v1/boards/:ref/parts/:part/pins)",
+			  [&registry](const httplib::Request &req, httplib::Response &res) {
+				  const std::string ref = pathParam(req, "ref");
+				  const std::string part = pathParam(req, "part");
+				  std::string boardId;
+				  if (!applyBoardRef(registry, ref, res, boardId)) {
+					  return;
+				  }
+				  std::map<std::string, std::string> patch;
+				  std::string perr;
+				  if (!parsePinsShowNamePatch(req.body, patch, perr)) {
+					  setError(res, 400, "BAD_REQUEST", perr);
+					  return;
+				  }
+
+				  // Need Board inside withPartOverlay for FindPartPin / display labels.
+				  const auto snap = registry.GetParsed(boardId);
+				  if (!snap) {
+					  setError(res, 404, "NOT_FOUND", "board not found");
+					  return;
+				  }
+				  if (!snap->ok()) {
+					  setError(res, 400, "PARSE_FAILED",
+							   snap->error.empty() ? "parse failed" : snap->error);
+					  return;
+				  }
+				  const Board &board = *snap->board;
+
+				  struct UpdatedPin {
+					  std::string key;
+					  std::string show_name;
+					  std::string displayLabel;
+				  };
+				  std::vector<UpdatedPin> updated;
+
+				  if (!withPartOverlay(registry, boardId, part, res, true,
+									   [&](Annotations &ann, PartInfo &pi, httplib::Response &r) {
+										   std::vector<std::string> unknown;
+										   std::vector<std::pair<std::string, const Pin *>> resolved;
+										   resolved.reserve(patch.size());
+										   for (const auto &kv : patch) {
+											   const Pin *p = obv::FindPartPin(board, part, kv.first);
+											   if (!p) {
+												   if (unknown.size() < 8) {
+													   unknown.push_back(kv.first);
+												   }
+												   continue;
+											   }
+											   resolved.emplace_back(kv.first, p);
+										   }
+										   if (!unknown.empty()) {
+											   std::ostringstream msg;
+											   msg << "unknown pin key(s): ";
+											   for (size_t i = 0; i < unknown.size(); ++i) {
+												   if (i) {
+													   msg << ", ";
+												   }
+												   msg << unknown[i];
+											   }
+											   if (unknown.size() == 8) {
+												   msg << ", ...";
+											   }
+											   setError(r, 400, "UNKNOWN_PIN_KEY", msg.str());
+											   return false;
+										   }
+
+										   updated.reserve(resolved.size());
+										   for (const auto &item : resolved) {
+											   const std::string &reqKey = item.first;
+											   const Pin *p = item.second;
+											   const std::string canonicalKey = obv::PinOverlayKey(*p);
+											   const std::string &showName = patch.at(reqKey);
+
+											   if (showName.empty()) {
+												   auto it = pi.pins.find(canonicalKey);
+												   if (it != pi.pins.end()) {
+													   it->second.show_name.clear();
+													   if (!it->second) {
+														   pi.pins.erase(it);
+													   }
+												   }
+											   } else {
+												   PinInfo &pinInfo = pi.pins[canonicalKey];
+												   pinInfo.partName = part;
+												   pinInfo.pinName = canonicalKey;
+												   pinInfo.show_name = showName;
+											   }
+
+											   UpdatedPin u;
+											   u.key = reqKey;
+											   u.show_name = showName;
+											   u.displayLabel = obv::PinDisplayLabel(*p, &ann);
+											   updated.push_back(std::move(u));
+										   }
+										   return true;
+									   })) {
+					  return;
+				  }
+
+				  std::ostringstream os;
+				  os << "{\"boardId\":\"" << jsonEscape(boardId) << "\",\"part\":\""
+					 << jsonEscape(part) << "\",\"updated\":[";
+				  for (size_t i = 0; i < updated.size(); ++i) {
+					  if (i) {
+						  os << ',';
+					  }
+					  const auto &u = updated[i];
+					  os << "{\"key\":\"" << jsonEscape(u.key) << "\",\"show_name\":\""
+						 << jsonEscape(u.show_name) << "\",\"displayLabel\":\""
+						 << jsonEscape(u.displayLabel) << "\"}";
+				  }
+				  os << "]}";
+				  res.set_content(os.str(), "application/json");
+			  });
+
 
 	svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
 			[&registry](const httplib::Request &req, httplib::Response &res) {
