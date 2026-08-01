@@ -690,12 +690,12 @@ class Suite:
             check_in(k, body, f"pin-grid missing {k}")
         check_eq(body["boardId"], self.fx.board_id)
         check_eq(body["part"], self.fx.part)
-        check_eq(body["row0"], "min_y")
-        check_eq(body["col0"], "min_x")
+        check_eq(body["row0"], "min_local_y")
+        check_eq(body["col0"], "min_local_x")
         rows = int(body["rows"])
         cols = int(body["cols"])
         check(rows >= 1 and cols >= 1, f"rows/cols {rows}x{cols}")
-        check_in(body["kind"], ("single", "row", "column", "grid", "sparse"))
+        check_in(body["kind"], ("single", "row", "column", "grid", "sparse", "peripheral", "unordered"))
         pins = body["pins"]
         check(isinstance(pins, list) and pins, "pins empty")
         for p in pins:

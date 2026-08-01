@@ -22,6 +22,7 @@ static void test_export_pin_grid_json_shape() {
 	obv::PinGridResult g;
 	g.part = "U1";
 	g.kind = "grid";
+	g.layout = "grid";
 	g.rows = 2;
 	g.cols = 3;
 	g.pitchX = 10;
@@ -42,13 +43,15 @@ static void test_export_pin_grid_json_shape() {
 	g.pins.push_back(p);
 	const std::string js = obv::ExportPinGridJson("deadbeef", "x.bvr", g);
 	assert(js.find("\"kind\":\"grid\"") != std::string::npos);
+	assert(js.find("\"layout\":\"grid\"") != std::string::npos);
 	assert(js.find("\"rows\":2") != std::string::npos);
 	assert(js.find("\"cols\":3") != std::string::npos);
-	assert(js.find("\"row0\":\"min_y\"") != std::string::npos);
-	assert(js.find("\"col0\":\"min_x\"") != std::string::npos);
+	assert(js.find("\"row0\":\"min_local_y\"") != std::string::npos);
+	assert(js.find("\"col0\":\"min_local_x\"") != std::string::npos);
 	assert(js.find("\"A1\"") != std::string::npos);
 	assert(js.find("\"row\":0") != std::string::npos);
 	assert(js.find("\"col\":0") != std::string::npos);
+	assert(js.find("\"local\"") != std::string::npos);
 	std::cout << "pin grid json ok\n";
 }
 
@@ -160,15 +163,14 @@ static void test_infer_missing_part() {
 	std::cout << "pin grid missing part ok\n";
 }
 
-// Regression: QFP-like N65102 has a center thermal pad on half-pitch.
-// Old median-gap + 0.6*pitch clustering merged half-pitch into neighbors →
-// duplicate (row,col) for top/bottom/left/right mid pins.
-static void test_n65102_no_duplicate_cells() {
+// Regression: QFP-like N65102 (perimeter + center thermal).
+// v2 should classify as peripheral with side/index; no reliance on part.angle.
+static void test_n65102_peripheral() {
 	const std::string path =
 	    "data/boards/"
 	    "6c3f997ac47fc55d6ef67fe4134187f655d13c87d790e362db6a99ebb089ced5_switch-oled-heg-cpu-01.bvr";
 	if (!fileReadable(path)) {
-		std::cout << "skip N65102 pin grid regression (no sample board)\n";
+		std::cout << "skip N65102 peripheral (no sample board)\n";
 		return;
 	}
 	obv::DecryptKeys keys;
@@ -179,23 +181,39 @@ static void test_n65102_no_duplicate_cells() {
 	assert(obv::InferPinGrid(*snap.board, "N65102", nullptr, grid, err));
 	assert(err.empty());
 	assert(grid.pins.size() == 25);
-	std::map<std::pair<int, int>, int> counts;
+	assert(grid.kind == "peripheral");
+	assert(grid.layout == "peripheral");
+
+	int thermal = 0;
+	int edged = 0;
+	std::map<std::string, int> sideCount;
+	std::map<std::pair<std::string, int>, int> sideIndexCount;
 	for (const auto &p : grid.pins) {
-		assert(p.row >= 0 && p.row < grid.rows);
-		assert(p.col >= 0 && p.col < grid.cols);
-		counts[{p.row, p.col}]++;
+		assert(!p.side.empty());
+		assert(p.index >= 0);
+		sideCount[p.side]++;
+		sideIndexCount[{p.side, p.index}]++;
+		if (p.side == "thermal") {
+			++thermal;
+		} else {
+			++edged;
+			assert(p.side == "top" || p.side == "bottom" || p.side == "left" || p.side == "right");
+		}
 	}
-	for (const auto &kv : counts) {
+	assert(thermal == 1);
+	assert(edged == 24);
+	// unique (side,index)
+	for (const auto &kv : sideIndexCount) {
 		assert(kv.second == 1);
 	}
-	// Should not claim duplicate_cells after fix.
-	for (const auto &w : grid.warnings) {
-		assert(w != "duplicate_cells");
-	}
-	// QFP perimeter + center is sparse-ish full lattice of unique cells.
-	assert(static_cast<int>(counts.size()) == 25);
-	std::cout << "N65102 no duplicate cells ok kind=" << grid.kind << " "
-	          << grid.rows << "x" << grid.cols << "\n";
+	// four sides present
+	assert(sideCount["top"] > 0 && sideCount["bottom"] > 0);
+	assert(sideCount["left"] > 0 && sideCount["right"] > 0);
+
+	std::cout << "N65102 peripheral ok top=" << sideCount["top"]
+	          << " bottom=" << sideCount["bottom"] << " left=" << sideCount["left"]
+	          << " right=" << sideCount["right"] << " thermal=" << thermal
+	          << " rot=" << grid.rotationDeg << "\n";
 }
 
 
@@ -203,6 +221,6 @@ void run_pin_grid_tests() {
 	test_export_pin_grid_json_shape();
 	test_infer_pin_grid_on_sample_board();
 	test_infer_missing_part();
-	test_n65102_no_duplicate_cells();
+	test_n65102_peripheral();
 	std::cout << "pin_grid unit ok\n";
 }
