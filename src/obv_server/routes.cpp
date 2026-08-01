@@ -3,6 +3,7 @@
 #include "obv_core/board_json.h"
 #include "obv_core/overlay_store.h"
 #include "obv_core/part_render.h"
+#include "obv_core/pin_grid.h"
 #include "obv_core/pin_resolve.h"
 
 #include <cctype>
@@ -1436,6 +1437,60 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 				res.set_header("X-Image-Width", std::to_string(result.meta.transform.width));
 				res.set_header("X-Image-Height", std::to_string(result.meta.transform.height));
 				res.set_content(result.png, "image/png");
+			});
+
+	// Pin grid inference (row/col from board coordinates).
+	svr.Get(R"(/api/v1/boards/:ref/parts/:part/pin-grid)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string ref = pathParam(req, "ref");
+				const std::string part = pathParam(req, "part");
+				std::string boardId;
+				if (!applyBoardRef(registry, ref, res, boardId)) {
+					return;
+				}
+				const auto snap = registry.GetParsed(boardId);
+				if (!snap) {
+					setError(res, 404, "NOT_FOUND", "board not found");
+					return;
+				}
+				if (!snap->ok()) {
+					setError(res, 400, "PARSE_FAILED",
+							 snap->error.empty() ? "parse failed" : snap->error);
+					return;
+				}
+				const auto boardPath = registry.BoardPath(boardId);
+				if (boardPath.empty()) {
+					setError(res, 404, "NOT_FOUND", "board not found");
+					return;
+				}
+				// Overlay optional for displayLabel; load under mutex like other agent GETs.
+				std::lock_guard<std::mutex> lock(registry.OverlayMutex(boardId));
+				Annotations ann;
+				std::string err;
+				if (!obv::LoadOverlayForBoard(boardPath, ann, err)) {
+					setError(res, 500, "OVERLAY_LOAD_FAILED",
+							 err.empty() ? "failed to load overlay" : err);
+					ann.Close();
+					return;
+				}
+				obv::PinGridResult grid;
+				std::string errCode;
+				if (!obv::InferPinGrid(*snap->board, part, &ann, grid, errCode)) {
+					if (errCode == "PART_NOT_FOUND") {
+						setError(res, 404, "PART_NOT_FOUND", "part not found");
+					} else if (errCode == "PART_NO_PINS") {
+						setError(res, 400, "PART_NO_PINS", "part has no pins");
+					} else {
+						setError(res, 400, "BAD_REQUEST",
+								 errCode.empty() ? "pin grid failed" : errCode);
+					}
+					ann.Close();
+					return;
+				}
+				const std::string js =
+					obv::ExportPinGridJson(boardId, publicSourceName(registry, boardId), grid);
+				ann.Close();
+				res.set_content(js, "application/json");
 			});
 
 	// Batch pin show_name overlay write (agent rename).

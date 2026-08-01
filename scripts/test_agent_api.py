@@ -666,6 +666,55 @@ class Suite:
     def pins_patch_path(self, ref: Optional[str] = None) -> str:
         return f"{self.parts_base(ref)}/pins"
 
+    def pin_grid_path(self, ref: Optional[str] = None) -> str:
+        return f"{self.parts_base(ref)}/pin-grid"
+
+    def t_pin_grid_shape(self) -> None:
+        _, body = request(self.base, "GET", self.pin_grid_path(), expect=200)
+        for k in (
+            "boardId",
+            "sourceName",
+            "part",
+            "kind",
+            "rows",
+            "cols",
+            "pitchX",
+            "pitchY",
+            "origin",
+            "row0",
+            "col0",
+            "fillRatio",
+            "warnings",
+            "pins",
+        ):
+            check_in(k, body, f"pin-grid missing {k}")
+        check_eq(body["boardId"], self.fx.board_id)
+        check_eq(body["part"], self.fx.part)
+        check_eq(body["row0"], "min_y")
+        check_eq(body["col0"], "min_x")
+        rows = int(body["rows"])
+        cols = int(body["cols"])
+        check(rows >= 1 and cols >= 1, f"rows/cols {rows}x{cols}")
+        check_in(body["kind"], ("single", "row", "column", "grid", "sparse"))
+        pins = body["pins"]
+        check(isinstance(pins, list) and pins, "pins empty")
+        for p in pins:
+            for k in ("key", "board", "row", "col", "displayLabel"):
+                check_in(k, p, f"pin field {k}")
+            check(0 <= int(p["row"]) < rows, f"row out of range {p}")
+            check(0 <= int(p["col"]) < cols, f"col out of range {p}")
+            check_in("x", p["board"])
+            check_in("y", p["board"])
+        # missing part
+        st, err = request(
+            self.base,
+            "GET",
+            f"/api/v1/boards/{enc(self.fx.board_id)}/parts/{enc('__NoSuchPart__')}/pin-grid",
+            expect=404,
+        )
+        check_eq(error_code(err), "PART_NOT_FOUND")
+
+
     def _pin_overlay_show_name(self) -> str:
         _, body = request(self.base, "GET", self.pin_path(), expect=200)
         ov = body.get("overlay") or {}
@@ -917,6 +966,7 @@ ALL_CASES: list[tuple[str, str, Callable[[Suite], None]]] = [
     ("pins", "patch_clear", lambda s: s.t_pins_patch_clear()),
     ("pins", "patch_unknown_key", lambda s: s.t_pins_patch_unknown_key()),
     ("pins", "patch_empty", lambda s: s.t_pins_patch_empty()),
+    ("grid", "pin_grid_shape", lambda s: s.t_pin_grid_shape()),
 ]
 
 

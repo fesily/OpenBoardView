@@ -49,6 +49,7 @@ set(OBV_CORE_SOURCES
 	src/overlay_store.cpp
 	src/pin_resolve.cpp
 	src/part_render.cpp
+	src/pin_grid.cpp
 	${OBV_OPENBOARDVIEW_DIR}/Board.cpp
 	${OBV_OPENBOARDVIEW_DIR}/BRDBoard.cpp
 	${OBV_OPENBOARDVIEW_DIR}/annotations.cpp

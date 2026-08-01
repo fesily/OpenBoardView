@@ -1,3 +1,3 @@
-add_executable(obv_core_tests test_parse_export.cpp test_part_render.cpp)
+add_executable(obv_core_tests test_parse_export.cpp test_part_render.cpp test_pin_grid.cpp)
 target_link_libraries(obv_core_tests PRIVATE obv_core)
 add_test(NAME obv_core_tests COMMAND obv_core_tests)
