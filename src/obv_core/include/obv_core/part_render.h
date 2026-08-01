@@ -3,7 +3,9 @@
 #include "Board.h"
 #include "annotations.h"
 
+#include <cstdint>
 #include <string>
+#include <vector>
 
 namespace obv {
 
@@ -46,5 +48,37 @@ bool BuildBoardToImage(const PartRenderBounds &b, const PartRenderOpts &opts,
 
 void BoardToImagePoint(const BoardToImage &t, double boardX, double boardY,
                        double &imageX, double &imageY);
+
+// Encode tightly packed RGBA8 to PNG bytes (for unit tests / internal use).
+bool EncodePng(int width, int height, const unsigned char *rgba, std::string &outPng);
+
+struct PartPinMeta {
+	std::string key, id, number, name;
+	std::string boardShowName, overlayShowName, displayLabel;
+	double boardX = 0, boardY = 0;
+	double imageX = 0, imageY = 0;
+	std::string type, shape;
+	double diameter = 0;
+	std::string netName;
+};
+
+struct PartScreenshotMeta {
+	std::string part;
+	BoardToImage transform;
+	PartRenderBounds bounds; // final padded bounds
+	PartRenderOpts optsUsed;
+	std::vector<PartPinMeta> pins;
+};
+
+struct PartScreenshotResult {
+	std::string png; // binary
+	PartScreenshotMeta meta;
+};
+
+// errCode: PART_NOT_FOUND | PART_NO_GEOMETRY | RENDER_FAILED | BAD_REQUEST
+bool RenderPartScreenshot(const Board &board, const Annotations &ann,
+                          const std::string &part, const PartRenderOpts &opts,
+                          PartScreenshotResult &out, std::string &errCode,
+                          std::string &errMessage);
 
 } // namespace obv

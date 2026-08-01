@@ -1,12 +1,15 @@
 #include "obv_core/part_render.h"
+#include "obv_core/parse.h"
 #include "annotations.h"
 #include "Board.h"
 
 #include <cassert>
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>
+#include <vector>
 
 static void test_pin_display_label_priority() {
 	Pin pin;
@@ -65,9 +68,79 @@ static void test_board_to_image_flip_y() {
 	std::cout << "board to image ok\n";
 }
 
+static void test_encode_png_tiny_buffer() {
+	// Always-run unit path: synthetic 2x2 RGBA → valid PNG
+	std::vector<unsigned char> rgba(2 * 2 * 4, 0);
+	rgba[0] = 0x1a;
+	rgba[1] = 0x1d;
+	rgba[2] = 0x24;
+	rgba[3] = 0xff;
+	std::string png;
+	assert(obv::EncodePng(2, 2, rgba.data(), png));
+	assert(png.size() >= 8);
+	assert(static_cast<unsigned char>(png[0]) == 0x89);
+	assert(png[1] == 'P' && png[2] == 'N' && png[3] == 'G');
+	std::cout << "encode png tiny ok bytes=" << png.size() << "\n";
+}
+
+static void test_render_part_not_found() {
+	const char *p = std::getenv("OBV_TEST_BOARD");
+	if (!p) {
+		std::cout << "skip render part not found (no OBV_TEST_BOARD)\n";
+		return;
+	}
+	obv::DecryptKeys keys;
+	auto snap = obv::ParseBoardFile(p, keys);
+	assert(snap.ok());
+	Annotations ann;
+	obv::PartRenderOpts opts;
+	obv::PartScreenshotResult r;
+	std::string code, msg;
+	assert(!obv::RenderPartScreenshot(*snap.board, ann, "__no_such_part__", opts, r, code, msg));
+	assert(code == "PART_NOT_FOUND");
+	std::cout << "render part not found ok\n";
+}
+
+static void test_render_part_png_if_env() {
+	const char *p = std::getenv("OBV_TEST_BOARD");
+	if (!p) {
+		std::cout << "skip part render png\n";
+		return;
+	}
+	obv::DecryptKeys keys;
+	auto snap = obv::ParseBoardFile(p, keys);
+	assert(snap.ok());
+	std::string partName;
+	for (const auto &c : snap.board->Components()) {
+		if (c && !c->name.empty() && !c->pins.empty()) {
+			partName = c->name;
+			break;
+		}
+	}
+	assert(!partName.empty());
+	Annotations ann;
+	obv::PartRenderOpts opts;
+	opts.maxEdge = 256;
+	obv::PartScreenshotResult r;
+	std::string code, msg;
+	assert(obv::RenderPartScreenshot(*snap.board, ann, partName, opts, r, code, msg));
+	assert(r.png.size() >= 8);
+	assert(static_cast<unsigned char>(r.png[0]) == 0x89);
+	assert(r.png[1] == 'P' && r.png[2] == 'N' && r.png[3] == 'G');
+	assert(r.meta.transform.width > 0 && r.meta.transform.height > 0);
+	assert(!r.meta.pins.empty());
+	for (const auto &pm : r.meta.pins) {
+		assert(pm.imageX >= -1 && pm.imageX <= r.meta.transform.width + 1);
+		assert(pm.imageY >= -1 && pm.imageY <= r.meta.transform.height + 1);
+	}
+	std::cout << "part render png ok part=" << partName << " bytes=" << r.png.size() << "\n";
+}
+
 void run_part_render_tests() {
 	test_pin_display_label_priority();
 	test_board_to_image_flip_y();
-	// ComputePartBounds needs a real Board — covered in Task 2 with OBV_TEST_BOARD or synthetic if available
+	test_encode_png_tiny_buffer();
+	test_render_part_not_found();
+	test_render_part_png_if_env();
 	std::cout << "part_render unit ok\n";
 }
