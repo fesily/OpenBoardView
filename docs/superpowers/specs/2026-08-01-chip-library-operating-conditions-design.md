@@ -1,7 +1,7 @@
 # Chip-Level Operating-Conditions Library — Design Spec
 
 **Date:** 2026-08-01  
-**Status:** Pending user review of written spec
+**Status:** Approved — implementation in progress
 **Parent:** `2026-07-31-agent-pin-part-api-design.md`  
 **Goal:** Add a cross-board **chip library** keyed by `part_type` for shared operating-condition sets (I/O + enables groups), while board-level `PartInfo.operating_conditions` becomes an optional per-board override. Board UI / part GET automatically surfaces the merged effective set.
 
