@@ -48,6 +48,7 @@ set(OBV_CORE_SOURCES
 	src/board_json.cpp
 	src/overlay_store.cpp
 	src/pin_resolve.cpp
+	src/part_render.cpp
 	${OBV_OPENBOARDVIEW_DIR}/Board.cpp
 	${OBV_OPENBOARDVIEW_DIR}/BRDBoard.cpp
 	${OBV_OPENBOARDVIEW_DIR}/annotations.cpp
@@ -79,6 +80,7 @@ target_include_directories(obv_core
 		# BoardSnapshot exposes BRDBoard / BRDFileBase from openboardview tree
 		${OBV_OPENBOARDVIEW_DIR}
 		${CMAKE_CURRENT_SOURCE_DIR}/..
+		${CMAKE_CURRENT_SOURCE_DIR}/../stb
 	PRIVATE
 		${CMAKE_CURRENT_BINARY_DIR}
 		${UTF8_INCLUDE_DIR}

@@ -10,6 +10,8 @@
 #include <iostream>
 #include <string>
 #include <vector>
+
+void run_part_render_tests();
 // Minimal BRD-like fixture: prefer a real tiny sample under fixtures/
 // If no binary fixture yet, test error path:
 static void test_unrecognized_fails() {
@@ -403,6 +405,7 @@ int main() {
 	test_normalize_condition();
 	test_allocate_condition_id();
 	test_pin_overlay_key();
+	run_part_render_tests();
 	std::cout << "ok\n";
 	return 0;
 }
