@@ -136,11 +136,42 @@ static void test_render_part_png_if_env() {
 	std::cout << "part render png ok part=" << partName << " bytes=" << r.png.size() << "\n";
 }
 
+static void test_meta_json_shape() {
+	obv::PartScreenshotMeta m;
+	m.part = "U1";
+	m.transform.width = 10;
+	m.transform.height = 8;
+	m.transform.scale = 1;
+	m.transform.originBoardX = 0;
+	m.transform.originBoardY = 8;
+	m.transform.flipY = true;
+	m.bounds = {0, 0, 10, 8, 0};
+	m.optsUsed.labels = true;
+	m.optsUsed.partName = true;
+	m.optsUsed.maxEdge = 512;
+	m.optsUsed.scale = 1;
+	m.optsUsed.padding = 0;
+	obv::PartPinMeta pm;
+	pm.key = "1";
+	pm.displayLabel = "VCC";
+	pm.imageX = 1;
+	pm.imageY = 2;
+	m.pins.push_back(pm);
+	auto js = obv::ExportPartScreenshotMetaJson("abcd", "x.bvr", m);
+	assert(js.find("\"pins\"") != std::string::npos);
+	assert(js.find("\"boardToImage\"") != std::string::npos);
+	assert(js.find("\"VCC\"") != std::string::npos);
+	assert(js.find("\"flipY\":true") != std::string::npos);
+	std::cout << "meta json ok\n";
+}
+
+
 void run_part_render_tests() {
 	test_pin_display_label_priority();
 	test_board_to_image_flip_y();
 	test_encode_png_tiny_buffer();
 	test_render_part_not_found();
 	test_render_part_png_if_env();
+	test_meta_json_shape();
 	std::cout << "part_render unit ok\n";
 }

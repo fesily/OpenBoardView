@@ -81,4 +81,9 @@ bool RenderPartScreenshot(const Board &board, const Annotations &ann,
                           PartScreenshotResult &out, std::string &errCode,
                           std::string &errMessage);
 
+// boardId/sourceName filled by caller. JSON shape matches design §5.2.
+std::string ExportPartScreenshotMetaJson(const std::string &boardId,
+                                         const std::string &sourceName,
+                                         const PartScreenshotMeta &meta);
+
 } // namespace obv

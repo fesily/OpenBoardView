@@ -5,15 +5,51 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <iomanip>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <vector>
+
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
 namespace obv {
 namespace {
+
+void appendEscaped(std::ostringstream &os, const std::string &s) {
+	os << '"';
+	for (unsigned char c : s) {
+		switch (c) {
+			case '"': os << "\\\""; break;
+			case '\\': os << "\\\\"; break;
+			case '\b': os << "\\b"; break;
+			case '\f': os << "\\f"; break;
+			case '\n': os << "\\n"; break;
+			case '\r': os << "\\r"; break;
+			case '\t': os << "\\t"; break;
+			default:
+				if (c < 0x20) {
+					os << "\\u" << std::hex << std::setw(4) << std::setfill('0')
+					   << static_cast<int>(c) << std::dec << std::setfill(' ');
+				} else {
+					os << static_cast<char>(c);
+				}
+				break;
+		}
+	}
+	os << '"';
+}
+
+void appendNumber(std::ostringstream &os, double v) {
+	if (!std::isfinite(v)) {
+		os << "0";
+		return;
+	}
+	os << v;
+}
+
 
 std::string trim(const std::string &s) {
 	size_t b = 0;
@@ -695,5 +731,94 @@ bool RenderPartScreenshot(const Board &board, const Annotations &ann, const std:
 	if (out.meta.optsUsed.maxEdge > 2048) out.meta.optsUsed.maxEdge = 2048;
 	return true;
 }
+
+std::string ExportPartScreenshotMetaJson(const std::string &boardId,
+                                         const std::string &sourceName,
+                                         const PartScreenshotMeta &meta) {
+	std::ostringstream os;
+	os << "{\"boardId\":";
+	appendEscaped(os, boardId);
+	os << ",\"sourceName\":";
+	appendEscaped(os, sourceName);
+	os << ",\"part\":";
+	appendEscaped(os, meta.part);
+
+	// image
+	os << ",\"image\":{";
+	os << "\"width\":" << meta.transform.width;
+	os << ",\"height\":" << meta.transform.height;
+	os << ",\"scale\":";
+	appendNumber(os, meta.optsUsed.scale != 0 ? meta.optsUsed.scale : meta.transform.scale);
+	os << ",\"padding\":";
+	appendNumber(os, meta.optsUsed.padding >= 0 ? meta.optsUsed.padding : meta.bounds.padding);
+	os << ",\"labels\":" << (meta.optsUsed.labels ? "true" : "false");
+	os << ",\"partName\":" << (meta.optsUsed.partName ? "true" : "false");
+	os << '}';
+
+	// boardBounds
+	os << ",\"boardBounds\":{";
+	os << "\"minX\":";
+	appendNumber(os, meta.bounds.minX);
+	os << ",\"minY\":";
+	appendNumber(os, meta.bounds.minY);
+	os << ",\"maxX\":";
+	appendNumber(os, meta.bounds.maxX);
+	os << ",\"maxY\":";
+	appendNumber(os, meta.bounds.maxY);
+	os << '}';
+
+	// transform.boardToImage
+	os << ",\"transform\":{\"boardToImage\":{";
+	os << "\"originBoardX\":";
+	appendNumber(os, meta.transform.originBoardX);
+	os << ",\"originBoardY\":";
+	appendNumber(os, meta.transform.originBoardY);
+	os << ",\"scale\":";
+	appendNumber(os, meta.transform.scale);
+	os << ",\"flipY\":" << (meta.transform.flipY ? "true" : "false");
+	os << "}}";
+
+	// pins
+	os << ",\"pins\":[";
+	for (size_t i = 0; i < meta.pins.size(); ++i) {
+		const PartPinMeta &p = meta.pins[i];
+		if (i) os << ',';
+		os << '{';
+		os << "\"key\":";
+		appendEscaped(os, p.key);
+		os << ",\"id\":";
+		appendEscaped(os, p.id);
+		os << ",\"number\":";
+		appendEscaped(os, p.number);
+		os << ",\"name\":";
+		appendEscaped(os, p.name);
+		os << ",\"boardShowName\":";
+		appendEscaped(os, p.boardShowName);
+		os << ",\"overlayShowName\":";
+		appendEscaped(os, p.overlayShowName);
+		os << ",\"displayLabel\":";
+		appendEscaped(os, p.displayLabel);
+		os << ",\"board\":{\"x\":";
+		appendNumber(os, p.boardX);
+		os << ",\"y\":";
+		appendNumber(os, p.boardY);
+		os << "},\"image\":{\"x\":";
+		appendNumber(os, p.imageX);
+		os << ",\"y\":";
+		appendNumber(os, p.imageY);
+		os << "},\"type\":";
+		appendEscaped(os, p.type);
+		os << ",\"shape\":";
+		appendEscaped(os, p.shape);
+		os << ",\"diameter\":";
+		appendNumber(os, p.diameter);
+		os << ",\"netName\":";
+		appendEscaped(os, p.netName);
+		os << '}';
+	}
+	os << "]}";
+	return os.str();
+}
+
 
 } // namespace obv
