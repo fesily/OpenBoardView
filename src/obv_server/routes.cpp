@@ -1314,6 +1314,178 @@ void setSqliteRequired(httplib::Response &res) {
 }
 #endif
 
+void mapChipStoreError(httplib::Response &res, const std::string &code, const std::string &msg) {
+	if (code == "INVALID_PART_TYPE") {
+		setError(res, 400, "INVALID_PART_TYPE", msg.empty() ? "invalid part_type" : msg);
+	} else if (code == "CHIP_NOT_FOUND") {
+		setError(res, 404, "CHIP_NOT_FOUND", msg.empty() ? "chip not found" : msg);
+	} else if (code == "CHIP_PATH_COLLISION") {
+		setError(res, 409, "CHIP_PATH_COLLISION", msg.empty() ? "chip path collision" : msg);
+	} else if (code == "CONDITION_ID_CONFLICT") {
+		setError(res, 409, "CONDITION_ID_CONFLICT",
+				 msg.empty() ? "operating condition id already exists" : msg);
+	} else if (code == "CHIP_STORE_FAILED") {
+		setError(res, 500, "CHIP_STORE_FAILED", msg.empty() ? "chip store failed" : msg);
+	} else {
+		setError(res, 500, code.empty() ? "CHIP_STORE_FAILED" : code.c_str(),
+				 msg.empty() ? "chip store failed" : msg);
+	}
+}
+
+std::string chipRecordJson(const obv::ChipRecord &rec) {
+	std::ostringstream os;
+	os << "{\"part_type\":\"" << jsonEscape(rec.part_type) << "\",\"note\":\""
+	   << jsonEscape(rec.note) << "\",\"operating_conditions\":"
+	   << operatingConditionsArrayJson(rec.operating_conditions) << '}';
+	return os.str();
+}
+
+std::string chipListJson(const std::vector<obv::ChipRecord> &chips) {
+	std::ostringstream os;
+	os << "{\"chips\":[";
+	for (size_t i = 0; i < chips.size(); ++i) {
+		const auto &c = chips[i];
+		if (i) {
+			os << ',';
+		}
+		os << "{\"part_type\":\"" << jsonEscape(c.part_type) << "\",\"conditionCount\":"
+		   << c.operating_conditions.size();
+		if (!c.note.empty()) {
+			os << ",\"note\":\"" << jsonEscape(c.note) << '"';
+		}
+		os << '}';
+	}
+	os << "]}";
+	return os.str();
+}
+
+std::string chipConditionsListJson(const std::string &partType,
+								   const std::vector<OperatingCondition> &ocs) {
+	std::ostringstream os;
+	os << "{\"part_type\":\"" << jsonEscape(partType) << "\",\"operating_conditions\":"
+	   << operatingConditionsArrayJson(ocs) << '}';
+	return os.str();
+}
+
+// PUT chip body: { "note"?: string, "operating_conditions"?: Condition[] }
+// hasConditions true only when operating_conditions key present.
+bool parseChipPutBody(const std::string &json, std::string &note, bool &hasNote,
+					  std::vector<OperatingCondition> &ocs, bool &hasConditions, std::string &err) {
+	note.clear();
+	hasNote = false;
+	ocs.clear();
+	hasConditions = false;
+	MiniJson cur(json);
+	if (!cur.expect('{')) {
+		err = cur.err.empty() ? "invalid JSON object" : cur.err;
+		return false;
+	}
+	cur.skipWs();
+	if (cur.match('}')) {
+		return true;
+	}
+	for (;;) {
+		std::string key;
+		if (!cur.parseString(key)) {
+			err = cur.err;
+			return false;
+		}
+		if (!cur.expect(':')) {
+			err = cur.err;
+			return false;
+		}
+		if (key == "note") {
+			if (!cur.parseString(note)) {
+				err = cur.err.empty() ? "note must be string" : cur.err;
+				return false;
+			}
+			hasNote = true;
+		} else if (key == "operating_conditions") {
+			if (!cur.expect('[')) {
+				err = cur.err.empty() ? "operating_conditions must be array" : cur.err;
+				return false;
+			}
+			ocs.clear();
+			cur.skipWs();
+			if (!cur.match(']')) {
+				for (;;) {
+					OperatingCondition oc;
+					if (!parseOperatingConditionObject(cur, oc)) {
+						err = cur.err.empty() ? "invalid operating condition" : cur.err;
+						return false;
+					}
+					ocs.push_back(std::move(oc));
+					cur.skipWs();
+					if (cur.match(']')) {
+						break;
+					}
+					if (!cur.expect(',')) {
+						err = cur.err;
+						return false;
+					}
+				}
+			}
+			hasConditions = true;
+		} else {
+			if (!cur.skipValue()) {
+				err = cur.err;
+				return false;
+			}
+		}
+		cur.skipWs();
+		if (cur.match('}')) {
+			break;
+		}
+		if (!cur.expect(',')) {
+			err = cur.err;
+			return false;
+		}
+	}
+	cur.skipWs();
+	if (cur.i < cur.s.size()) {
+		err = "trailing data after chip JSON";
+		return false;
+	}
+	return true;
+}
+
+bool normalizeConditionList(std::vector<OperatingCondition> &body, std::string &errCode,
+							std::string &errMsg) {
+	errCode.clear();
+	errMsg.clear();
+	if (body.size() > 256) {
+		errCode = "BAD_REQUEST";
+		errMsg = "operating_conditions limit is 256";
+		return false;
+	}
+	std::vector<OperatingCondition> normalized;
+	normalized.reserve(body.size());
+	for (auto oc : body) {
+		std::string nerr;
+		if (!obv::NormalizeOperatingCondition(oc, nerr)) {
+			errCode = "BAD_REQUEST";
+			errMsg = nerr.empty() ? "invalid operating condition" : nerr;
+			return false;
+		}
+		if (oc.id.empty()) {
+			errCode = "BAD_REQUEST";
+			errMsg = "operating condition id is required";
+			return false;
+		}
+		for (const auto &prev : normalized) {
+			if (prev.id == oc.id) {
+				errCode = "CONDITION_ID_CONFLICT";
+				errMsg = "duplicate operating condition id in body";
+				return false;
+			}
+		}
+		normalized.push_back(std::move(oc));
+	}
+	body = std::move(normalized);
+	return true;
+}
+
+
 } // namespace
 
 
@@ -2303,6 +2475,334 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 				   }
 				   if (!registry.Remove(id)) {
 					   setError(res, 500, "DELETE_FAILED", "failed to delete board file");
+					   return;
+				   }
+				   res.status = 204;
+				   res.set_content("", "application/json");
+			   });
+
+	// --- Chip library REST (/api/v1/chips*) ---
+	// More-specific :condId routes before collection routes.
+
+	svr.Get(R"(/api/v1/chips/:partType/operating-conditions/:condId)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string partType = trimWs(pathParam(req, "partType"));
+				const std::string condId = pathParam(req, "condId");
+				if (partType.empty()) {
+					setError(res, 400, "INVALID_PART_TYPE", "missing part_type");
+					return;
+				}
+				if (condId.empty()) {
+					setError(res, 400, "BAD_REQUEST", "missing condition id");
+					return;
+				}
+				obv::ChipRecord rec;
+				std::string code, msg;
+				if (!registry.chips().Get(partType, rec, code, msg)) {
+					mapChipStoreError(res, code, msg);
+					return;
+				}
+				const OperatingCondition *found = nullptr;
+				for (const auto &oc : rec.operating_conditions) {
+					if (oc.id == condId) {
+						found = &oc;
+						break;
+					}
+				}
+				if (!found) {
+					setError(res, 404, "CONDITION_NOT_FOUND", "operating condition not found");
+					return;
+				}
+				res.set_content(operatingConditionObjectJson(*found), "application/json");
+			});
+
+	svr.Put(R"(/api/v1/chips/:partType/operating-conditions/:condId)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string partType = trimWs(pathParam(req, "partType"));
+				const std::string condId = pathParam(req, "condId");
+				if (partType.empty()) {
+					setError(res, 400, "INVALID_PART_TYPE", "missing part_type");
+					return;
+				}
+				if (condId.empty()) {
+					setError(res, 400, "BAD_REQUEST", "missing condition id");
+					return;
+				}
+				OperatingCondition body;
+				std::string perr;
+				if (!parseOperatingConditionBody(req.body, body, perr)) {
+					setError(res, 400, "BAD_REQUEST", perr);
+					return;
+				}
+				body.id = condId;
+				std::string nerr;
+				if (!obv::NormalizeOperatingCondition(body, nerr)) {
+					setError(res, 400, "BAD_REQUEST",
+							 nerr.empty() ? "invalid operating condition" : nerr);
+					return;
+				}
+
+				obv::ChipRecord rec;
+				std::string code, msg;
+				if (!registry.chips().Get(partType, rec, code, msg)) {
+					mapChipStoreError(res, code, msg);
+					return;
+				}
+				size_t idx = rec.operating_conditions.size();
+				for (size_t i = 0; i < rec.operating_conditions.size(); ++i) {
+					if (rec.operating_conditions[i].id == condId) {
+						idx = i;
+						break;
+					}
+				}
+				if (idx >= rec.operating_conditions.size()) {
+					setError(res, 404, "CONDITION_NOT_FOUND", "operating condition not found");
+					return;
+				}
+				rec.operating_conditions[idx] = body;
+				if (!registry.chips().Put(rec, true, code, msg)) {
+					mapChipStoreError(res, code, msg);
+					return;
+				}
+				res.set_content(operatingConditionObjectJson(body), "application/json");
+			});
+
+	svr.Delete(R"(/api/v1/chips/:partType/operating-conditions/:condId)",
+			   [&registry](const httplib::Request &req, httplib::Response &res) {
+				   const std::string partType = trimWs(pathParam(req, "partType"));
+				   const std::string condId = pathParam(req, "condId");
+				   if (partType.empty()) {
+					   setError(res, 400, "INVALID_PART_TYPE", "missing part_type");
+					   return;
+				   }
+				   if (condId.empty()) {
+					   setError(res, 400, "BAD_REQUEST", "missing condition id");
+					   return;
+				   }
+				   obv::ChipRecord rec;
+				   std::string code, msg;
+				   if (!registry.chips().Get(partType, rec, code, msg)) {
+					   mapChipStoreError(res, code, msg);
+					   return;
+				   }
+				   const auto it = std::find_if(
+					   rec.operating_conditions.begin(), rec.operating_conditions.end(),
+					   [&](const OperatingCondition &oc) { return oc.id == condId; });
+				   if (it == rec.operating_conditions.end()) {
+					   setError(res, 404, "CONDITION_NOT_FOUND", "operating condition not found");
+					   return;
+				   }
+				   rec.operating_conditions.erase(it);
+				   if (!registry.chips().Put(rec, true, code, msg)) {
+					   mapChipStoreError(res, code, msg);
+					   return;
+				   }
+				   res.status = 204;
+				   res.set_content("", "application/json");
+			   });
+
+	svr.Get(R"(/api/v1/chips/:partType/operating-conditions)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string partType = trimWs(pathParam(req, "partType"));
+				if (partType.empty()) {
+					setError(res, 400, "INVALID_PART_TYPE", "missing part_type");
+					return;
+				}
+				obv::ChipRecord rec;
+				std::string code, msg;
+				if (!registry.chips().Get(partType, rec, code, msg)) {
+					mapChipStoreError(res, code, msg);
+					return;
+				}
+				res.set_content(chipConditionsListJson(rec.part_type, rec.operating_conditions),
+								"application/json");
+			});
+
+	svr.Post(R"(/api/v1/chips/:partType/operating-conditions)",
+			 [&registry](const httplib::Request &req, httplib::Response &res) {
+				 const std::string partType = trimWs(pathParam(req, "partType"));
+				 if (partType.empty()) {
+					 setError(res, 400, "INVALID_PART_TYPE", "missing part_type");
+					 return;
+				 }
+				 OperatingCondition body;
+				 std::string perr;
+				 if (!parseOperatingConditionBody(req.body, body, perr)) {
+					 setError(res, 400, "BAD_REQUEST", perr);
+					 return;
+				 }
+				 std::string nerr;
+				 if (!obv::NormalizeOperatingCondition(body, nerr)) {
+					 setError(res, 400, "BAD_REQUEST",
+							  nerr.empty() ? "invalid operating condition" : nerr);
+					 return;
+				 }
+
+				 obv::ChipRecord rec;
+				 std::string code, msg;
+				 const bool exists = registry.chips().Get(partType, rec, code, msg);
+				 if (!exists) {
+					 if (code != "CHIP_NOT_FOUND") {
+						 mapChipStoreError(res, code, msg);
+						 return;
+					 }
+					 rec = obv::ChipRecord{};
+					 rec.part_type = partType;
+				 }
+				 if (body.id.empty()) {
+					 body.id = obv::AllocateConditionId(rec.operating_conditions);
+				 } else {
+					 for (const auto &x : rec.operating_conditions) {
+						 if (x.id == body.id) {
+							 setError(res, 409, "CONDITION_ID_CONFLICT",
+									  "operating condition id already exists");
+							 return;
+						 }
+					 }
+				 }
+				 if (rec.operating_conditions.size() >= 256) {
+					 setError(res, 400, "BAD_REQUEST", "operating_conditions limit is 256");
+					 return;
+				 }
+				 rec.operating_conditions.push_back(body);
+				 if (!registry.chips().Put(rec, true, code, msg)) {
+					 mapChipStoreError(res, code, msg);
+					 return;
+				 }
+				 res.status = 201;
+				 res.set_content(operatingConditionObjectJson(body), "application/json");
+			 });
+
+	svr.Put(R"(/api/v1/chips/:partType/operating-conditions)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string partType = trimWs(pathParam(req, "partType"));
+				if (partType.empty()) {
+					setError(res, 400, "INVALID_PART_TYPE", "missing part_type");
+					return;
+				}
+				std::vector<OperatingCondition> body;
+				std::string perr;
+				if (!parseOperatingConditionsReplaceBody(req.body, body, perr)) {
+					setError(res, 400, "BAD_REQUEST", perr);
+					return;
+				}
+				std::string ncode, nmsg;
+				if (!normalizeConditionList(body, ncode, nmsg)) {
+					if (ncode == "CONDITION_ID_CONFLICT") {
+						setError(res, 409, "CONDITION_ID_CONFLICT", nmsg);
+					} else {
+						setError(res, 400, "BAD_REQUEST", nmsg);
+					}
+					return;
+				}
+				std::string code, msg;
+				if (!registry.chips().ReplaceConditions(partType, body, code, msg)) {
+					mapChipStoreError(res, code, msg);
+					return;
+				}
+				res.set_content(chipConditionsListJson(partType, body), "application/json");
+			});
+
+	svr.Get("/api/v1/chips", [&registry](const httplib::Request &, httplib::Response &res) {
+		std::vector<obv::ChipRecord> chips;
+		std::string code, msg;
+		if (!registry.chips().List(chips, code, msg)) {
+			mapChipStoreError(res, code, msg);
+			return;
+		}
+		std::sort(chips.begin(), chips.end(),
+				  [](const obv::ChipRecord &a, const obv::ChipRecord &b) {
+					  return a.part_type < b.part_type;
+				  });
+		res.set_content(chipListJson(chips), "application/json");
+	});
+
+	svr.Get(R"(/api/v1/chips/:partType)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string partType = trimWs(pathParam(req, "partType"));
+				if (partType.empty()) {
+					setError(res, 400, "INVALID_PART_TYPE", "missing part_type");
+					return;
+				}
+				obv::ChipRecord rec;
+				std::string code, msg;
+				if (!registry.chips().Get(partType, rec, code, msg)) {
+					mapChipStoreError(res, code, msg);
+					return;
+				}
+				res.set_content(chipRecordJson(rec), "application/json");
+			});
+
+	svr.Put(R"(/api/v1/chips/:partType)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string partType = trimWs(pathParam(req, "partType"));
+				if (partType.empty()) {
+					setError(res, 400, "INVALID_PART_TYPE", "missing part_type");
+					return;
+				}
+				std::string note;
+				bool hasNote = false;
+				std::vector<OperatingCondition> ocs;
+				bool hasConditions = false;
+				std::string perr;
+				if (!req.body.empty()) {
+					if (!parseChipPutBody(req.body, note, hasNote, ocs, hasConditions, perr)) {
+						setError(res, 400, "BAD_REQUEST", perr);
+						return;
+					}
+				}
+				if (hasConditions) {
+					std::string ncode, nmsg;
+					if (!normalizeConditionList(ocs, ncode, nmsg)) {
+						if (ncode == "CONDITION_ID_CONFLICT") {
+							setError(res, 409, "CONDITION_ID_CONFLICT", nmsg);
+						} else {
+							setError(res, 400, "BAD_REQUEST", nmsg);
+						}
+						return;
+					}
+				}
+
+				obv::ChipRecord rec;
+				std::string code, msg;
+				const bool exists = registry.chips().Get(partType, rec, code, msg);
+				if (!exists) {
+					if (code != "CHIP_NOT_FOUND") {
+						mapChipStoreError(res, code, msg);
+						return;
+					}
+					rec = obv::ChipRecord{};
+					rec.part_type = partType;
+				}
+				if (hasNote) {
+					rec.note = note;
+				}
+				if (hasConditions) {
+					rec.operating_conditions = std::move(ocs);
+				}
+				// replaceConditions=true when body supplied conditions; else preserve existing.
+				if (!registry.chips().Put(rec, hasConditions, code, msg)) {
+					mapChipStoreError(res, code, msg);
+					return;
+				}
+				// Re-read to return stored record (preserve path when conditions omitted).
+				if (!registry.chips().Get(partType, rec, code, msg)) {
+					mapChipStoreError(res, code, msg);
+					return;
+				}
+				res.set_content(chipRecordJson(rec), "application/json");
+			});
+
+	svr.Delete(R"(/api/v1/chips/:partType)",
+			   [&registry](const httplib::Request &req, httplib::Response &res) {
+				   const std::string partType = trimWs(pathParam(req, "partType"));
+				   if (partType.empty()) {
+					   setError(res, 400, "INVALID_PART_TYPE", "missing part_type");
+					   return;
+				   }
+				   std::string code, msg;
+				   if (!registry.chips().Delete(partType, code, msg)) {
+					   mapChipStoreError(res, code, msg);
 					   return;
 				   }
 				   res.status = 204;
