@@ -96,9 +96,14 @@ filesystem::path overlaySqlitePath(const filesystem::path &boardPath) {
 	return filesystem::path(sqlfn);
 }
 
-BoardRegistry::BoardRegistry(ServerConfig cfg) : cfg_(std::move(cfg)) {
+BoardRegistry::BoardRegistry(ServerConfig cfg)
+	: cfg_(std::move(cfg)), chips_(cfg_.dataRoot / "chips") {
 	libraryDir_ = normalizeAbs(cfg_.boardRoot);
 	cfg_.boardRoot = libraryDir_;
+}
+
+obv::ChipStore &BoardRegistry::chips() {
+	return chips_;
 }
 
 void BoardRegistry::Rescan() {

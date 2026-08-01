@@ -70,11 +70,14 @@ std::string ExportPinResolveJson(const std::string &boardId,
                                  const std::string &part,
                                  const PinResolveResult &r);
 
-// JSON string for GET part summary (board geometry + partInfo overlay)
+// JSON string for GET part summary (board geometry + partInfo overlay).
+// chipConditionsOrNull: optional chip-library layer for condition merge.
+// When nullptr, merge uses board layer only (source board|none).
 std::string ExportPartSummaryJson(const Board &board, const Annotations &ann,
                                   const std::string &boardId,
                                   const std::string &sourceName,
-                                  const std::string &part);
+                                  const std::string &part,
+                                  const std::vector<OperatingCondition> *chipConditionsOrNull = nullptr);
 // Returns empty when part not found
 
 // Part existence

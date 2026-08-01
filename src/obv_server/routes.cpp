@@ -831,19 +831,68 @@ std::string operatingConditionObjectJson(const OperatingCondition &oc) {
 	return os.str();
 }
 
-std::string operatingConditionsListJson(const std::string &boardId, const std::string &part,
-										const std::vector<OperatingCondition> &ocs) {
+std::string operatingConditionsArrayJson(const std::vector<OperatingCondition> &ocs) {
 	std::ostringstream os;
-	os << "{\"boardId\":\"" << jsonEscape(boardId) << "\",\"part\":\"" << jsonEscape(part)
-	   << "\",\"operating_conditions\":[";
+	os << '[';
 	for (size_t i = 0; i < ocs.size(); ++i) {
 		if (i) {
 			os << ',';
 		}
 		os << operatingConditionObjectJson(ocs[i]);
 	}
-	os << "]}";
+	os << ']';
 	return os.str();
+}
+
+std::string operatingConditionsListJson(const std::string &boardId, const std::string &part,
+										const std::vector<OperatingCondition> &ocs) {
+	std::ostringstream os;
+	os << "{\"boardId\":\"" << jsonEscape(boardId) << "\",\"part\":\"" << jsonEscape(part)
+	   << "\",\"operating_conditions\":" << operatingConditionsArrayJson(ocs) << '}';
+	return os.str();
+}
+
+const char *conditionSourceString(obv::ConditionSource src) {
+	switch (src) {
+	case obv::ConditionSource::Board:
+		return "board";
+	case obv::ConditionSource::Chip:
+		return "chip";
+	case obv::ConditionSource::None:
+	default:
+		return "none";
+	}
+}
+
+std::string operatingConditionsMergedListJson(const std::string &boardId, const std::string &part,
+											  const std::string &partType,
+											  const obv::MergedConditions &merged) {
+	std::ostringstream os;
+	os << "{\"boardId\":\"" << jsonEscape(boardId) << "\",\"part\":\"" << jsonEscape(part)
+	   << "\",\"part_type\":\"" << jsonEscape(partType) << "\",\"source\":\""
+	   << conditionSourceString(merged.source) << "\",\"operating_conditions\":"
+	   << operatingConditionsArrayJson(merged.effective) << ",\"board\":"
+	   << operatingConditionsArrayJson(merged.board) << ",\"chip\":"
+	   << operatingConditionsArrayJson(merged.chip) << '}';
+	return os.str();
+}
+
+bool loadChipConditions(BoardRegistry &registry, const std::string &partType,
+						std::vector<OperatingCondition> &out) {
+	out.clear();
+	if (partType.empty()) {
+		return true;
+	}
+	obv::ChipRecord rec;
+	std::string code, msg;
+	if (!registry.chips().Get(partType, rec, code, msg)) {
+		if (code == "CHIP_NOT_FOUND") {
+			return true; // empty chip layer
+		}
+		return false; // real error — caller maps to 500 CHIP_STORE_FAILED
+	}
+	out = std::move(rec.operating_conditions);
+	return true;
 }
 
 bool parseStringArray(MiniJson &cur, std::vector<std::string> &out) {
@@ -1643,8 +1692,22 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 					ann.Close();
 					return;
 				}
+				std::vector<OperatingCondition> chipOcs;
+				{
+					std::string partType;
+					const auto it = ann.partInfos.find(part);
+					if (it != ann.partInfos.end()) {
+						partType = it->second.part_type;
+					}
+					if (!loadChipConditions(registry, partType, chipOcs)) {
+						setError(res, 500, "CHIP_STORE_FAILED", "failed to load chip conditions");
+						ann.Close();
+						return;
+					}
+				}
 				const std::string js = obv::ExportPartSummaryJson(
-					*snap->board, ann, boardId, publicSourceName(registry, boardId), part);
+					*snap->board, ann, boardId, publicSourceName(registry, boardId), part,
+					&chipOcs);
 				ann.Close();
 				if (js.empty()) {
 					setError(res, 404, "PART_NOT_FOUND", "part not found");
@@ -1669,13 +1732,22 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 				}
 				withPartOverlayRead(registry, boardId, part, res,
 									[&](const Annotations &, const PartInfo *pi) {
+										const std::string partType = pi ? pi->part_type : std::string{};
+										std::vector<OperatingCondition> chipOcs;
+										if (!loadChipConditions(registry, partType, chipOcs)) {
+											setError(res, 500, "CHIP_STORE_FAILED",
+													 "failed to load chip conditions");
+											return;
+										}
+										const std::vector<OperatingCondition> *boardOcs =
+											pi ? &pi->operating_conditions : nullptr;
+										const auto merged =
+											obv::MergeOperatingConditions(boardOcs, &chipOcs);
 										const OperatingCondition *found = nullptr;
-										if (pi) {
-											for (const auto &oc : pi->operating_conditions) {
-												if (oc.id == condId) {
-													found = &oc;
-													break;
-												}
+										for (const auto &oc : merged.effective) {
+											if (oc.id == condId) {
+												found = &oc;
+												break;
 											}
 										}
 										if (!found) {
@@ -1785,11 +1857,21 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 				}
 				withPartOverlayRead(registry, boardId, part, res,
 									[&](const Annotations &, const PartInfo *pi) {
-										static const std::vector<OperatingCondition> kEmpty;
-										const auto &ocs =
-											pi ? pi->operating_conditions : kEmpty;
-										res.set_content(operatingConditionsListJson(boardId, part, ocs),
-														"application/json");
+										const std::string partType = pi ? pi->part_type : std::string{};
+										std::vector<OperatingCondition> chipOcs;
+										if (!loadChipConditions(registry, partType, chipOcs)) {
+											setError(res, 500, "CHIP_STORE_FAILED",
+													 "failed to load chip conditions");
+											return;
+										}
+										const std::vector<OperatingCondition> *boardOcs =
+											pi ? &pi->operating_conditions : nullptr;
+										const auto merged =
+											obv::MergeOperatingConditions(boardOcs, &chipOcs);
+										res.set_content(
+											operatingConditionsMergedListJson(boardId, part, partType,
+																			  merged),
+											"application/json");
 									});
 			});
 

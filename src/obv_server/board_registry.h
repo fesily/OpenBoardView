@@ -4,6 +4,7 @@
 
 #include "obv_core/board_snapshot.h"
 #include "obv_core/filesystem_impl.h"
+#include "obv_core/chip_store.h"
 
 #include <cstdint>
 #include <memory>
@@ -66,6 +67,8 @@ public:
 	static bool IsValidBoardId(const std::string &id);
 
 	const ServerConfig &config() const { return cfg_; }
+	obv::ChipStore &chips();
+
 	const filesystem::path &libraryDir() const { return libraryDir_; }
 
 private:
@@ -94,6 +97,7 @@ private:
 	// Separate from mu_: hold OverlayMutex across load/mutate/save without blocking List/GetParsed.
 	mutable std::mutex overlayMapMu_;
 	std::unordered_map<std::string, std::unique_ptr<std::mutex>> overlayMu_;
+	obv::ChipStore chips_;
 };
 
 } // namespace obv_server

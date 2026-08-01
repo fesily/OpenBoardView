@@ -2,6 +2,8 @@
 // Priority: overlay > board file field > same-net first local (board.Pins order).
 
 #include "obv_core/pin_resolve.h"
+#include "obv_core/chip_store.h"
+
 
 #include <algorithm>
 #include <cctype>
@@ -632,7 +634,8 @@ std::string ExportPinResolveJson(const std::string &boardId,
 std::string ExportPartSummaryJson(const Board &board, const Annotations &ann,
                                   const std::string &boardId,
                                   const std::string &sourceName,
-                                  const std::string &part) {
+                                  const std::string &part,
+                                  const std::vector<OperatingCondition> *chipConditionsOrNull) {
 	const Component *comp = FindComponent(board, part);
 	if (!comp) return {};
 	const Component &c = *comp;
@@ -774,21 +777,22 @@ std::string ExportPartSummaryJson(const Board &board, const Annotations &ann,
 	}
 	os << ']';
 
-	// Overlay partInfo (defaults when missing).
+	// Overlay partInfo (defaults when missing) + merged conditions.
 	const PartInfo *pi = nullptr;
 	{
 		const auto it = ann.partInfos.find(part);
 		if (it != ann.partInfos.end()) pi = &it->second;
 	}
-	os << ",\"partInfo\":{";
-	os << "\"part_type\":";
-	appendEscaped(os, pi ? pi->part_type : std::string{});
-	os << ",\"angle\":" << static_cast<int>(pi ? pi->angle : PartAngle::_0);
-	os << ",\"operating_conditions\":[";
-	if (pi) {
-		for (size_t i = 0; i < pi->operating_conditions.size(); ++i) {
+	const std::vector<OperatingCondition> *boardOcs =
+		pi ? &pi->operating_conditions : nullptr;
+	const MergedConditions merged =
+		MergeOperatingConditions(boardOcs, chipConditionsOrNull);
+
+	auto appendOcArray = [&](const std::vector<OperatingCondition> &ocs) {
+		os << '[';
+		for (size_t i = 0; i < ocs.size(); ++i) {
 			if (i) os << ',';
-			const auto &oc = pi->operating_conditions[i];
+			const auto &oc = ocs[i];
 			os << '{';
 			bool of = true;
 			auto sfield = [&](const char *k, const std::string &v) {
@@ -818,8 +822,34 @@ std::string ExportPartSummaryJson(const Board &board, const Annotations &ann,
 			sfield("note", oc.note);
 			os << '}';
 		}
+		os << ']';
+	};
+
+	const char *sourceStr = "none";
+	switch (merged.source) {
+		case ConditionSource::Board: sourceStr = "board"; break;
+		case ConditionSource::Chip: sourceStr = "chip"; break;
+		case ConditionSource::None: default: sourceStr = "none"; break;
 	}
-	os << "]}}";
+
+	os << ",\"partInfo\":{";
+	os << "\"part_type\":";
+	appendEscaped(os, pi ? pi->part_type : std::string{});
+	os << ",\"angle\":" << static_cast<int>(pi ? pi->angle : PartAngle::_0);
+	os << ",\"operating_conditions\":";
+	appendOcArray(merged.effective);
+	os << '}';
+
+	os << ",\"conditions\":{";
+	os << "\"source\":";
+	appendEscaped(os, sourceStr);
+	os << ",\"effective\":";
+	appendOcArray(merged.effective);
+	os << ",\"board\":";
+	appendOcArray(merged.board);
+	os << ",\"chip\":";
+	appendOcArray(merged.chip);
+	os << "}}";
 	return os.str();
 }
 
