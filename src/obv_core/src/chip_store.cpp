@@ -113,11 +113,6 @@ struct YamlParser {
 		return true;
 	}
 
-	bool atLineStartKey() {
-		// After newline (or start), optional indent, then identifier and ':'
-		return true;
-	}
-
 	std::string readIdent() {
 		size_t b = i;
 		while (i < src.size()) {
@@ -187,86 +182,6 @@ struct YamlParser {
 		}
 	}
 
-	// Parse one operating condition map starting at current '- '
-	bool parseCondition(OperatingCondition &oc) {
-		oc = OperatingCondition{};
-		// Expect keys at deeper indent until next list item or EOF/top key.
-		for (;;) {
-			// Snapshot line start
-			skipWs(false);
-			// end of file
-			if (i >= src.size()) return true;
-			// next document-level key (no leading list dash after newline) handled by caller
-			if (src[i] == '\n') {
-				// look ahead: blank / comment / next '- ' or top-level key
-				size_t j = i + 1;
-				while (j < src.size() && (src[j] == ' ' || src[j] == '\t' || src[j] == '\r')) ++j;
-				if (j >= src.size()) {
-					i = j;
-					return true;
-				}
-				if (src[j] == '\n' || src[j] == '#') {
-					i = j;
-					continue;
-				}
-				// Count indent of next non-empty line
-				size_t lineStart = i + 1;
-				size_t indent = 0;
-				while (lineStart + indent < src.size() &&
-				       (src[lineStart + indent] == ' ' || src[lineStart + indent] == '\t'))
-					++indent;
-				const size_t content = lineStart + indent;
-				if (content >= src.size()) {
-					i = content;
-					return true;
-				}
-				// Next list item or top-level key (indent 0)
-				if (src[content] == '-' || indent == 0) {
-					// leave i at newline for outer parser
-					return true;
-				}
-				i = content;
-			}
-
-			skipWs();
-			if (i >= src.size()) return true;
-			if (src[i] == '-') {
-				// next condition — leave for outer
-				return true;
-			}
-
-			const std::string key = readIdent();
-			if (key.empty()) return false;
-			skipWs(false);
-			if (!consume(':')) return false;
-			skipWs(false);
-
-			if (key == "id") {
-				if (!parseString(oc.id)) return false;
-			} else if (key == "name") {
-				if (!parseString(oc.name)) return false;
-			} else if (key == "note") {
-				if (!parseString(oc.note)) return false;
-			} else if (key == "inputs") {
-				if (!parseStringArray(oc.inputs)) return false;
-			} else if (key == "outputs") {
-				if (!parseStringArray(oc.outputs)) return false;
-			} else if (key == "enables") {
-				if (!parseStringArray(oc.enables)) return false;
-			} else {
-				// skip unknown scalar/array roughly
-				if (peek('[')) {
-					std::vector<std::string> dump;
-					if (!parseStringArray(dump)) return false;
-				} else {
-					std::string dump;
-					if (!parseString(dump)) return false;
-				}
-			}
-			// consume rest of line
-			while (i < src.size() && src[i] != '\n') ++i;
-		}
-	}
 
 	bool parse(ChipRecord &out) {
 		out = ChipRecord{};
