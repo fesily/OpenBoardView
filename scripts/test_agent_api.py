@@ -99,6 +99,51 @@ def request(
     return status, parsed
 
 
+def request_raw(
+    base: str,
+    method: str,
+    path: str,
+    *,
+    body: Any = None,
+    expect: Optional[int | tuple[int, ...]] = None,
+    timeout: float = 60.0,
+    accept: str = "*/*",
+) -> tuple[int, bytes, dict[str, str]]:
+    """HTTP request returning raw body bytes (no JSON parse). Headers lower-cased."""
+    url = _urljoin(base, path)
+    data = None
+    headers = {"Accept": accept}
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers, method=method.upper())
+    resp_headers: dict[str, str] = {}
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read()
+            status = resp.status
+            for k, v in resp.headers.items():
+                resp_headers[k.lower()] = v
+    except urllib.error.HTTPError as e:
+        raw = e.read()
+        status = e.code
+        for k, v in e.headers.items():
+            resp_headers[k.lower()] = v
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"request failed {method} {url}: {e}") from e
+
+    if expect is not None:
+        allowed = expect if isinstance(expect, tuple) else (expect,)
+        if status not in allowed:
+            preview = raw[:300]
+            try:
+                preview_s = preview.decode("utf-8", errors="replace")
+            except Exception:
+                preview_s = repr(preview)
+            raise HttpError(status, preview_s, url)
+    return status, raw, resp_headers
+
+
 def enc(segment: str) -> str:
     """Path segment encoding (spaces, #, / etc)."""
     return urllib.parse.quote(str(segment), safe="")
@@ -610,6 +655,230 @@ class Suite:
         )
         check_eq(error_code(body), "PART_NOT_FOUND")
 
+    def screenshot_path(self, query: str = "", ref: Optional[str] = None) -> str:
+        q = f"?{query}" if query else ""
+        return f"{self.parts_base(ref)}/screenshot{q}"
+
+    def screenshot_meta_path(self, query: str = "", ref: Optional[str] = None) -> str:
+        q = f"?{query}" if query else ""
+        return f"{self.parts_base(ref)}/screenshot/meta{q}"
+
+    def pins_patch_path(self, ref: Optional[str] = None) -> str:
+        return f"{self.parts_base(ref)}/pins"
+
+    def _pin_overlay_show_name(self) -> str:
+        _, body = request(self.base, "GET", self.pin_path(), expect=200)
+        ov = body.get("overlay") or {}
+        return str(ov.get("show_name") or "")
+
+    def _restore_pin_show_name(self, previous: str) -> None:
+        """Restore overlay show_name (empty clears)."""
+        request(
+            self.base,
+            "PATCH",
+            self.pins_patch_path(),
+            body={"pins": {str(self.fx.pin_ref): {"show_name": previous}}},
+            expect=200,
+        )
+
+    def t_screenshot_png_magic(self) -> None:
+        st, raw, headers = request_raw(
+            self.base,
+            "GET",
+            self.screenshot_path(),
+            expect=200,
+            accept="image/png",
+        )
+        check_eq(st, 200)
+        check(len(raw) >= 8, f"PNG too short: {len(raw)}")
+        check(raw[:8] == b"\x89PNG\r\n\x1a\n", f"bad PNG magic: {raw[:8]!r}")
+        ctype = (headers.get("content-type") or "").split(";")[0].strip().lower()
+        check_eq(ctype, "image/png", f"Content-Type={headers.get('content-type')!r}")
+
+    def t_screenshot_meta_shape(self) -> None:
+        _, body = request(self.base, "GET", self.screenshot_meta_path(), expect=200)
+        for k in ("boardId", "sourceName", "part", "image", "boardBounds", "transform", "pins"):
+            check_in(k, body, f"meta missing {k}")
+        check_eq(body["boardId"], self.fx.board_id)
+        check_eq(body["part"], self.fx.part)
+        img = body["image"]
+        for k in ("width", "height", "scale", "padding", "labels", "partName"):
+            check_in(k, img, f"image.{k}")
+        w = int(img["width"])
+        h = int(img["height"])
+        check(w >= 1 and h >= 1, f"image size {w}x{h}")
+        check(max(w, h) <= 2048, f"edge > 2048: {w}x{h}")
+        bb = body["boardBounds"]
+        for k in ("minX", "minY", "maxX", "maxY"):
+            check_in(k, bb, f"boardBounds.{k}")
+        tr = body["transform"]
+        check_in("boardToImage", tr)
+        b2i = tr["boardToImage"]
+        for k in ("originBoardX", "originBoardY", "scale", "flipY"):
+            check_in(k, b2i, f"transform.boardToImage.{k}")
+        pins = body["pins"]
+        check(isinstance(pins, list) and pins, "pins[] empty")
+        p0 = pins[0]
+        for k in (
+            "key",
+            "id",
+            "number",
+            "name",
+            "boardShowName",
+            "overlayShowName",
+            "displayLabel",
+            "board",
+            "image",
+            "type",
+            "shape",
+            "diameter",
+            "netName",
+        ):
+            check_in(k, p0, f"pins[0].{k}")
+        for p in pins:
+            im = p.get("image") or {}
+            check_in("x", im, "image.x")
+            check_in("y", im, "image.y")
+            ix = float(im["x"])
+            iy = float(im["y"])
+            # Allow a small margin outside the pixel grid (centers near edges).
+            check(-2.0 <= ix <= w + 2.0, f"image.x out of range: {ix} (w={w})")
+            check(-2.0 <= iy <= h + 2.0, f"image.y out of range: {iy} (h={h})")
+
+    def t_screenshot_meta_matches_query(self) -> None:
+        _, body = request(
+            self.base, "GET", self.screenshot_meta_path("maxEdge=128"), expect=200
+        )
+        img = body["image"]
+        w = int(img["width"])
+        h = int(img["height"])
+        check(w <= 128 and h <= 128, f"maxEdge=128 but image {w}x{h}")
+        check(w >= 1 and h >= 1, f"degenerate image {w}x{h}")
+
+    def t_pins_patch_show_name(self) -> None:
+        prev = self._pin_overlay_show_name()
+        marker = "agent_test_show_name"
+        try:
+            st, patched = request(
+                self.base,
+                "PATCH",
+                self.pins_patch_path(),
+                body={"pins": {str(self.fx.pin_ref): {"show_name": marker}}},
+                expect=200,
+            )
+            check_eq(st, 200)
+            check_eq(patched.get("boardId"), self.fx.board_id)
+            check_eq(patched.get("part"), self.fx.part)
+            updated = patched.get("updated")
+            check(isinstance(updated, list) and len(updated) == 1, f"updated={updated!r}")
+            u0 = updated[0]
+            check_eq(u0.get("show_name"), marker)
+            check_eq(u0.get("displayLabel"), marker)
+
+            _, meta = request(self.base, "GET", self.screenshot_meta_path(), expect=200)
+            match = None
+            for p in meta.get("pins") or []:
+                if (
+                    str(p.get("key")) == str(self.fx.pin_ref)
+                    or str(p.get("number")) == str(self.fx.pin_ref)
+                    or str(p.get("name")) == str(self.fx.pin_ref)
+                    or str(p.get("id")) == str(self.fx.pin_ref)
+                ):
+                    match = p
+                    break
+            if match is None and self.fx.pin_number:
+                for p in meta.get("pins") or []:
+                    if str(p.get("number")) == self.fx.pin_number:
+                        match = p
+                        break
+            check(match is not None, f"pin not in meta pins for {self.fx.pin_ref!r}")
+            check_eq(match.get("overlayShowName"), marker)
+            check_eq(match.get("displayLabel"), marker)
+
+            _, pin_body = request(self.base, "GET", self.pin_path(), expect=200)
+            ov = pin_body.get("overlay") or {}
+            check_eq(ov.get("show_name"), marker)
+        finally:
+            self._restore_pin_show_name(prev)
+
+    def t_pins_patch_clear(self) -> None:
+        prev = self._pin_overlay_show_name()
+        try:
+            request(
+                self.base,
+                "PATCH",
+                self.pins_patch_path(),
+                body={"pins": {str(self.fx.pin_ref): {"show_name": "agent_clear_tmp"}}},
+                expect=200,
+            )
+            st, patched = request(
+                self.base,
+                "PATCH",
+                self.pins_patch_path(),
+                body={"pins": {str(self.fx.pin_ref): {"show_name": ""}}},
+                expect=200,
+            )
+            check_eq(st, 200)
+            u0 = (patched.get("updated") or [None])[0]
+            check(u0 is not None, "no updated entry")
+            check_eq(u0.get("show_name"), "")
+            # display falls back to board name/number — not the cleared overlay marker
+            check(u0.get("displayLabel") != "agent_clear_tmp", f"display still marker: {u0!r}")
+
+            _, pin_body = request(self.base, "GET", self.pin_path(), expect=200)
+            ov = pin_body.get("overlay") or {}
+            check_eq(ov.get("show_name") or "", "")
+
+            _, meta = request(self.base, "GET", self.screenshot_meta_path(), expect=200)
+            match = None
+            for p in meta.get("pins") or []:
+                if str(p.get("number")) == self.fx.pin_number or str(p.get("key")) == str(
+                    self.fx.pin_ref
+                ):
+                    match = p
+                    break
+            if match is None:
+                for p in meta.get("pins") or []:
+                    if str(p.get("id")) == self.fx.pin_id:
+                        match = p
+                        break
+            check(match is not None, "pin missing from meta after clear")
+            check_eq(match.get("overlayShowName") or "", "")
+            check(match.get("displayLabel") != "agent_clear_tmp", f"display still marker: {match!r}")
+        finally:
+            self._restore_pin_show_name(prev)
+
+    def t_pins_patch_unknown_key(self) -> None:
+        st, err = request(
+            self.base,
+            "PATCH",
+            self.pins_patch_path(),
+            body={"pins": {"__no_such_pin_key_zz__": {"show_name": "x"}}},
+            expect=400,
+        )
+        check_eq(st, 400)
+        check_eq(error_code(err), "UNKNOWN_PIN_KEY")
+
+    def t_pins_patch_empty(self) -> None:
+        st, err = request(
+            self.base,
+            "PATCH",
+            self.pins_patch_path(),
+            body={"pins": {}},
+            expect=400,
+        )
+        check_eq(st, 400)
+        check_eq(error_code(err), "BAD_REQUEST")
+        st, err = request(
+            self.base,
+            "PATCH",
+            self.pins_patch_path(),
+            body={},
+            expect=400,
+        )
+        check_eq(st, 400)
+        check_eq(error_code(err), "BAD_REQUEST")
+
     def cleanup(self) -> None:
         for cid in list(self.created_condition_ids):
             try:
@@ -641,6 +910,13 @@ ALL_CASES: list[tuple[str, str, Callable[[Suite], None]]] = [
     ("conditions", "persistence_readback", lambda s: s.t_conditions_persistence()),
     ("conditions", "validation_limits", lambda s: s.t_conditions_validation()),
     ("conditions", "part_not_found", lambda s: s.t_conditions_part_not_found()),
+    ("screenshot", "png_magic", lambda s: s.t_screenshot_png_magic()),
+    ("screenshot", "meta_shape", lambda s: s.t_screenshot_meta_shape()),
+    ("screenshot", "meta_matches_query", lambda s: s.t_screenshot_meta_matches_query()),
+    ("pins", "patch_show_name", lambda s: s.t_pins_patch_show_name()),
+    ("pins", "patch_clear", lambda s: s.t_pins_patch_clear()),
+    ("pins", "patch_unknown_key", lambda s: s.t_pins_patch_unknown_key()),
+    ("pins", "patch_empty", lambda s: s.t_pins_patch_empty()),
 ]
 
 
