@@ -80,8 +80,9 @@ std::string ExportPartSummaryJson(const Board &board, const Annotations &ann,
 // Part existence
 const Component *FindComponent(const Board &board, const std::string &part);
 
-// Generate condition id: next free oc_NNNN within the part's existing ids
-std::string AllocateConditionId(const PartInfo &part);
+// Generate condition id: next free oc_NNNN within existing ids
+std::string AllocateConditionId(const std::vector<OperatingCondition> &ocs);
+std::string AllocateConditionId(const PartInfo &part); // delegates to vector
 
 // Validate/normalize condition fields; returns false + err message
 bool NormalizeOperatingCondition(OperatingCondition &oc, std::string &err);

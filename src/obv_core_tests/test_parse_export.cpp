@@ -3,6 +3,7 @@
 #include "obv_core/pin_resolve.h"
 #include "obv_core/parse.h"
 #include "obv_core/filesystem_impl.h"
+#include "obv_core/chip_store.h"
 
 #include <cassert>
 #include <cstdlib>
@@ -394,6 +395,97 @@ static void test_pin_overlay_key() {
 	std::cout << "pin overlay key ok\n";
 }
 
+static void test_sanitize_part_type() {
+	std::string stem, err;
+	assert(obv::SanitizePartTypeFilename("MP3398E", stem, err));
+	assert(stem == "MP3398E");
+	assert(obv::SanitizePartTypeFilename("  A/B\\C  ", stem, err));
+	assert(stem == "A_B_C");
+	assert(!obv::SanitizePartTypeFilename("   ", stem, err));
+	// "..." keeps dots (allowed); only empty / "." / ".." after sanitize are rejected:
+	assert(obv::SanitizePartTypeFilename("...", stem, err));
+	assert(stem == "...");
+	assert(!obv::SanitizePartTypeFilename(".", stem, err));
+	assert(!obv::SanitizePartTypeFilename("..", stem, err));
+	std::cout << "sanitize ok\n";
+}
+
+static void test_merge_conditions() {
+	OperatingCondition b; b.id = "oc_b"; b.outputs = {"Y"};
+	OperatingCondition c; c.id = "oc_c"; c.inputs = {"A"};
+	std::vector<OperatingCondition> board{b}, chip{c};
+
+	auto m1 = obv::MergeOperatingConditions(&board, &chip);
+	assert(m1.source == obv::ConditionSource::Board);
+	assert(m1.effective.size() == 1 && m1.effective[0].id == "oc_b");
+	assert(m1.board.size() == 1 && m1.chip.size() == 1);
+
+	std::vector<OperatingCondition> empty;
+	auto m2 = obv::MergeOperatingConditions(&empty, &chip);
+	assert(m2.source == obv::ConditionSource::Chip);
+	assert(m2.effective[0].id == "oc_c");
+
+	auto m3 = obv::MergeOperatingConditions(nullptr, nullptr);
+	assert(m3.source == obv::ConditionSource::None);
+	assert(m3.effective.empty());
+	std::cout << "merge ok\n";
+}
+
+static void test_chip_yaml_roundtrip() {
+	const auto dir = filesystem::temp_directory_path() / "obv_chip_store_test";
+	std::error_code ec;
+	filesystem::remove_all(dir, ec);
+	filesystem::create_directories(dir, ec);
+	assert(!ec);
+
+	obv::ChipStore store(dir);
+	obv::ChipRecord rec;
+	rec.part_type = "MP3398E";
+	rec.note = "led driver";
+	OperatingCondition oc;
+	oc.id = "oc_0001";
+	oc.name = "pwm";
+	oc.inputs = {"PWM"};
+	oc.outputs = {"CH1"};
+	oc.enables = {"EN"};
+	oc.note = "en high";
+	rec.operating_conditions.push_back(oc);
+
+	std::string code, msg;
+	assert(store.Put(rec, true, code, msg));
+
+	obv::ChipRecord got;
+	assert(store.Get("MP3398E", got, code, msg));
+	assert(got.part_type == "MP3398E");
+	assert(got.note == "led driver");
+	assert(got.operating_conditions.size() == 1);
+	assert(got.operating_conditions[0].inputs[0] == "PWM");
+
+	std::vector<obv::ChipRecord> list;
+	assert(store.List(list, code, msg));
+	assert(list.size() == 1);
+
+	// restart store instance
+	obv::ChipStore store2(dir);
+	assert(store2.Get("MP3398E", got, code, msg));
+	assert(got.operating_conditions[0].id == "oc_0001");
+
+	assert(store2.Delete("MP3398E", code, msg));
+	assert(!store2.Get("MP3398E", got, code, msg));
+	assert(code == "CHIP_NOT_FOUND");
+
+	filesystem::remove_all(dir, ec);
+	std::cout << "chip yaml ok\n";
+}
+
+static void test_allocate_from_vector() {
+	std::vector<OperatingCondition> ocs;
+	OperatingCondition a; a.id = "oc_0001";
+	ocs.push_back(a);
+	assert(obv::AllocateConditionId(ocs) == "oc_0002");
+	std::cout << "allocate vector ok\n";
+}
+
 int main() {
 	test_unrecognized_fails();
 	test_parse_sample_ok_if_env();
@@ -406,6 +498,10 @@ int main() {
 	test_normalize_condition();
 	test_allocate_condition_id();
 	test_pin_overlay_key();
+	test_sanitize_part_type();
+	test_merge_conditions();
+	test_chip_yaml_roundtrip();
+	test_allocate_from_vector();
 	run_part_render_tests();
 	run_pin_grid_tests();
 	std::cout << "ok\n";

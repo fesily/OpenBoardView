@@ -824,9 +824,9 @@ std::string ExportPartSummaryJson(const Board &board, const Annotations &ann,
 }
 
 
-std::string AllocateConditionId(const PartInfo &part) {
+std::string AllocateConditionId(const std::vector<OperatingCondition> &ocs) {
 	std::set<std::string> used;
-	for (const auto &oc : part.operating_conditions) {
+	for (const auto &oc : ocs) {
 		if (!oc.id.empty()) used.insert(oc.id);
 	}
 	// Deterministic: oc_0001, oc_0002, ... next free
@@ -838,6 +838,10 @@ std::string AllocateConditionId(const PartInfo &part) {
 	}
 	// Extremely unlikely fallback
 	return "oc_ffff";
+}
+
+std::string AllocateConditionId(const PartInfo &part) {
+	return AllocateConditionId(part.operating_conditions);
 }
 
 bool NormalizeOperatingCondition(OperatingCondition &oc, std::string &err) {

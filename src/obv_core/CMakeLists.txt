@@ -48,6 +48,7 @@ set(OBV_CORE_SOURCES
 	src/board_json.cpp
 	src/overlay_store.cpp
 	src/pin_resolve.cpp
+	src/chip_store.cpp
 	src/part_render.cpp
 	src/pin_grid.cpp
 	${OBV_OPENBOARDVIEW_DIR}/Board.cpp
