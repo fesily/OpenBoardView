@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ApiError,
   deleteAnnotation,
+  getPartOperatingConditions,
   patchAnnotation,
+  promotePartOperatingConditions,
   putOverlays,
 } from '../api/client';
 import {
@@ -12,9 +14,12 @@ import {
 } from '../scene/pinValues';
 import type {
   BoardDocument,
+  ConditionSource,
   Net,
+  OperatingCondition,
   OverlayAnnotation,
   OverlayDocument,
+  PartConditionsView,
   PartInfo,
   Pin,
   PinInfo,
@@ -70,6 +75,25 @@ function cloneOverlay(doc: OverlayDocument): OverlayDocument {
     ),
     netInfos: Object.fromEntries(Object.entries(doc.netInfos).map(([k, n]) => [k, { ...n }])),
   };
+}
+
+const SOURCE_BADGE: Record<ConditionSource, { label: string; className: string }> = {
+  chip: { label: '共享(chip)', className: 'oc-badge oc-badge-chip' },
+  board: { label: '本板(board)', className: 'oc-badge oc-badge-board' },
+  none: { label: '无', className: 'oc-badge oc-badge-none' },
+};
+
+function formatPinList(labels?: string[]): string {
+  if (!labels || labels.length === 0) return '—';
+  return labels.join(', ');
+}
+
+function conditionTitle(oc: OperatingCondition, index: number): string {
+  const name = oc.name?.trim();
+  if (name) return name;
+  const id = oc.id?.trim();
+  if (id) return id;
+  return `Group ${index + 1}`;
 }
 
 export default function InfoPane({
@@ -135,6 +159,14 @@ export default function InfoPane({
   const [annDrafts, setAnnDrafts] = useState<Record<number, string>>({});
   const [annBusy, setAnnBusy] = useState<number | null>(null);
   const [annMsg, setAnnMsg] = useState<string | null>(null);
+  const [conditions, setConditions] = useState<PartConditionsView | null>(null);
+  const [conditionsLoading, setConditionsLoading] = useState(false);
+  const [conditionsError, setConditionsError] = useState<string | null>(null);
+  const [conditionsMsg, setConditionsMsg] = useState<string | null>(null);
+  const [clearBoardOnPromote, setClearBoardOnPromote] = useState(false);
+  const [promoting, setPromoting] = useState(false);
+  const [conditionsTick, setConditionsTick] = useState(0);
+
 
   const measureTargets = useMemo((): Record<PinValueMode, Pin> | null => {
     if (!selectedPin) return null;
@@ -184,6 +216,85 @@ export default function InfoPane({
     overlay,
     measureTargets,
   ]);
+
+  // Keep part overlay editors in sync when selection or overlays reload.
+  useEffect(() => {
+    if (!partName) {
+      setPartType('');
+      setPartAngle('');
+      setPartMsg(null);
+      return;
+    }
+    const info = overlay?.partInfos[partName];
+    setPartType(info?.part_type ?? '');
+    setPartAngle(info?.angle != null ? String(info.angle) : '');
+    setPartMsg(null);
+  }, [partName, overlay]);
+
+  const reloadConditions = useCallback(() => {
+    setConditionsTick((n) => n + 1);
+  }, []);
+
+  // Auto-surface merged chip/board operating conditions for the selected part.
+  useEffect(() => {
+    if (!partName || !boardId) {
+      setConditions(null);
+      setConditionsError(null);
+      setConditionsLoading(false);
+      setConditionsMsg(null);
+      return;
+    }
+    let cancelled = false;
+    setConditionsLoading(true);
+    setConditionsError(null);
+    setConditionsMsg(null);
+    void getPartOperatingConditions(boardId, partName)
+      .then((view) => {
+        if (!cancelled) {
+          setConditions(view);
+          setConditionsLoading(false);
+        }
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) {
+          const msg = e instanceof ApiError ? `${e.code}: ${e.message}` : String(e);
+          setConditions(null);
+          setConditionsError(msg);
+          setConditionsLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [boardId, partName, conditionsTick]);
+
+  const promoteConditions = async () => {
+    if (!partName) return;
+    setPromoting(true);
+    setConditionsMsg(null);
+    try {
+      const view = await promotePartOperatingConditions(
+        boardId,
+        partName,
+        clearBoardOnPromote,
+      );
+      setConditions(view);
+      setConditionsError(null);
+      setConditionsMsg(
+        clearBoardOnPromote
+          ? 'Promoted to chip library and cleared board-local conditions.'
+          : 'Promoted to chip library (board-local kept).',
+      );
+      // Board overlay may have changed when clearBoard is set.
+      onReloadOverlays?.();
+    } catch (e) {
+      const msg = e instanceof ApiError ? `${e.code}: ${e.message}` : String(e);
+      setConditionsMsg(`Promote failed: ${msg}`);
+    } finally {
+      setPromoting(false);
+    }
+  };
+
 
   const savePinOverlay = async () => {
     if (!selectedPin || !measureTargets) {
@@ -325,6 +436,8 @@ export default function InfoPane({
       });
       onOverlayChange(updated);
       setPartMsg('Saved part overlay.');
+      // part_type bind may unlock chip-library merge / promote.
+      reloadConditions();
     } catch (e) {
       const msg = e instanceof ApiError ? `${e.code}: ${e.message}` : String(e);
       setPartMsg(`Save failed: ${msg}`);
@@ -525,6 +638,130 @@ export default function InfoPane({
               )}
             </section>
           )}
+
+          {partName && (
+            <section className="info-section oc-section">
+              <div className="row oc-section-head">
+                <h4>Operating conditions</h4>
+                {conditions && (
+                  <span
+                    className={SOURCE_BADGE[conditions.source]?.className ?? SOURCE_BADGE.none.className}
+                    title={`source=${conditions.source}`}
+                  >
+                    {SOURCE_BADGE[conditions.source]?.label ?? SOURCE_BADGE.none.label}
+                  </span>
+                )}
+              </div>
+              {conditionsLoading && <p className="muted">Loading conditions…</p>}
+              {conditionsError && <p className="err">{conditionsError}</p>}
+              {!conditionsLoading && !conditionsError && conditions && (
+                <>
+                  {(() => {
+                    const effective =
+                      conditions.effective?.length
+                        ? conditions.effective
+                        : conditions.operating_conditions ?? [];
+                    if (effective.length === 0) {
+                      return (
+                        <p className="muted">
+                          No effective conditions
+                          {conditions.board.length || conditions.chip.length
+                            ? ` (board ${conditions.board.length}, chip ${conditions.chip.length}).`
+                            : '.'}
+                        </p>
+                      );
+                    }
+                    return (
+                      <ul className="oc-list">
+                        {effective.map((oc, i) => (
+                          <li key={oc.id || `oc-${i}`} className="oc-item">
+                            <div className="oc-item-title">
+                              {conditionTitle(oc, i)}
+                              {oc.id ? (
+                                <span className="muted mono oc-id"> · {oc.id}</span>
+                              ) : null}
+                            </div>
+                            <dl className="info-dl oc-dl">
+                              <dt>inputs</dt>
+                              <dd className="mono">{formatPinList(oc.inputs)}</dd>
+                              <dt>outputs</dt>
+                              <dd className="mono">{formatPinList(oc.outputs)}</dd>
+                              <dt>enables</dt>
+                              <dd className="mono">{formatPinList(oc.enables)}</dd>
+                              {oc.note ? (
+                                <>
+                                  <dt>note</dt>
+                                  <dd>{oc.note}</dd>
+                                </>
+                              ) : null}
+                            </dl>
+                          </li>
+                        ))}
+                      </ul>
+                    );
+                  })()}
+                  <p className="muted oc-meta">
+                    board {conditions.board.length} · chip {conditions.chip.length}
+                    {conditions.part_type ? ` · type ${conditions.part_type}` : ''}
+                  </p>
+                  {!partType.trim() && (
+                    <p className="muted">
+                      Set <span className="mono">part_type</span> above and save to bind shared
+                      chip-library conditions.
+                    </p>
+                  )}
+                  <div className="row oc-actions">
+                    <button
+                      type="button"
+                      onClick={() => reloadConditions()}
+                      disabled={conditionsLoading || promoting}
+                    >
+                      Refresh
+                    </button>
+                    {conditions.board.length > 0 && (
+                      <>
+                        <label className="oc-clear-board">
+                          <input
+                            type="checkbox"
+                            checked={clearBoardOnPromote}
+                            onChange={(e) => setClearBoardOnPromote(e.target.checked)}
+                            disabled={promoting || !partType.trim()}
+                          />
+                          <span>clearBoard</span>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => void promoteConditions()}
+                          disabled={promoting || !partType.trim()}
+                          title={
+                            partType.trim()
+                              ? 'Copy board conditions into chip library for this part_type'
+                              : 'Set part_type first'
+                          }
+                        >
+                          {promoting ? 'Promoting…' : 'Promote to chip'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {conditionsMsg && (
+                    <p
+                      className={
+                        conditionsMsg.startsWith('Promote failed') ? 'err' : 'msg'
+                      }
+                    >
+                      {conditionsMsg}
+                    </p>
+                  )}
+                  <p className="muted oc-edit-hint">
+                    Board-local edits still via overlay/agent; chip writes use scope=chip
+                    on the conditions API.
+                  </p>
+                </>
+              )}
+            </section>
+          )}
+
 
           {net && (
             <section className="info-section">

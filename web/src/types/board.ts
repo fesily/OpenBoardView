@@ -161,9 +161,36 @@ export interface PinInfo {
 
 export interface PartInfo {
   part_type?: string;
-  /** degrees when present: 0 | 90 | 180 | 270 */
+  /** degrees when present: 0 | 90 | 180 | 270 — desktop PartAngle enum ints also accepted */
   angle?: number;
   pins?: Record<string, PinInfo>;
+  /** Board-local operating condition groups (merged with chip library on read). */
+  operating_conditions?: OperatingCondition[];
+}
+
+export interface OperatingCondition {
+  id?: string;
+  name?: string;
+  inputs?: string[];
+  outputs?: string[];
+  enables?: string[];
+  note?: string;
+}
+
+export type ConditionSource = 'board' | 'chip' | 'none';
+
+/** GET .../parts/:part/operating-conditions merged view. */
+export interface PartConditionsView {
+  boardId?: string;
+  part?: string;
+  part_type?: string;
+  source: ConditionSource;
+  /** Effective list after merge (board wins when non-empty). */
+  effective: OperatingCondition[];
+  /** Alias some responses use instead of effective. */
+  operating_conditions?: OperatingCondition[];
+  board: OperatingCondition[];
+  chip: OperatingCondition[];
 }
 
 export interface NetInfo {

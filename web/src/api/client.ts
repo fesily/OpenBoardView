@@ -5,8 +5,10 @@ import type {
   BoardSummary,
   HealthResponse,
   NewAnnotation,
+  OperatingCondition,
   OverlayAnnotation,
   OverlayDocument,
+  PartConditionsView,
   VersionResponse,
 } from '../types/board';
 
@@ -145,4 +147,96 @@ export async function deleteAnnotation(id: string, annId: number): Promise<void>
   );
   if (res.status === 204) return;
   await parseJson<void>(res);
+}
+
+/** GET single part placement + overlay summary (includes partInfo). */
+export async function getPart(boardId: string, part: string): Promise<unknown> {
+  const res = await fetch(
+    `${API}/boards/${encodeURIComponent(boardId)}/parts/${encodeURIComponent(part)}`,
+  );
+  return parseJson(res);
+}
+
+/** PATCH part overlay fields (currently part_type bind). */
+export async function patchPart(
+  boardId: string,
+  part: string,
+  body: { part_type?: string },
+): Promise<unknown> {
+  const res = await fetch(
+    `${API}/boards/${encodeURIComponent(boardId)}/parts/${encodeURIComponent(part)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+  return parseJson(res);
+}
+
+/**
+ * Merged operating conditions for a placement.
+ * Prefer `effective`; fall back to `operating_conditions` when present.
+ */
+export async function getPartOperatingConditions(
+  boardId: string,
+  part: string,
+): Promise<PartConditionsView> {
+  const res = await fetch(
+    `${API}/boards/${encodeURIComponent(boardId)}/parts/${encodeURIComponent(part)}/operating-conditions`,
+  );
+  const data = await parseJson<PartConditionsView>(res);
+  return normalizePartConditionsView(data);
+}
+
+/** Promote board-local conditions into the chip library for this part_type. */
+export async function promotePartOperatingConditions(
+  boardId: string,
+  part: string,
+  clearBoard = false,
+): Promise<PartConditionsView> {
+  const res = await fetch(
+    `${API}/boards/${encodeURIComponent(boardId)}/parts/${encodeURIComponent(part)}/operating-conditions/promote`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clearBoard }),
+    },
+  );
+  const data = await parseJson<PartConditionsView>(res);
+  return normalizePartConditionsView(data);
+}
+
+/** Create one condition on board (default) or chip library (`scope=chip`). */
+export async function postPartOperatingCondition(
+  boardId: string,
+  part: string,
+  body: OperatingCondition,
+  scope?: 'chip' | 'board',
+): Promise<OperatingCondition> {
+  const q = scope === 'chip' ? '?scope=chip' : '';
+  const res = await fetch(
+    `${API}/boards/${encodeURIComponent(boardId)}/parts/${encodeURIComponent(part)}/operating-conditions${q}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+  return parseJson<OperatingCondition>(res);
+}
+
+function normalizePartConditionsView(data: PartConditionsView): PartConditionsView {
+  const effective =
+    data.effective ??
+    data.operating_conditions ??
+    [];
+  return {
+    ...data,
+    source: data.source ?? 'none',
+    effective,
+    board: data.board ?? [],
+    chip: data.chip ?? [],
+    operating_conditions: data.operating_conditions ?? effective,
+  };
 }
