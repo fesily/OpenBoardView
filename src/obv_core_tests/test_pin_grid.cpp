@@ -1,15 +1,21 @@
 #include "obv_core/pin_grid.h"
 #include "obv_core/parse.h"
+#include "obv_core/pin_resolve.h"
+
+#include "Board.h"
+#include "BRDBoard.h"
+#include "FileFormats/BRDFileBase.h"
 
 #include <cassert>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <utility>
 #include <vector>
-
 void run_pin_grid_tests();
 
 static void test_export_pin_grid_json_shape() {
@@ -154,9 +160,49 @@ static void test_infer_missing_part() {
 	std::cout << "pin grid missing part ok\n";
 }
 
+// Regression: QFP-like N65102 has a center thermal pad on half-pitch.
+// Old median-gap + 0.6*pitch clustering merged half-pitch into neighbors →
+// duplicate (row,col) for top/bottom/left/right mid pins.
+static void test_n65102_no_duplicate_cells() {
+	const std::string path =
+	    "data/boards/"
+	    "6c3f997ac47fc55d6ef67fe4134187f655d13c87d790e362db6a99ebb089ced5_switch-oled-heg-cpu-01.bvr";
+	if (!fileReadable(path)) {
+		std::cout << "skip N65102 pin grid regression (no sample board)\n";
+		return;
+	}
+	obv::DecryptKeys keys;
+	auto snap = obv::ParseBoardFile(path, keys);
+	assert(snap.ok());
+	obv::PinGridResult grid;
+	std::string err;
+	assert(obv::InferPinGrid(*snap.board, "N65102", nullptr, grid, err));
+	assert(err.empty());
+	assert(grid.pins.size() == 25);
+	std::map<std::pair<int, int>, int> counts;
+	for (const auto &p : grid.pins) {
+		assert(p.row >= 0 && p.row < grid.rows);
+		assert(p.col >= 0 && p.col < grid.cols);
+		counts[{p.row, p.col}]++;
+	}
+	for (const auto &kv : counts) {
+		assert(kv.second == 1);
+	}
+	// Should not claim duplicate_cells after fix.
+	for (const auto &w : grid.warnings) {
+		assert(w != "duplicate_cells");
+	}
+	// QFP perimeter + center is sparse-ish full lattice of unique cells.
+	assert(static_cast<int>(counts.size()) == 25);
+	std::cout << "N65102 no duplicate cells ok kind=" << grid.kind << " "
+	          << grid.rows << "x" << grid.cols << "\n";
+}
+
+
 void run_pin_grid_tests() {
 	test_export_pin_grid_json_shape();
 	test_infer_pin_grid_on_sample_board();
 	test_infer_missing_part();
+	test_n65102_no_duplicate_cells();
 	std::cout << "pin_grid unit ok\n";
 }

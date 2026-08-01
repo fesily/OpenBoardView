@@ -19,7 +19,9 @@ namespace obv {
 namespace {
 
 constexpr double kEps = 1e-9;
-constexpr double kGapFactor = 0.6;
+// Must be < 0.5 so half-pitch thermal pads (common on QFP) form their own row/col
+// instead of merging into neighbors and causing duplicate (row,col) assignments.
+constexpr double kGapFactor = 0.4;
 
 void appendEscaped(std::ostringstream &os, const std::string &s) {
 	os << '"';
@@ -62,6 +64,9 @@ double medianSorted(std::vector<double> v) {
 }
 
 // Cluster 1D values; returns centers sorted ascending.
+// Pitch is estimated from the mode of adjacent gaps (histogram peak), not the
+// median: half-pitch thermal pads create smaller gaps that pull the median
+// down and can still leave thr > half-pitch when using 0.6*median.
 std::vector<double> cluster1D(const std::vector<double> &values) {
 	if (values.empty()) return {};
 	std::vector<double> s = values;
@@ -72,11 +77,33 @@ std::vector<double> cluster1D(const std::vector<double> &values) {
 		const double g = s[i] - s[i - 1];
 		if (g > kEps) gaps.push_back(g);
 	}
-	double pitch = medianSorted(gaps);
-	if (pitch < kEps) {
-		// All same value (or single point)
+	if (gaps.empty()) {
 		return {medianSorted(s)};
 	}
+
+	// Mode via relative bins (~5% of median gap) — peak count wins.
+	const double medGap = medianSorted(gaps);
+	const double binW = std::max(medGap * 0.05, kEps * 10);
+	std::map<long long, std::pair<int, double>> bins; // bin -> (count, sum)
+	for (double g : gaps) {
+		const long long b = static_cast<long long>(std::llround(g / binW));
+		auto &e = bins[b];
+		e.first += 1;
+		e.second += g;
+	}
+	int bestCount = 0;
+	double pitch = medGap;
+	for (const auto &kv : bins) {
+		if (kv.second.first > bestCount) {
+			bestCount = kv.second.first;
+			pitch = kv.second.second / kv.second.first;
+		}
+	}
+	if (pitch < kEps) pitch = medGap;
+	if (pitch < kEps) {
+		return {medianSorted(s)};
+	}
+
 	const double thr = std::max(kGapFactor * pitch, kEps);
 
 	std::vector<std::vector<double>> clusters;
@@ -94,7 +121,6 @@ std::vector<double> cluster1D(const std::vector<double> &values) {
 	for (auto &c : clusters) {
 		centers.push_back(medianSorted(std::move(c)));
 	}
-	// centers already ascending by construction
 	return centers;
 }
 
