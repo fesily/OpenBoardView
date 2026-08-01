@@ -729,32 +729,41 @@ export default function InfoPane({
                     >
                       Refresh
                     </button>
-                    {conditions.board.length > 0 && (
-                      <>
-                        <label className="oc-clear-board">
-                          <input
-                            type="checkbox"
-                            checked={clearBoardOnPromote}
-                            onChange={(e) => setClearBoardOnPromote(e.target.checked)}
-                            disabled={promoting || !partType.trim()}
-                          />
-                          <span>clearBoard</span>
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => void promoteConditions()}
-                          disabled={promoting || !partType.trim()}
-                          title={
-                            partType.trim()
-                              ? 'Copy board conditions into chip library for this part_type'
-                              : 'Set part_type first'
-                          }
-                        >
-                          {promoting ? 'Promoting…' : 'Promote to chip'}
-                        </button>
-                      </>
-                    )}
+                    <label className="oc-clear-board">
+                      <input
+                        type="checkbox"
+                        checked={clearBoardOnPromote}
+                        onChange={(e) => setClearBoardOnPromote(e.target.checked)}
+                        disabled={
+                          promoting || !partType.trim() || conditions.board.length === 0
+                        }
+                      />
+                      <span>clearBoard</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => void promoteConditions()}
+                      disabled={
+                        promoting || !partType.trim() || conditions.board.length === 0
+                      }
+                      title={
+                        conditions.board.length === 0
+                          ? 'No board-local conditions to promote (source is chip/none)'
+                          : !partType.trim()
+                            ? 'Set part_type first'
+                            : 'Copy board conditions into chip library for this part_type'
+                      }
+                    >
+                      {promoting ? 'Promoting…' : 'Promote to chip'}
+                    </button>
                   </div>
+                  {conditions.board.length === 0 && (
+                    <p className="muted">
+                      Promote needs <strong>board-local</strong> conditions first (agent
+                      POST without scope, or overlay). Shared chip conditions already
+                      live in the library — no promote needed.
+                    </p>
+                  )}
                   {conditionsMsg && (
                     <p
                       className={
