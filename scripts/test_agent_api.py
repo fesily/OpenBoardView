@@ -928,6 +928,431 @@ class Suite:
         check_eq(st, 400)
         check_eq(error_code(err), "BAD_REQUEST")
 
+    # ---- chip library ----
+    def _unique_part_type(self) -> str:
+        return f"TestChip_{int(time.time() * 1000)}"
+
+    def chip_path(self, part_type: str) -> str:
+        return f"/api/v1/chips/{enc(part_type)}"
+
+    def chip_conds_path(self, part_type: str) -> str:
+        return f"{self.chip_path(part_type)}/operating-conditions"
+
+    def promote_path(self, ref: Optional[str] = None) -> str:
+        return f"{self.conds_path(ref)}/promote"
+
+    def _chip_part(self) -> str:
+        return self.fx.multi_pin_part or self.fx.part
+
+    def _patch_part_type(self, part_type: str, part: Optional[str] = None) -> None:
+        p = part if part is not None else self._chip_part()
+        path = f"/api/v1/boards/{enc(self.fx.board_id)}/parts/{enc(p)}"
+        st, body = request(
+            self.base,
+            "PATCH",
+            path,
+            body={"part_type": part_type},
+            expect=200,
+        )
+        check_eq(st, 200)
+        check_eq(body.get("part_type"), part_type)
+        check_eq(body.get("part"), p)
+
+    def _clear_part_type(self, part: Optional[str] = None) -> None:
+        p = part if part is not None else self._chip_part()
+        path = f"/api/v1/boards/{enc(self.fx.board_id)}/parts/{enc(p)}"
+        try:
+            request(self.base, "PATCH", path, body={"part_type": ""}, expect=200)
+        except Exception:
+            pass
+
+    def _delete_chip(self, part_type: str) -> None:
+        try:
+            request(self.base, "DELETE", self.chip_path(part_type), expect=(200, 204, 404))
+        except Exception:
+            pass
+
+    def _delete_board_condition(self, cid: str, part: Optional[str] = None) -> None:
+        p = part if part is not None else self._chip_part()
+        path = (
+            f"/api/v1/boards/{enc(self.fx.board_id)}/parts/{enc(p)}"
+            f"/operating-conditions/{enc(cid)}"
+        )
+        try:
+            request(self.base, "DELETE", path, expect=(200, 204, 404))
+        except Exception:
+            pass
+
+    def _oc_body(
+        self,
+        *,
+        cid: Optional[str] = None,
+        name: str = "chip_smoke",
+        inputs: Optional[list[str]] = None,
+        outputs: Optional[list[str]] = None,
+        enables: Optional[list[str]] = None,
+        note: str = "",
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "name": name,
+            "inputs": inputs if inputs is not None else ["IN1"],
+            "outputs": outputs if outputs is not None else ["OUT1"],
+            "enables": enables if enables is not None else [],
+            "note": note,
+        }
+        if cid is not None:
+            body["id"] = cid
+        return body
+
+    def _effective_ids(self, body: Any) -> list[str]:
+        ocs = body.get("operating_conditions")
+        if ocs is None:
+            ocs = body.get("effective")
+        if not isinstance(ocs, list):
+            return []
+        return [str(c.get("id") or "") for c in ocs]
+
+    def t_chip_put_get(self) -> None:
+        """1. PUT /api/v1/chips/{type} with one condition → GET returns it."""
+        pt = self._unique_part_type()
+        try:
+            put_body = {
+                "note": "chip_put_get_smoke",
+                "operating_conditions": [
+                    self._oc_body(
+                        cid="oc_chip_put",
+                        name="lib_cond",
+                        inputs=["A"],
+                        outputs=["Y"],
+                        note="from put",
+                    )
+                ],
+            }
+            st, created = request(
+                self.base, "PUT", self.chip_path(pt), body=put_body, expect=200
+            )
+            check_eq(st, 200)
+            check_eq(created.get("part_type"), pt)
+            check_eq(created.get("note"), "chip_put_get_smoke")
+            ocs = created.get("operating_conditions") or []
+            check_eq(len(ocs), 1, f"put ocs={created!r}")
+            check_eq(ocs[0].get("id"), "oc_chip_put")
+
+            _, got = request(self.base, "GET", self.chip_path(pt), expect=200)
+            check_eq(got.get("part_type"), pt)
+            check_eq(got.get("note"), "chip_put_get_smoke")
+            gocs = got.get("operating_conditions") or []
+            check_eq(len(gocs), 1)
+            check_eq(gocs[0].get("id"), "oc_chip_put")
+            check_eq(gocs[0].get("name"), "lib_cond")
+            check_eq(gocs[0].get("inputs"), ["A"])
+            check_eq(gocs[0].get("outputs"), ["Y"])
+        finally:
+            self._delete_chip(pt)
+
+    def t_chip_bind_part_type(self) -> None:
+        """2. Bind part_type on a real multi-pin part via PATCH."""
+        pt = self._unique_part_type()
+        part = self._chip_part()
+        try:
+            self._patch_part_type(pt, part)
+            path = f"/api/v1/boards/{enc(self.fx.board_id)}/parts/{enc(part)}"
+            _, summary = request(self.base, "GET", path, expect=200)
+            pi = summary.get("partInfo") or {}
+            check_eq(pi.get("part_type"), pt, f"partInfo after bind: {pi!r}")
+        finally:
+            self._clear_part_type(part)
+
+    def t_chip_source_from_library(self) -> None:
+        """3. GET part conditions → source=chip, effective matches library."""
+        pt = self._unique_part_type()
+        part = self._chip_part()
+        board_cids: list[str] = []
+        try:
+            # Ensure board layer empty so chip is effective.
+            _, listed = request(
+                self.base,
+                "GET",
+                f"/api/v1/boards/{enc(self.fx.board_id)}/parts/{enc(part)}/operating-conditions",
+                expect=200,
+            )
+            for c in listed.get("board") or []:
+                cid = c.get("id")
+                if cid:
+                    board_cids.append(str(cid))
+                    self._delete_board_condition(str(cid), part)
+
+            put_body = {
+                "note": "source_chip_smoke",
+                "operating_conditions": [
+                    self._oc_body(
+                        cid="oc_src_chip",
+                        name="from_lib",
+                        inputs=["S1"],
+                        outputs=["SO"],
+                        note="chip-source",
+                    )
+                ],
+            }
+            request(self.base, "PUT", self.chip_path(pt), body=put_body, expect=200)
+            self._patch_part_type(pt, part)
+
+            _, body = request(
+                self.base,
+                "GET",
+                f"/api/v1/boards/{enc(self.fx.board_id)}/parts/{enc(part)}/operating-conditions",
+                expect=200,
+            )
+            check_eq(body.get("source"), "chip", f"source body={body!r}")
+            check_eq(body.get("part_type"), pt)
+            chip = body.get("chip") or []
+            check_eq(len(chip), 1, f"chip layer={chip!r}")
+            check_eq(chip[0].get("id"), "oc_src_chip")
+            eff_ids = self._effective_ids(body)
+            check_in("oc_src_chip", eff_ids, f"effective missing chip id: {body!r}")
+            board = body.get("board") or []
+            check_eq(len(board), 0, f"board should be empty for pure chip source: {board!r}")
+        finally:
+            self._clear_part_type(part)
+            self._delete_chip(pt)
+
+    def t_chip_board_override_isolation(self) -> None:
+        """4. Board POST → source=board; chip GET unchanged."""
+        pt = self._unique_part_type()
+        part = self._chip_part()
+        board_cid = "oc_board_ovr"
+        try:
+            put_body = {
+                "note": "board_ovr_smoke",
+                "operating_conditions": [
+                    self._oc_body(
+                        cid="oc_lib_keep",
+                        name="lib_keep",
+                        inputs=["LK"],
+                        outputs=["LO"],
+                        note="must-stay",
+                    )
+                ],
+            }
+            request(self.base, "PUT", self.chip_path(pt), body=put_body, expect=200)
+            self._patch_part_type(pt, part)
+
+            _, before_chip = request(self.base, "GET", self.chip_path(pt), expect=200)
+            before_ocs = before_chip.get("operating_conditions") or []
+            check_eq(len(before_ocs), 1)
+            check_eq(before_ocs[0].get("id"), "oc_lib_keep")
+
+            st, created = request(
+                self.base,
+                "POST",
+                f"/api/v1/boards/{enc(self.fx.board_id)}/parts/{enc(part)}/operating-conditions",
+                body=self._oc_body(
+                    cid=board_cid,
+                    name="board_only",
+                    inputs=["B1"],
+                    outputs=["BO"],
+                    note="board-override",
+                ),
+                expect=201,
+            )
+            check_eq(st, 201)
+            check_eq(created.get("id"), board_cid)
+            self.created_condition_ids.append(board_cid)
+
+            _, body = request(
+                self.base,
+                "GET",
+                f"/api/v1/boards/{enc(self.fx.board_id)}/parts/{enc(part)}/operating-conditions",
+                expect=200,
+            )
+            check_eq(body.get("source"), "board", f"source after board post: {body!r}")
+            eff_ids = self._effective_ids(body)
+            check_in(board_cid, eff_ids)
+            check("oc_lib_keep" not in eff_ids, f"board whole-set should hide chip: {eff_ids}")
+            chip_layer = body.get("chip") or []
+            check_eq(len(chip_layer), 1)
+            check_eq(chip_layer[0].get("id"), "oc_lib_keep")
+
+            _, after_chip = request(self.base, "GET", self.chip_path(pt), expect=200)
+            after_ocs = after_chip.get("operating_conditions") or []
+            check_eq(len(after_ocs), 1, f"chip mutated by board write: {after_chip!r}")
+            check_eq(after_ocs[0].get("id"), "oc_lib_keep")
+            check_eq(after_ocs[0].get("note"), "must-stay")
+        finally:
+            self._delete_board_condition(board_cid, part)
+            self.created_condition_ids = [
+                x for x in self.created_condition_ids if x != board_cid
+            ]
+            self._clear_part_type(part)
+            self._delete_chip(pt)
+
+    def t_chip_promote_clear_board(self) -> None:
+        """5. promote clearBoard true → source chip again; board empty."""
+        pt = self._unique_part_type()
+        part = self._chip_part()
+        board_cid = "oc_promo_board"
+        try:
+            self._patch_part_type(pt, part)
+            st, created = request(
+                self.base,
+                "POST",
+                f"/api/v1/boards/{enc(self.fx.board_id)}/parts/{enc(part)}/operating-conditions",
+                body=self._oc_body(
+                    cid=board_cid,
+                    name="to_promote",
+                    inputs=["P1"],
+                    outputs=["PO"],
+                    note="promote-me",
+                ),
+                expect=201,
+            )
+            check_eq(created.get("id"), board_cid)
+            self.created_condition_ids.append(board_cid)
+
+            st, promoted = request(
+                self.base,
+                "POST",
+                f"/api/v1/boards/{enc(self.fx.board_id)}/parts/{enc(part)}/operating-conditions/promote",
+                body={"clearBoard": True},
+                expect=200,
+            )
+            check_eq(st, 200)
+            check_eq(promoted.get("source"), "chip", f"promote resp: {promoted!r}")
+            check_eq(promoted.get("part_type"), pt)
+            board = promoted.get("board") or []
+            check_eq(len(board), 0, f"board not cleared: {board!r}")
+            chip = promoted.get("chip") or []
+            chip_ids = [c.get("id") for c in chip]
+            check_in(board_cid, chip_ids, f"promoted not in chip: {chip!r}")
+            eff_ids = self._effective_ids(promoted)
+            check_in(board_cid, eff_ids)
+
+            _, chip_rec = request(self.base, "GET", self.chip_path(pt), expect=200)
+            rec_ids = [c.get("id") for c in (chip_rec.get("operating_conditions") or [])]
+            check_in(board_cid, rec_ids)
+
+            # board layer no longer owns the condition id
+            self.created_condition_ids = [
+                x for x in self.created_condition_ids if x != board_cid
+            ]
+        finally:
+            self._delete_board_condition(board_cid, part)
+            self._clear_part_type(part)
+            self._delete_chip(pt)
+
+    def t_chip_scope_post_adds_library(self) -> None:
+        """6. scope=chip POST adds to library."""
+        pt = self._unique_part_type()
+        part = self._chip_part()
+        try:
+            self._patch_part_type(pt, part)
+            st, created = request(
+                self.base,
+                "POST",
+                f"/api/v1/boards/{enc(self.fx.board_id)}/parts/{enc(part)}"
+                f"/operating-conditions?scope=chip",
+                body=self._oc_body(
+                    cid="oc_scope_chip",
+                    name="via_scope",
+                    inputs=["SC"],
+                    outputs=["SO"],
+                    note="scope-post",
+                ),
+                expect=201,
+            )
+            check_eq(st, 201)
+            check_eq(created.get("id"), "oc_scope_chip")
+            check_eq(created.get("scope"), "chip")
+
+            _, chip_rec = request(self.base, "GET", self.chip_path(pt), expect=200)
+            ids = [c.get("id") for c in (chip_rec.get("operating_conditions") or [])]
+            check_in("oc_scope_chip", ids, f"chip missing scope post: {chip_rec!r}")
+
+            # Board override must remain empty for this id
+            _, merged = request(
+                self.base,
+                "GET",
+                f"/api/v1/boards/{enc(self.fx.board_id)}/parts/{enc(part)}/operating-conditions",
+                expect=200,
+            )
+            board_ids = [c.get("id") for c in (merged.get("board") or [])]
+            check("oc_scope_chip" not in board_ids, f"scope=chip leaked to board: {board_ids}")
+        finally:
+            self._clear_part_type(part)
+            self._delete_chip(pt)
+
+    def t_chip_board_post_does_not_mutate_chip(self) -> None:
+        """7. Default board POST does not change chip file content."""
+        pt = self._unique_part_type()
+        part = self._chip_part()
+        board_cid = "oc_no_mutate"
+        try:
+            put_body = {
+                "note": "immutable_lib",
+                "operating_conditions": [
+                    self._oc_body(
+                        cid="oc_lib_immut",
+                        name="lib_immut",
+                        inputs=["I"],
+                        outputs=["O"],
+                        note="before-board",
+                    )
+                ],
+            }
+            request(self.base, "PUT", self.chip_path(pt), body=put_body, expect=200)
+            self._patch_part_type(pt, part)
+
+            _, before = request(self.base, "GET", self.chip_path(pt), expect=200)
+
+            st, created = request(
+                self.base,
+                "POST",
+                f"/api/v1/boards/{enc(self.fx.board_id)}/parts/{enc(part)}/operating-conditions",
+                body=self._oc_body(
+                    cid=board_cid,
+                    name="board_local",
+                    inputs=["BX"],
+                    outputs=["BY"],
+                    note="must-not-touch-chip",
+                ),
+                expect=201,
+            )
+            check_eq(created.get("id"), board_cid)
+            self.created_condition_ids.append(board_cid)
+
+            _, after = request(self.base, "GET", self.chip_path(pt), expect=200)
+            check_eq(
+                after.get("operating_conditions"),
+                before.get("operating_conditions"),
+                f"chip mutated\nbefore={before!r}\nafter={after!r}",
+            )
+            check_eq(after.get("note"), before.get("note"))
+            check_eq(after.get("part_type"), pt)
+        finally:
+            self._delete_board_condition(board_cid, part)
+            self.created_condition_ids = [
+                x for x in self.created_condition_ids if x != board_cid
+            ]
+            self._clear_part_type(part)
+            self._delete_chip(pt)
+
+    def t_chip_scope_requires_part_type(self) -> None:
+        """8. scope=chip without part_type → 400 PART_TYPE_REQUIRED."""
+        part = self._chip_part()
+        # Ensure no part_type bound
+        self._clear_part_type(part)
+        st, err = request(
+            self.base,
+            "POST",
+            f"/api/v1/boards/{enc(self.fx.board_id)}/parts/{enc(part)}"
+            f"/operating-conditions?scope=chip",
+            body=self._oc_body(name="needs_type", inputs=["X"], outputs=["Y"]),
+            expect=400,
+        )
+        check_eq(st, 400)
+        check_eq(error_code(err), "PART_TYPE_REQUIRED")
+
+
     def cleanup(self) -> None:
         for cid in list(self.created_condition_ids):
             try:
@@ -966,6 +1391,14 @@ ALL_CASES: list[tuple[str, str, Callable[[Suite], None]]] = [
     ("pins", "patch_clear", lambda s: s.t_pins_patch_clear()),
     ("pins", "patch_unknown_key", lambda s: s.t_pins_patch_unknown_key()),
     ("pins", "patch_empty", lambda s: s.t_pins_patch_empty()),
+    ("chip", "put_get", lambda s: s.t_chip_put_get()),
+    ("chip", "bind_part_type", lambda s: s.t_chip_bind_part_type()),
+    ("chip", "source_from_library", lambda s: s.t_chip_source_from_library()),
+    ("chip", "board_override_isolation", lambda s: s.t_chip_board_override_isolation()),
+    ("chip", "promote_clear_board", lambda s: s.t_chip_promote_clear_board()),
+    ("chip", "scope_post_adds_library", lambda s: s.t_chip_scope_post_adds_library()),
+    ("chip", "board_post_no_chip_mutate", lambda s: s.t_chip_board_post_does_not_mutate_chip()),
+    ("chip", "scope_requires_part_type", lambda s: s.t_chip_scope_requires_part_type()),
     ("grid", "pin_grid_shape", lambda s: s.t_pin_grid_shape()),
 ]
 
