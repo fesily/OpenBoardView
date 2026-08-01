@@ -1,7 +1,7 @@
 # Chip-Level Operating-Conditions Library — Design Spec
 
 **Date:** 2026-08-01  
-**Status:** Approved — implementation in progress
+**Status:** Implemented
 **Parent:** `2026-07-31-agent-pin-part-api-design.md`  
 **Goal:** Add a cross-board **chip library** keyed by `part_type` for shared operating-condition sets (I/O + enables groups), while board-level `PartInfo.operating_conditions` becomes an optional per-board override. Board UI / part GET automatically surfaces the merged effective set.
 
@@ -195,7 +195,7 @@ Responses that historically returned only board conditions must return **effecti
 | Default board condition CRUD (existing routes, no scope) | Board override | Unchanged path: mutate `PartInfo.operating_conditions`, save board YAML |
 | Shared library edit from chip API | Chip store | `/api/v1/chips/:partType/operating-conditions...` |
 | Shared library edit from board context | Chip store | Same board routes with `scope=chip` (query or body); requires non-empty `part_type`; creates chip record if missing |
-| Promote board → chip | Chip store (+ optional clear board) | `POST .../parts/:part/operating-conditions:promote` body `{ "clearBoard"?: bool }` |
+| Promote board → chip | Chip store (+ optional clear board) | `POST .../parts/:part/operating-conditions/promote` body `{ "clearBoard"?: bool }` (slash path; not colon `:promote`) |
 | Bind / rebind type | Board overlay | `PATCH .../parts/:part` with `{ "part_type": "..." }` (empty string clears bind); does **not** move conditions |
 
 Rules:
@@ -277,7 +277,7 @@ PUT             /api/v1/boards/:ref/parts/:part/operating-conditions
 New:
 
 ```text
-POST /api/v1/boards/:ref/parts/:part/operating-conditions:promote
+POST /api/v1/boards/:ref/parts/:part/operating-conditions/promote
 ```
 
 Body:
