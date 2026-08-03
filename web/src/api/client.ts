@@ -238,5 +238,7 @@ function normalizePartConditionsView(data: PartConditionsView): PartConditionsVi
     board: data.board ?? [],
     chip: data.chip ?? [],
     operating_conditions: data.operating_conditions ?? effective,
+    chipPins: data.chipPins ?? [],
+    resolved: data.resolved ?? {},
   };
 }

@@ -23,6 +23,7 @@ import type {
   PartInfo,
   Pin,
   PinInfo,
+  ResolvedPinLabel,
 } from '../types/board';
 
 export interface InfoPaneProps {
@@ -83,9 +84,27 @@ const SOURCE_BADGE: Record<ConditionSource, { label: string; className: string }
   none: { label: '无', className: 'oc-badge oc-badge-none' },
 };
 
-function formatPinList(labels?: string[]): string {
+function formatResolvedLabel(
+  label: string,
+  resolved?: Pick<ResolvedPinLabel, 'matched' | 'id' | 'name'>,
+): string {
+  if (
+    resolved &&
+    resolved.matched &&
+    resolved.matched !== 'none' &&
+    resolved.id &&
+    resolved.name
+  ) {
+    return `${resolved.id} (${resolved.name})`;
+  }
+  return label;
+}
+
+function formatPinList(labels?: string[], resolved?: ResolvedPinLabel[]): string {
   if (!labels || labels.length === 0) return '—';
-  return labels.join(', ');
+  return labels
+    .map((label, i) => formatResolvedLabel(label, resolved?.[i]))
+    .join(', ');
 }
 
 function conditionTitle(oc: OperatingCondition, index: number): string {
@@ -684,30 +703,40 @@ export default function InfoPane({
                     }
                     return (
                       <ul className="oc-list">
-                        {effective.map((oc, i) => (
-                          <li key={oc.id || `oc-${i}`} className="oc-item">
-                            <div className="oc-item-title">
-                              {conditionTitle(oc, i)}
-                              {oc.id ? (
-                                <span className="muted mono oc-id"> · {oc.id}</span>
-                              ) : null}
-                            </div>
-                            <dl className="info-dl oc-dl">
-                              <dt>inputs</dt>
-                              <dd className="mono">{formatPinList(oc.inputs)}</dd>
-                              <dt>outputs</dt>
-                              <dd className="mono">{formatPinList(oc.outputs)}</dd>
-                              <dt>enables</dt>
-                              <dd className="mono">{formatPinList(oc.enables)}</dd>
-                              {oc.note ? (
-                                <>
-                                  <dt>note</dt>
-                                  <dd>{oc.note}</dd>
-                                </>
-                              ) : null}
-                            </dl>
-                          </li>
-                        ))}
+                        {effective.map((oc, i) => {
+                          const resolved =
+                            (oc.id && conditions.resolved?.[oc.id]) || undefined;
+                          return (
+                            <li key={oc.id || `oc-${i}`} className="oc-item">
+                              <div className="oc-item-title">
+                                {conditionTitle(oc, i)}
+                                {oc.id ? (
+                                  <span className="muted mono oc-id"> · {oc.id}</span>
+                                ) : null}
+                              </div>
+                              <dl className="info-dl oc-dl">
+                                <dt>inputs</dt>
+                                <dd className="mono">
+                                  {formatPinList(oc.inputs, resolved?.inputs)}
+                                </dd>
+                                <dt>outputs</dt>
+                                <dd className="mono">
+                                  {formatPinList(oc.outputs, resolved?.outputs)}
+                                </dd>
+                                <dt>enables</dt>
+                                <dd className="mono">
+                                  {formatPinList(oc.enables, resolved?.enables)}
+                                </dd>
+                                {oc.note ? (
+                                  <>
+                                    <dt>note</dt>
+                                    <dd>{oc.note}</dd>
+                                  </>
+                                ) : null}
+                              </dl>
+                            </li>
+                          );
+                        })}
                       </ul>
                     );
                   })()}

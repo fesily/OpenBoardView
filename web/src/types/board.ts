@@ -179,6 +179,33 @@ export interface OperatingCondition {
 
 export type ConditionSource = 'board' | 'chip' | 'none';
 
+/** Chip-library pin map entry (datasheet id ↔ name + aliases). */
+export interface ChipPin {
+  id: string;
+  name?: string;
+  aliases?: string[];
+  dir?: string;
+  note?: string;
+}
+
+/** How a condition label matched a chip pin. */
+export type ChipPinMatched = 'none' | 'id' | 'name' | 'alias' | string;
+
+/** Per-label resolve annotation on condition pin lists. */
+export interface ResolvedPinLabel {
+  label: string;
+  matched: ChipPinMatched;
+  id?: string;
+  name?: string;
+}
+
+/** Resolved inputs/outputs/enables for one condition group. */
+export interface ConditionResolvedPins {
+  inputs?: ResolvedPinLabel[];
+  outputs?: ResolvedPinLabel[];
+  enables?: ResolvedPinLabel[];
+}
+
 /** GET .../parts/:part/operating-conditions merged view. */
 export interface PartConditionsView {
   boardId?: string;
@@ -191,6 +218,10 @@ export interface PartConditionsView {
   operating_conditions?: OperatingCondition[];
   board: OperatingCondition[];
   chip: OperatingCondition[];
+  /** Chip pin table when part_type is bound; empty when unbound/missing. */
+  chipPins?: ChipPin[];
+  /** Per effective condition id → resolved label annotations. */
+  resolved?: Record<string, ConditionResolvedPins>;
 }
 
 export interface NetInfo {
