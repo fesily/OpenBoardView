@@ -1788,6 +1788,50 @@ class Suite:
         check_eq(error_code(err), "NET_NOT_FOUND")
 
 
+
+    def part_layout_path(self, query: str = "", ref: Optional[str] = None) -> str:
+        r = ref if ref is not None else self.fx.board_id
+        q = f"?{query}" if query else ""
+        return f"/api/v1/boards/{enc(r)}/part-layout{q}"
+
+    def t_part_layout_shape(self) -> None:
+        _, body = request(self.base, "GET", self.part_layout_path(), expect=200)
+        for k in ("boardId", "sourceName", "minPins", "partCount", "bounds", "parts"):
+            check_in(k, body, f"part-layout missing {k}")
+        check_eq(body["boardId"], self.fx.board_id)
+        check_eq(int(body["minPins"]), 1)
+        parts = body["parts"]
+        check(isinstance(parts, list), "parts not list")
+        check_eq(int(body["partCount"]), len(parts))
+        check(len(parts) >= 1, "no parts")
+        p0 = parts[0]
+        for k in ("name", "center", "pinCount"):
+            check_in(k, p0, f"part.{k}")
+        check_in("x", p0["center"])
+        check_in("y", p0["center"])
+        check(int(p0["pinCount"]) >= 1, "default minPins=1 violated")
+        # sorted by y,x,name
+        for i in range(1, len(parts)):
+            a, b = parts[i - 1], parts[i]
+            ya, yb = float(a["center"]["y"]), float(b["center"]["y"])
+            xa, xb = float(a["center"]["x"]), float(b["center"]["x"])
+            if ya != yb:
+                check(ya < yb, f"sort y failed {a['name']}->{b['name']}")
+            elif xa != xb:
+                check(xa < xb, f"sort x failed {a['name']}->{b['name']}")
+            else:
+                check(a["name"] <= b["name"], f"sort name failed")
+        # minPins filter
+        _, body2 = request(self.base, "GET", self.part_layout_path("minPins=2"), expect=200)
+        check_eq(int(body2["minPins"]), 2)
+        for p in body2["parts"]:
+            check(int(p["pinCount"]) >= 2, f"minPins=2 leaked {p}")
+        check(int(body2["partCount"]) <= int(body["partCount"]), "minPins=2 grew count")
+        # bad minPins
+        st, err = request(self.base, "GET", self.part_layout_path("minPins=-1"), expect=400)
+        check_eq(error_code(err), "BAD_REQUEST")
+
+
 # ---------------------------------------------------------------------------
 # Case registry
 # ---------------------------------------------------------------------------
@@ -1835,6 +1879,7 @@ ALL_CASES: list[tuple[str, str, Callable[[Suite], None]]] = [
     ("nets", "get_patch_showname", lambda s: s.t_net_get_and_patch_showname()),
     ("nets", "patch_unknown", lambda s: s.t_net_patch_unknown()),
     ("nets", "not_found", lambda s: s.t_net_not_found()),
+    ("layout", "part_layout_shape", lambda s: s.t_part_layout_shape()),
 ]
 
 

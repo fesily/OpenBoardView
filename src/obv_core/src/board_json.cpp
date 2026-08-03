@@ -363,6 +363,96 @@ std::string ExportMetaJson(const BoardSnapshot &snap, const std::string &boardId
 	return os.str();
 }
 
+std::string ExportPartLayoutJson(const BoardSnapshot &snap, const std::string &boardId,
+                                 int minPins) {
+	if (!snap.ok() || !snap.board) {
+		return {};
+	}
+	if (minPins < 0) {
+		minPins = 0;
+	}
+	Board &board = *snap.board;
+
+	struct Row {
+		std::string name;
+		double cx = 0;
+		double cy = 0;
+		int pinCount = 0;
+	};
+	std::vector<Row> rows;
+	rows.reserve(board.Components().size());
+
+	for (const auto &cp : board.Components()) {
+		if (!cp || cp->name.empty()) continue;
+		int pinCount = 0;
+		for (const auto &pp : cp->pins) {
+			if (pp) ++pinCount;
+		}
+		// Prefer component.pins; if empty, count global Pins with matching component name.
+		if (pinCount == 0) {
+			for (const auto &pp : board.Pins()) {
+				if (pp && pp->component && pp->component.get() == cp.get()) ++pinCount;
+			}
+		}
+		if (pinCount < minPins) continue;
+		const CompGeom geom = deriveCompGeom(*cp);
+		Row r;
+		r.name = cp->name;
+		r.cx = geom.cx;
+		r.cy = geom.cy;
+		r.pinCount = pinCount;
+		rows.push_back(std::move(r));
+	}
+
+	std::sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) {
+		if (a.cy != b.cy) return a.cy < b.cy;
+		if (a.cx != b.cx) return a.cx < b.cx;
+		return a.name < b.name;
+	});
+
+	double minX = 0, minY = 0, maxX = 0, maxY = 0;
+	if (!rows.empty()) {
+		minX = maxX = rows[0].cx;
+		minY = maxY = rows[0].cy;
+		for (const auto &r : rows) {
+			minX = std::min(minX, r.cx);
+			minY = std::min(minY, r.cy);
+			maxX = std::max(maxX, r.cx);
+			maxY = std::max(maxY, r.cy);
+		}
+	}
+
+	std::ostringstream os;
+	os << '{';
+	os << "\"boardId\":";
+	appendEscaped(os, boardId);
+	os << ",\"sourceName\":";
+	appendEscaped(os, snap.sourceName);
+	os << ",\"minPins\":" << minPins;
+	os << ",\"partCount\":" << rows.size();
+	os << ",\"bounds\":{\"minX\":";
+	appendNumber(os, minX);
+	os << ",\"minY\":";
+	appendNumber(os, minY);
+	os << ",\"maxX\":";
+	appendNumber(os, maxX);
+	os << ",\"maxY\":";
+	appendNumber(os, maxY);
+	os << "},\"parts\":[";
+	for (size_t i = 0; i < rows.size(); ++i) {
+		if (i) os << ',';
+		const auto &r = rows[i];
+		os << "{\"name\":";
+		appendEscaped(os, r.name);
+		os << ",\"center\":";
+		appendPoint(os, r.cx, r.cy);
+		os << ",\"pinCount\":" << r.pinCount << '}';
+	}
+	os << "]}";
+	return os.str();
+}
+
+
 std::string ExportBoardJson(const BoardSnapshot &snap, const std::string &boardId) {
 	if (!snap.ok()) {
 		return {};

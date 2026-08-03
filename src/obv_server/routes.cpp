@@ -2370,6 +2370,44 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 				res.set_content(result.png, "image/png");
 			});
 
+	// Part geometric fingerprints for cross-board alignment.
+	svr.Get(R"(/api/v1/boards/:ref/part-layout)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string ref = pathParam(req, "ref");
+				std::string boardId;
+				if (!applyBoardRef(registry, ref, res, boardId)) {
+					return;
+				}
+				const auto snap = registry.GetParsed(boardId);
+				if (!snap) {
+					setError(res, 404, "NOT_FOUND", "board not found");
+					return;
+				}
+				if (!snap->ok()) {
+					setError(res, 400, "PARSE_FAILED",
+							 snap->error.empty() ? "parse failed" : snap->error);
+					return;
+				}
+				int minPins = 1;
+				if (req.has_param("minPins")) {
+					const std::string raw = req.get_param_value("minPins");
+					char *end = nullptr;
+					const long v = std::strtol(raw.c_str(), &end, 10);
+					if (end == raw.c_str() || *end != '\0' || v < 0 || v > 100000) {
+						setError(res, 400, "BAD_REQUEST", "invalid minPins");
+						return;
+					}
+					minPins = static_cast<int>(v);
+				}
+				// sourceName from snap; ExportPartLayoutJson uses snap.sourceName
+				const std::string js = obv::ExportPartLayoutJson(*snap, boardId, minPins);
+				if (js.empty()) {
+					setError(res, 400, "PARSE_FAILED", "part layout export failed");
+					return;
+				}
+				res.set_content(js, "application/json");
+			});
+
 	// Pin grid inference (row/col from board coordinates).
 	svr.Get(R"(/api/v1/boards/:ref/parts/:part/pin-grid)",
 			[&registry](const httplib::Request &req, httplib::Response &res) {
