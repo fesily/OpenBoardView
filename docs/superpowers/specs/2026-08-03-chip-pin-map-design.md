@@ -255,7 +255,7 @@ GET    /api/v1/chips/:partType/resolve?label=...
 **PUT one pin:**
 
 1. Parse body as pin fields (`id` optional).
-2. If `:pinKey` resolves to an existing pin → update that row; path does not change `id` unless body supplies a new `id` that passes uniqueness (prefer: **body `id` if present else keep existing id**; if path matched by name/alias, id stays unless body renames).
+2. If `:pinKey` resolves to an existing pin → update that row. New `id` = body `id` if non-empty after trim, else keep existing `id`. Then re-check whole-table uniqueness.
 3. If miss → create; require `id` in body or use `:pinKey` as `id`.
 4. Re-validate whole table uniqueness after change.
 
@@ -306,8 +306,8 @@ For each effective condition label:
 | `id` | pin id if hit, else `""` |
 | `name` | pin primary name if hit, else `""` |
 
-**`GET .../operating-conditions`** (list) includes the same `chipPins` (optional; **prefer include**) and `resolved` for the effective set.  
-**`GET .../operating-conditions/:condId`** may include `resolved` for that one condition only.
+**`GET .../operating-conditions`** (list) **must** include `chipPins` and `resolved` for the effective set.
+**`GET .../operating-conditions/:condId`** **must** include `resolved` for that one condition (object or inline fields).
 
 Chip store load failure still maps to 500 `CHIP_STORE_FAILED` (existing). Missing chip → empty `chipPins` / all `matched: none`.
 
@@ -327,8 +327,7 @@ Chip store load failure still maps to 500 `CHIP_STORE_FAILED` (existing). Missin
 
 In InfoPane **Operating conditions** list:
 
-- For each label in inputs/outputs/enables, if `resolved` provides a hit and `name` non-empty and `name != label`, display `label (name)` (e.g. `B3 (VBAT)`).
-- If hit by name already, show label as-is (or `name (id)` when label matched name — **prefer:** always show `id` and `name` when both known: format **`{id} · {name}`** when resolved hit; if only label with none, show label).
+- Display uses the locked rule below only (no alternate formats).
 - **Locked display rule:**  
   - `matched != none` and both id and name non-empty → `"{id} ({name})"`  
   - else show `label`
