@@ -1512,6 +1512,10 @@ void mapChipStoreError(httplib::Response &res, const std::string &code, const st
 	} else if (code == "CONDITION_ID_CONFLICT") {
 		setError(res, 409, "CONDITION_ID_CONFLICT",
 				 msg.empty() ? "operating condition id already exists" : msg);
+	} else if (code == "PIN_KEY_CONFLICT") {
+		setError(res, 400, "PIN_KEY_CONFLICT", msg.empty() ? "pin key conflict" : msg);
+	} else if (code == "PIN_NOT_FOUND") {
+		setError(res, 404, "PIN_NOT_FOUND", msg.empty() ? "pin not found" : msg);
 	} else if (code == "CHIP_STORE_FAILED") {
 		setError(res, 500, "CHIP_STORE_FAILED", msg.empty() ? "chip store failed" : msg);
 	} else {
@@ -1520,11 +1524,241 @@ void mapChipStoreError(httplib::Response &res, const std::string &code, const st
 	}
 }
 
+const char *chipPinMatchString(obv::ChipPinMatch m) {
+	switch (m) {
+	case obv::ChipPinMatch::Id:
+		return "id";
+	case obv::ChipPinMatch::Name:
+		return "name";
+	case obv::ChipPinMatch::Alias:
+		return "alias";
+	case obv::ChipPinMatch::None:
+	default:
+		return "none";
+	}
+}
+
+std::string chipPinObjectJson(const obv::ChipPin &pin) {
+	std::ostringstream os;
+	os << "{\"id\":\"" << jsonEscape(pin.id) << "\",\"name\":\"" << jsonEscape(pin.name)
+	   << "\",\"aliases\":[";
+	for (size_t i = 0; i < pin.aliases.size(); ++i) {
+		if (i) {
+			os << ',';
+		}
+		os << '"' << jsonEscape(pin.aliases[i]) << '"';
+	}
+	os << "],\"dir\":\"" << jsonEscape(pin.dir) << "\",\"note\":\"" << jsonEscape(pin.note)
+	   << "\"}";
+	return os.str();
+}
+
+std::string chipPinsArrayJson(const std::vector<obv::ChipPin> &pins) {
+	std::ostringstream os;
+	os << '[';
+	for (size_t i = 0; i < pins.size(); ++i) {
+		if (i) {
+			os << ',';
+		}
+		os << chipPinObjectJson(pins[i]);
+	}
+	os << ']';
+	return os.str();
+}
+
+std::string chipPinsListJson(const std::string &partType, const std::vector<obv::ChipPin> &pins) {
+	std::ostringstream os;
+	os << "{\"part_type\":\"" << jsonEscape(partType) << "\",\"pins\":" << chipPinsArrayJson(pins)
+	   << '}';
+	return os.str();
+}
+
+bool parseChipPinObject(MiniJson &cur, obv::ChipPin &out) {
+	out = obv::ChipPin{};
+	if (!cur.expect('{')) {
+		return false;
+	}
+	cur.skipWs();
+	if (cur.match('}')) {
+		return true;
+	}
+	for (;;) {
+		std::string key;
+		if (!cur.parseString(key)) {
+			return false;
+		}
+		if (!cur.expect(':')) {
+			return false;
+		}
+		if (key == "id") {
+			if (!cur.parseString(out.id)) {
+				return false;
+			}
+		} else if (key == "name") {
+			if (!cur.parseString(out.name)) {
+				return false;
+			}
+		} else if (key == "note") {
+			if (!cur.parseString(out.note)) {
+				return false;
+			}
+		} else if (key == "dir") {
+			if (!cur.parseString(out.dir)) {
+				return false;
+			}
+		} else if (key == "aliases") {
+			if (!parseStringArray(cur, out.aliases)) {
+				return false;
+			}
+		} else {
+			if (!cur.skipValue()) {
+				return false;
+			}
+		}
+		cur.skipWs();
+		if (cur.match('}')) {
+			return true;
+		}
+		if (!cur.expect(',')) {
+			return false;
+		}
+	}
+}
+
+bool parseChipPinBody(const std::string &json, obv::ChipPin &out, std::string &err) {
+	MiniJson cur(json);
+	if (!parseChipPinObject(cur, out)) {
+		err = cur.err.empty() ? "invalid chip pin JSON" : cur.err;
+		return false;
+	}
+	cur.skipWs();
+	if (cur.i < cur.s.size()) {
+		err = "trailing data after chip pin JSON";
+		return false;
+	}
+	return true;
+}
+
+bool parseChipPinsArray(MiniJson &cur, std::vector<obv::ChipPin> &out, std::string &err) {
+	out.clear();
+	if (!cur.expect('[')) {
+		err = cur.err.empty() ? "pins must be array" : cur.err;
+		return false;
+	}
+	cur.skipWs();
+	if (cur.match(']')) {
+		return true;
+	}
+	for (;;) {
+		obv::ChipPin pin;
+		if (!parseChipPinObject(cur, pin)) {
+			err = cur.err.empty() ? "invalid chip pin" : cur.err;
+			return false;
+		}
+		out.push_back(std::move(pin));
+		cur.skipWs();
+		if (cur.match(']')) {
+			return true;
+		}
+		if (!cur.expect(',')) {
+			err = cur.err;
+			return false;
+		}
+	}
+}
+
+bool parseChipPinsReplaceBody(const std::string &json, std::vector<obv::ChipPin> &out,
+							  std::string &err) {
+	MiniJson cur(json);
+	if (!cur.expect('{')) {
+		err = cur.err.empty() ? "invalid JSON object" : cur.err;
+		return false;
+	}
+	bool got = false;
+	out.clear();
+	cur.skipWs();
+	if (cur.match('}')) {
+		err = "body requires pins array";
+		return false;
+	}
+	for (;;) {
+		std::string key;
+		if (!cur.parseString(key)) {
+			err = cur.err;
+			return false;
+		}
+		if (!cur.expect(':')) {
+			err = cur.err;
+			return false;
+		}
+		if (key == "pins") {
+			if (!parseChipPinsArray(cur, out, err)) {
+				return false;
+			}
+			got = true;
+		} else {
+			if (!cur.skipValue()) {
+				err = cur.err;
+				return false;
+			}
+		}
+		cur.skipWs();
+		if (cur.match('}')) {
+			break;
+		}
+		if (!cur.expect(',')) {
+			err = cur.err;
+			return false;
+		}
+	}
+	cur.skipWs();
+	if (cur.i < cur.s.size()) {
+		err = "trailing data after pins replace JSON";
+		return false;
+	}
+	if (!got) {
+		err = "body requires pins array";
+		return false;
+	}
+	return true;
+}
+
+// Normalize each pin + whole-table uniqueness. Maps conflicts to PIN_KEY_CONFLICT.
+bool normalizePinList(std::vector<obv::ChipPin> &body, std::string &errCode, std::string &errMsg) {
+	errCode.clear();
+	errMsg.clear();
+	std::vector<obv::ChipPin> normalized;
+	normalized.reserve(body.size());
+	for (auto pin : body) {
+		std::string nerr;
+		if (!obv::NormalizeChipPin(pin, nerr)) {
+			errCode = "BAD_REQUEST";
+			errMsg = nerr.empty() ? "invalid chip pin" : nerr;
+			return false;
+		}
+		normalized.push_back(std::move(pin));
+	}
+	std::string verr;
+	if (!obv::ValidateChipPinTable(normalized, verr)) {
+		if (verr.find("pin key conflict") != std::string::npos) {
+			errCode = "PIN_KEY_CONFLICT";
+		} else {
+			errCode = "BAD_REQUEST";
+		}
+		errMsg = verr.empty() ? "invalid pin table" : verr;
+		return false;
+	}
+	body = std::move(normalized);
+	return true;
+}
+
+
 std::string chipRecordJson(const obv::ChipRecord &rec) {
 	std::ostringstream os;
 	os << "{\"part_type\":\"" << jsonEscape(rec.part_type) << "\",\"note\":\""
-	   << jsonEscape(rec.note) << "\",\"operating_conditions\":"
-	   << operatingConditionsArrayJson(rec.operating_conditions) << '}';
+	   << jsonEscape(rec.note) << "\",\"pins\":" << chipPinsArrayJson(rec.pins)
+	   << ",\"operating_conditions\":" << operatingConditionsArrayJson(rec.operating_conditions)
+	   << '}';
 	return os.str();
 }
 
@@ -1537,7 +1771,7 @@ std::string chipListJson(const std::vector<obv::ChipRecord> &chips) {
 			os << ',';
 		}
 		os << "{\"part_type\":\"" << jsonEscape(c.part_type) << "\",\"conditionCount\":"
-		   << c.operating_conditions.size();
+		   << c.operating_conditions.size() << ",\"pinCount\":" << c.pins.size();
 		if (!c.note.empty()) {
 			os << ",\"note\":\"" << jsonEscape(c.note) << '"';
 		}
@@ -1547,6 +1781,7 @@ std::string chipListJson(const std::vector<obv::ChipRecord> &chips) {
 	return os.str();
 }
 
+
 std::string chipConditionsListJson(const std::string &partType,
 								   const std::vector<OperatingCondition> &ocs) {
 	std::ostringstream os;
@@ -1555,14 +1790,17 @@ std::string chipConditionsListJson(const std::string &partType,
 	return os.str();
 }
 
-// PUT chip body: { "note"?: string, "operating_conditions"?: Condition[] }
-// hasConditions true only when operating_conditions key present.
+// PUT chip body: { "note"?: string, "operating_conditions"?: Condition[], "pins"?: ChipPin[] }
+// hasConditions / hasPins true only when the corresponding key is present.
 bool parseChipPutBody(const std::string &json, std::string &note, bool &hasNote,
-					  std::vector<OperatingCondition> &ocs, bool &hasConditions, std::string &err) {
+					  std::vector<OperatingCondition> &ocs, bool &hasConditions,
+					  std::vector<obv::ChipPin> &pins, bool &hasPins, std::string &err) {
 	note.clear();
 	hasNote = false;
 	ocs.clear();
 	hasConditions = false;
+	pins.clear();
+	hasPins = false;
 	MiniJson cur(json);
 	if (!cur.expect('{')) {
 		err = cur.err.empty() ? "invalid JSON object" : cur.err;
@@ -1614,6 +1852,11 @@ bool parseChipPutBody(const std::string &json, std::string &note, bool &hasNote,
 				}
 			}
 			hasConditions = true;
+		} else if (key == "pins") {
+			if (!parseChipPinsArray(cur, pins, err)) {
+				return false;
+			}
+			hasPins = true;
 		} else {
 			if (!cur.skipValue()) {
 				err = cur.err;
@@ -3501,6 +3744,241 @@ svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
 				res.set_content(chipConditionsListJson(partType, body), "application/json");
 			});
 
+	// Pin map routes (more-specific :pinKey / resolve before collection / generic chip).
+	svr.Get(R"(/api/v1/chips/:partType/pins/:pinKey)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string partType = trimWs(pathParam(req, "partType"));
+				const std::string pinKey = pathParam(req, "pinKey");
+				if (partType.empty()) {
+					setError(res, 400, "INVALID_PART_TYPE", "missing part_type");
+					return;
+				}
+				if (trimWs(pinKey).empty()) {
+					setError(res, 400, "BAD_REQUEST", "missing pin key");
+					return;
+				}
+				obv::ChipRecord rec;
+				std::string code, msg;
+				if (!registry.chips().Get(partType, rec, code, msg)) {
+					mapChipStoreError(res, code, msg);
+					return;
+				}
+				const auto hit = obv::ResolveChipPin(rec, pinKey);
+				if (!hit.pin) {
+					setError(res, 404, "PIN_NOT_FOUND", "pin not found");
+					return;
+				}
+				res.set_content(chipPinObjectJson(*hit.pin), "application/json");
+			});
+
+	svr.Put(R"(/api/v1/chips/:partType/pins/:pinKey)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string partType = trimWs(pathParam(req, "partType"));
+				const std::string pinKey = pathParam(req, "pinKey");
+				if (partType.empty()) {
+					setError(res, 400, "INVALID_PART_TYPE", "missing part_type");
+					return;
+				}
+				if (trimWs(pinKey).empty()) {
+					setError(res, 400, "BAD_REQUEST", "missing pin key");
+					return;
+				}
+				obv::ChipPin body;
+				std::string perr;
+				if (!parseChipPinBody(req.body, body, perr)) {
+					setError(res, 400, "BAD_REQUEST", perr);
+					return;
+				}
+
+				obv::ChipRecord rec;
+				std::string code, msg;
+				const bool exists = registry.chips().Get(partType, rec, code, msg);
+				if (!exists) {
+					if (code != "CHIP_NOT_FOUND") {
+						mapChipStoreError(res, code, msg);
+						return;
+					}
+					rec = obv::ChipRecord{};
+					rec.part_type = partType;
+				}
+
+				std::string responseId;
+				const auto hit = obv::ResolveChipPin(rec, pinKey);
+				if (hit.pin) {
+					const size_t idx = static_cast<size_t>(hit.pin - rec.pins.data());
+					obv::ChipPin updated = body;
+					if (trimWs(updated.id).empty()) {
+						updated.id = rec.pins[idx].id;
+					}
+					std::string nerr;
+					if (!obv::NormalizeChipPin(updated, nerr)) {
+						setError(res, 400, "BAD_REQUEST",
+								 nerr.empty() ? "invalid chip pin" : nerr);
+						return;
+					}
+					responseId = updated.id;
+					rec.pins[idx] = std::move(updated);
+				} else {
+					if (trimWs(body.id).empty()) {
+						body.id = pinKey;
+					}
+					std::string nerr;
+					if (!obv::NormalizeChipPin(body, nerr)) {
+						setError(res, 400, "BAD_REQUEST",
+								 nerr.empty() ? "invalid chip pin" : nerr);
+						return;
+					}
+					responseId = body.id;
+					rec.pins.push_back(std::move(body));
+				}
+
+				std::string ncode, nmsg;
+				if (!normalizePinList(rec.pins, ncode, nmsg)) {
+					if (ncode == "PIN_KEY_CONFLICT") {
+						setError(res, 400, "PIN_KEY_CONFLICT", nmsg);
+					} else {
+						setError(res, 400, "BAD_REQUEST", nmsg);
+					}
+					return;
+				}
+				if (!registry.chips().Put(rec, false, true, code, msg)) {
+					mapChipStoreError(res, code, msg);
+					return;
+				}
+				const obv::ChipPin *outPin = nullptr;
+				for (const auto &p : rec.pins) {
+					if (p.id == responseId) {
+						outPin = &p;
+						break;
+					}
+				}
+				if (!outPin) {
+					const auto saved = obv::ResolveChipPin(rec, pinKey);
+					outPin = saved.pin;
+				}
+				if (!outPin && !rec.pins.empty()) {
+					outPin = &rec.pins.back();
+				}
+				if (!outPin) {
+					setError(res, 500, "CHIP_STORE_FAILED", "pin missing after put");
+					return;
+				}
+				res.set_content(chipPinObjectJson(*outPin), "application/json");
+			});
+
+	svr.Delete(R"(/api/v1/chips/:partType/pins/:pinKey)",
+			   [&registry](const httplib::Request &req, httplib::Response &res) {
+				   const std::string partType = trimWs(pathParam(req, "partType"));
+				   const std::string pinKey = pathParam(req, "pinKey");
+				   if (partType.empty()) {
+					   setError(res, 400, "INVALID_PART_TYPE", "missing part_type");
+					   return;
+				   }
+				   if (trimWs(pinKey).empty()) {
+					   setError(res, 400, "BAD_REQUEST", "missing pin key");
+					   return;
+				   }
+				   obv::ChipRecord rec;
+				   std::string code, msg;
+				   if (!registry.chips().Get(partType, rec, code, msg)) {
+					   mapChipStoreError(res, code, msg);
+					   return;
+				   }
+				   const auto hit = obv::ResolveChipPin(rec, pinKey);
+				   if (!hit.pin) {
+					   setError(res, 404, "PIN_NOT_FOUND", "pin not found");
+					   return;
+				   }
+				   const size_t idx = static_cast<size_t>(hit.pin - rec.pins.data());
+				   rec.pins.erase(rec.pins.begin() + static_cast<std::ptrdiff_t>(idx));
+				   if (!registry.chips().Put(rec, false, true, code, msg)) {
+					   mapChipStoreError(res, code, msg);
+					   return;
+				   }
+				   res.status = 204;
+				   res.set_content("", "application/json");
+			   });
+
+	svr.Get(R"(/api/v1/chips/:partType/pins)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string partType = trimWs(pathParam(req, "partType"));
+				if (partType.empty()) {
+					setError(res, 400, "INVALID_PART_TYPE", "missing part_type");
+					return;
+				}
+				obv::ChipRecord rec;
+				std::string code, msg;
+				if (!registry.chips().Get(partType, rec, code, msg)) {
+					mapChipStoreError(res, code, msg);
+					return;
+				}
+				res.set_content(chipPinsListJson(rec.part_type, rec.pins), "application/json");
+			});
+
+	svr.Put(R"(/api/v1/chips/:partType/pins)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string partType = trimWs(pathParam(req, "partType"));
+				if (partType.empty()) {
+					setError(res, 400, "INVALID_PART_TYPE", "missing part_type");
+					return;
+				}
+				std::vector<obv::ChipPin> body;
+				std::string perr;
+				if (!parseChipPinsReplaceBody(req.body, body, perr)) {
+					setError(res, 400, "BAD_REQUEST", perr);
+					return;
+				}
+				std::string ncode, nmsg;
+				if (!normalizePinList(body, ncode, nmsg)) {
+					if (ncode == "PIN_KEY_CONFLICT") {
+						setError(res, 400, "PIN_KEY_CONFLICT", nmsg);
+					} else {
+						setError(res, 400, "BAD_REQUEST", nmsg);
+					}
+					return;
+				}
+				std::string code, msg;
+				if (!registry.chips().ReplacePins(partType, body, code, msg)) {
+					mapChipStoreError(res, code, msg);
+					return;
+				}
+				res.set_content(chipPinsListJson(partType, body), "application/json");
+			});
+
+	svr.Get(R"(/api/v1/chips/:partType/resolve)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string partType = trimWs(pathParam(req, "partType"));
+				if (partType.empty()) {
+					setError(res, 400, "INVALID_PART_TYPE", "missing part_type");
+					return;
+				}
+				if (!req.has_param("label")) {
+					setError(res, 400, "BAD_REQUEST", "missing label query");
+					return;
+				}
+				const std::string label = req.get_param_value("label");
+				if (trimWs(label).empty()) {
+					setError(res, 400, "BAD_REQUEST", "label is empty");
+					return;
+				}
+				obv::ChipRecord rec;
+				std::string code, msg;
+				if (!registry.chips().Get(partType, rec, code, msg)) {
+					mapChipStoreError(res, code, msg);
+					return;
+				}
+				const auto hit = obv::ResolveChipPin(rec, label);
+				if (!hit.pin) {
+					setError(res, 404, "PIN_NOT_FOUND", "pin not found");
+					return;
+				}
+				std::ostringstream os;
+				os << "{\"part_type\":\"" << jsonEscape(rec.part_type) << "\",\"label\":\""
+				   << jsonEscape(label) << "\",\"matched\":\"" << chipPinMatchString(hit.matched)
+				   << "\",\"pin\":" << chipPinObjectJson(*hit.pin) << '}';
+				res.set_content(os.str(), "application/json");
+			});
+
 	svr.Get("/api/v1/chips", [&registry](const httplib::Request &, httplib::Response &res) {
 		std::vector<obv::ChipRecord> chips;
 		std::string code, msg;
@@ -3542,9 +4020,12 @@ svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
 				bool hasNote = false;
 				std::vector<OperatingCondition> ocs;
 				bool hasConditions = false;
+				std::vector<obv::ChipPin> pins;
+				bool hasPins = false;
 				std::string perr;
 				if (!req.body.empty()) {
-					if (!parseChipPutBody(req.body, note, hasNote, ocs, hasConditions, perr)) {
+					if (!parseChipPutBody(req.body, note, hasNote, ocs, hasConditions, pins, hasPins,
+										  perr)) {
 						setError(res, 400, "BAD_REQUEST", perr);
 						return;
 					}
@@ -3554,6 +4035,17 @@ svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
 					if (!normalizeConditionList(ocs, ncode, nmsg)) {
 						if (ncode == "CONDITION_ID_CONFLICT") {
 							setError(res, 409, "CONDITION_ID_CONFLICT", nmsg);
+						} else {
+							setError(res, 400, "BAD_REQUEST", nmsg);
+						}
+						return;
+					}
+				}
+				if (hasPins) {
+					std::string ncode, nmsg;
+					if (!normalizePinList(pins, ncode, nmsg)) {
+						if (ncode == "PIN_KEY_CONFLICT") {
+							setError(res, 400, "PIN_KEY_CONFLICT", nmsg);
 						} else {
 							setError(res, 400, "BAD_REQUEST", nmsg);
 						}
@@ -3578,12 +4070,15 @@ svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
 				if (hasConditions) {
 					rec.operating_conditions = std::move(ocs);
 				}
-				// replaceConditions=true when body supplied conditions; else preserve existing.
-				if (!registry.chips().Put(rec, hasConditions, false, code, msg)) {
+				if (hasPins) {
+					rec.pins = std::move(pins);
+				}
+				// replace flags true only when body supplied those arrays.
+				if (!registry.chips().Put(rec, hasConditions, hasPins, code, msg)) {
 					mapChipStoreError(res, code, msg);
 					return;
 				}
-				// Re-read to return stored record (preserve path when conditions omitted).
+				// Re-read to return stored record (preserve omitted fields).
 				if (!registry.chips().Get(partType, rec, code, msg)) {
 					mapChipStoreError(res, code, msg);
 					return;
