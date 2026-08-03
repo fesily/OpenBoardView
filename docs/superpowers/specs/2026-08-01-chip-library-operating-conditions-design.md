@@ -72,7 +72,7 @@ obv_server routes
     │       PartInfo.part_type
     │       PartInfo.operating_conditions   ← board override
     │
-    └─► ChipStore (new; dataRoot/chips/)
+    └─► ChipStore (new; boardRoot/chips/)
             key = part_type
             operating_conditions[]         ← shared library
 ```
@@ -323,7 +323,7 @@ Body may include `{ "part_type": "MP3398E" }` (empty string clears). Only update
 
 ### 8.1 ChipStore
 
-- Root: `config.dataRoot / "chips"`; create on server start or first use.
+- Root: `config.boardRoot / "chips"`; create on server start or first use.
 - One YAML file per chip; list = directory scan of `*.yaml`; skip unreadable/invalid files with log, do not fail whole list.
 - Write path: serialize full record → write `{file}.tmp` → rename over target (best-effort on Windows; if rename replace fails, document fallback write-in-place + verify reload).
 - After write: reload file and compare critical fields (part_type, conditions size/ids) similar to `SavePartNetYaml` discipline where practical.
@@ -402,7 +402,7 @@ Prefer reusing `OperatingCondition`, `NormalizeOperatingCondition`, `AllocateCon
 
 | Option | Summary | Decision |
 |--------|---------|----------|
-| A. `dataRoot/chips/` file library + board merge | YAML per `part_type`; board override whole-set | **Accepted** |
+| A. `boardRoot/chips/` file library + board merge | YAML per `part_type`; board override whole-set | **Accepted** (relocated from dataRoot) |
 | B. SQLite chips table | Stronger query; extra schema | Rejected for MVP footprint |
 | C. Chip API only, no board merge | Thinnest; fails auto-surface | Rejected |
 

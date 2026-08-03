@@ -97,8 +97,9 @@ filesystem::path overlaySqlitePath(const filesystem::path &boardPath) {
 }
 
 BoardRegistry::BoardRegistry(ServerConfig cfg)
-	: cfg_(std::move(cfg)), chips_(cfg_.dataRoot / "chips") {
-	libraryDir_ = normalizeAbs(cfg_.boardRoot);
+	: cfg_(std::move(cfg)), libraryDir_(normalizeAbs(cfg_.boardRoot)),
+	  chips_(libraryDir_ / "chips") {
+	// Chip library lives next to the board library: boardRoot/chips (not dataRoot).
 	cfg_.boardRoot = libraryDir_;
 }
 
@@ -232,6 +233,13 @@ void BoardRegistry::scanDiskLocked() {
 			break;
 		}
 		std::error_code fec;
+		if (it->is_directory(fec)) {
+			// Chip library YAML lives under boardRoot/chips; never treat as boards.
+			if (it->path().filename() == "chips") {
+				it.disable_recursion_pending();
+			}
+			continue;
+		}
 		if (!it->is_regular_file(fec)) {
 			continue;
 		}
