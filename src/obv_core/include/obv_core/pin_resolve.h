@@ -7,6 +7,8 @@
 
 namespace obv {
 
+struct ChipRecord;
+
 // Prefer name, else number, else UniqueId() - matches web pinOverlayKey:
 //   pin.name || pin.number || pin.id
 // For domain Pin without export id: name || number || UniqueId()
@@ -71,14 +73,15 @@ std::string ExportPinResolveJson(const std::string &boardId,
                                  const PinResolveResult &r);
 
 // JSON string for GET part summary (board geometry + partInfo overlay).
-// chipConditionsOrNull: optional chip-library layer for condition merge.
-// When nullptr, merge uses board layer only (source board|none).
+// chipOrNull: optional chip-library record for condition merge + pin resolve.
+// When nullptr, merge uses board layer only (source board|none); chipPins=[] and
+// all resolved labels matched:"none".
+// Returns empty when part not found.
 std::string ExportPartSummaryJson(const Board &board, const Annotations &ann,
                                   const std::string &boardId,
                                   const std::string &sourceName,
                                   const std::string &part,
-                                  const std::vector<OperatingCondition> *chipConditionsOrNull = nullptr);
-// Returns empty when part not found
+                                  const ChipRecord *chipOrNull = nullptr);
 
 // Part existence
 const Component *FindComponent(const Board &board, const std::string &part);

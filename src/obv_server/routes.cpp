@@ -864,32 +864,99 @@ const char *conditionSourceString(obv::ConditionSource src) {
 	}
 }
 
+const char *chipPinMatchString(obv::ChipPinMatch m);
+std::string chipPinsArrayJson(const std::vector<obv::ChipPin> &pins);
+
+std::string resolvedLabelJson(const std::string &label, const obv::ChipRecord *chipOrNull) {
+	obv::ChipRecord empty;
+	const obv::ChipRecord &chip = chipOrNull ? *chipOrNull : empty;
+	const auto hit = obv::ResolveChipPin(chip, label);
+	std::ostringstream os;
+	os << "{\"label\":\"" << jsonEscape(label) << "\",\"matched\":\""
+	   << chipPinMatchString(hit.matched) << "\",\"id\":\""
+	   << jsonEscape(hit.pin ? hit.pin->id : std::string{}) << "\",\"name\":\""
+	   << jsonEscape(hit.pin ? hit.pin->name : std::string{}) << "\"}";
+	return os.str();
+}
+
+std::string resolvedLabelArrayJson(const std::vector<std::string> &labels,
+								   const obv::ChipRecord *chipOrNull) {
+	std::ostringstream os;
+	os << '[';
+	for (size_t i = 0; i < labels.size(); ++i) {
+		if (i) {
+			os << ',';
+		}
+		os << resolvedLabelJson(labels[i], chipOrNull);
+	}
+	os << ']';
+	return os.str();
+}
+
+std::string resolvedConditionFieldsJson(const OperatingCondition &oc,
+										const obv::ChipRecord *chipOrNull) {
+	std::ostringstream os;
+	os << "{\"inputs\":" << resolvedLabelArrayJson(oc.inputs, chipOrNull)
+	   << ",\"outputs\":" << resolvedLabelArrayJson(oc.outputs, chipOrNull)
+	   << ",\"enables\":" << resolvedLabelArrayJson(oc.enables, chipOrNull) << '}';
+	return os.str();
+}
+
+std::string resolvedConditionsMapJson(const std::vector<OperatingCondition> &ocs,
+									  const obv::ChipRecord *chipOrNull) {
+	std::ostringstream os;
+	os << '{';
+	for (size_t i = 0; i < ocs.size(); ++i) {
+		if (i) {
+			os << ',';
+		}
+		os << '"' << jsonEscape(ocs[i].id) << "\":"
+		   << resolvedConditionFieldsJson(ocs[i], chipOrNull);
+	}
+	os << '}';
+	return os.str();
+}
+
 std::string operatingConditionsMergedListJson(const std::string &boardId, const std::string &part,
 											  const std::string &partType,
-											  const obv::MergedConditions &merged) {
+											  const obv::MergedConditions &merged,
+											  const obv::ChipRecord *chipOrNull) {
 	std::ostringstream os;
 	os << "{\"boardId\":\"" << jsonEscape(boardId) << "\",\"part\":\"" << jsonEscape(part)
 	   << "\",\"part_type\":\"" << jsonEscape(partType) << "\",\"source\":\""
 	   << conditionSourceString(merged.source) << "\",\"operating_conditions\":"
 	   << operatingConditionsArrayJson(merged.effective) << ",\"board\":"
 	   << operatingConditionsArrayJson(merged.board) << ",\"chip\":"
-	   << operatingConditionsArrayJson(merged.chip) << '}';
+	   << operatingConditionsArrayJson(merged.chip) << ",\"chipPins\":"
+	   << chipPinsArrayJson(chipOrNull ? chipOrNull->pins : std::vector<obv::ChipPin>{})
+	   << ",\"resolved\":" << resolvedConditionsMapJson(merged.effective, chipOrNull) << '}';
 	return os.str();
+}
+
+// Load full chip record for part_type. Missing chip → empty out, true.
+// Real store error → false (caller maps 500 CHIP_STORE_FAILED).
+bool loadChipRecord(BoardRegistry &registry, const std::string &partType, obv::ChipRecord &out) {
+	out = obv::ChipRecord{};
+	if (partType.empty()) {
+		return true;
+	}
+	std::string code, msg;
+	if (!registry.chips().Get(partType, out, code, msg)) {
+		if (code == "CHIP_NOT_FOUND") {
+			out = obv::ChipRecord{};
+			return true;
+		}
+		return false;
+	}
+	return true;
 }
 
 bool loadChipConditions(BoardRegistry &registry, const std::string &partType,
 						std::vector<OperatingCondition> &out) {
 	out.clear();
-	if (partType.empty()) {
-		return true;
-	}
 	obv::ChipRecord rec;
-	std::string code, msg;
-	if (!registry.chips().Get(partType, rec, code, msg)) {
-		if (code == "CHIP_NOT_FOUND") {
-			return true; // empty chip layer
-		}
-		return false; // real error — caller maps to 500 CHIP_STORE_FAILED
+	if (!loadChipRecord(registry, partType, rec)) {
+		return false;
 	}
 	out = std::move(rec.operating_conditions);
 	return true;
@@ -2672,14 +2739,14 @@ svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
 					ann.Close();
 					return;
 				}
-				std::vector<OperatingCondition> chipOcs;
+				obv::ChipRecord chipRec;
 				{
 					std::string partType;
 					const auto it = ann.partInfos.find(part);
 					if (it != ann.partInfos.end()) {
 						partType = it->second.part_type;
 					}
-					if (!loadChipConditions(registry, partType, chipOcs)) {
+					if (!loadChipRecord(registry, partType, chipRec)) {
 						setError(res, 500, "CHIP_STORE_FAILED", "failed to load chip conditions");
 						ann.Close();
 						return;
@@ -2687,7 +2754,7 @@ svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
 				}
 				const std::string js = obv::ExportPartSummaryJson(
 					*snap->board, ann, boardId, publicSourceName(registry, boardId), part,
-					&chipOcs);
+					&chipRec);
 				ann.Close();
 				if (js.empty()) {
 					setError(res, 404, "PART_NOT_FOUND", "part not found");
@@ -2713,16 +2780,16 @@ svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
 				withPartOverlayRead(registry, boardId, part, res,
 									[&](const Annotations &, const PartInfo *pi) {
 										const std::string partType = pi ? pi->part_type : std::string{};
-										std::vector<OperatingCondition> chipOcs;
-										if (!loadChipConditions(registry, partType, chipOcs)) {
+										obv::ChipRecord chipRec;
+										if (!loadChipRecord(registry, partType, chipRec)) {
 											setError(res, 500, "CHIP_STORE_FAILED",
 													 "failed to load chip conditions");
 											return;
 										}
 										const std::vector<OperatingCondition> *boardOcs =
 											pi ? &pi->operating_conditions : nullptr;
-										const auto merged =
-											obv::MergeOperatingConditions(boardOcs, &chipOcs);
+										const auto merged = obv::MergeOperatingConditions(
+											boardOcs, &chipRec.operating_conditions);
 										const OperatingCondition *found = nullptr;
 										for (const auto &oc : merged.effective) {
 											if (oc.id == condId) {
@@ -2735,8 +2802,15 @@ svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
 													 "operating condition not found");
 											return;
 										}
-										res.set_content(operatingConditionObjectJson(*found),
-														"application/json");
+										// Condition object + resolved label annotations.
+										std::string body = operatingConditionObjectJson(*found);
+										if (!body.empty() && body.back() == '}') {
+											body.pop_back();
+										}
+										std::ostringstream os;
+										os << body << ",\"resolved\":"
+										   << resolvedConditionFieldsJson(*found, &chipRec) << '}';
+										res.set_content(os.str(), "application/json");
 									});
 			});
 
@@ -2901,19 +2975,19 @@ svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
 				withPartOverlayRead(registry, boardId, part, res,
 									[&](const Annotations &, const PartInfo *pi) {
 										const std::string partType = pi ? pi->part_type : std::string{};
-										std::vector<OperatingCondition> chipOcs;
-										if (!loadChipConditions(registry, partType, chipOcs)) {
+										obv::ChipRecord chipRec;
+										if (!loadChipRecord(registry, partType, chipRec)) {
 											setError(res, 500, "CHIP_STORE_FAILED",
 													 "failed to load chip conditions");
 											return;
 										}
 										const std::vector<OperatingCondition> *boardOcs =
 											pi ? &pi->operating_conditions : nullptr;
-										const auto merged =
-											obv::MergeOperatingConditions(boardOcs, &chipOcs);
+										const auto merged = obv::MergeOperatingConditions(
+											boardOcs, &chipRec.operating_conditions);
 										res.set_content(
 											operatingConditionsMergedListJson(boardId, part, partType,
-																			  merged),
+																			  merged, &chipRec),
 											"application/json");
 									});
 			});
@@ -3003,16 +3077,17 @@ svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
 					 }
 				 }
 
-				 std::vector<OperatingCondition> chipOcs;
-				 if (!loadChipConditions(registry, partType, chipOcs)) {
+				 obv::ChipRecord chipRec;
+				 if (!loadChipRecord(registry, partType, chipRec)) {
 					 setError(res, 500, "CHIP_STORE_FAILED", "failed to load chip conditions");
 					 ann.Close();
 					 return;
 				 }
 				 const auto merged =
-					 obv::MergeOperatingConditions(&pi.operating_conditions, &chipOcs);
+					 obv::MergeOperatingConditions(&pi.operating_conditions,
+												   &chipRec.operating_conditions);
 				 const std::string js =
-					 operatingConditionsMergedListJson(boardId, part, partType, merged);
+					 operatingConditionsMergedListJson(boardId, part, partType, merged, &chipRec);
 				 ann.Close();
 				 res.set_content(js, "application/json");
 			 });

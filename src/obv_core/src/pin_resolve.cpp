@@ -635,7 +635,7 @@ std::string ExportPartSummaryJson(const Board &board, const Annotations &ann,
                                   const std::string &boardId,
                                   const std::string &sourceName,
                                   const std::string &part,
-                                  const std::vector<OperatingCondition> *chipConditionsOrNull) {
+                                  const ChipRecord *chipOrNull) {
 	const Component *comp = FindComponent(board, part);
 	if (!comp) return {};
 	const Component &c = *comp;
@@ -785,8 +785,9 @@ std::string ExportPartSummaryJson(const Board &board, const Annotations &ann,
 	}
 	const std::vector<OperatingCondition> *boardOcs =
 		pi ? &pi->operating_conditions : nullptr;
-	const MergedConditions merged =
-		MergeOperatingConditions(boardOcs, chipConditionsOrNull);
+	const std::vector<OperatingCondition> *chipOcs =
+		chipOrNull ? &chipOrNull->operating_conditions : nullptr;
+	const MergedConditions merged = MergeOperatingConditions(boardOcs, chipOcs);
 
 	auto appendOcArray = [&](const std::vector<OperatingCondition> &ocs) {
 		os << '[';
@@ -825,6 +826,85 @@ std::string ExportPartSummaryJson(const Board &board, const Annotations &ann,
 		os << ']';
 	};
 
+	auto matchStr = [](ChipPinMatch m) -> const char * {
+		switch (m) {
+			case ChipPinMatch::Id: return "id";
+			case ChipPinMatch::Name: return "name";
+			case ChipPinMatch::Alias: return "alias";
+			case ChipPinMatch::None:
+			default: return "none";
+		}
+	};
+
+	// Temporary record when no chip — ResolveChipPin needs a ChipRecord.
+	ChipRecord emptyChip;
+	const ChipRecord &chipForResolve = chipOrNull ? *chipOrNull : emptyChip;
+
+	auto appendResolvedLabel = [&](const std::string &label) {
+		const auto hit = ResolveChipPin(chipForResolve, label);
+		os << "{\"label\":";
+		appendEscaped(os, label);
+		os << ",\"matched\":";
+		appendEscaped(os, matchStr(hit.matched));
+		os << ",\"id\":";
+		appendEscaped(os, hit.pin ? hit.pin->id : std::string{});
+		os << ",\"name\":";
+		appendEscaped(os, hit.pin ? hit.pin->name : std::string{});
+		os << '}';
+	};
+
+	auto appendResolvedLabelArray = [&](const std::vector<std::string> &labels) {
+		os << '[';
+		for (size_t i = 0; i < labels.size(); ++i) {
+			if (i) os << ',';
+			appendResolvedLabel(labels[i]);
+		}
+		os << ']';
+	};
+
+	auto appendChipPinsArray = [&]() {
+		os << '[';
+		if (chipOrNull) {
+			for (size_t i = 0; i < chipOrNull->pins.size(); ++i) {
+				if (i) os << ',';
+				const auto &pin = chipOrNull->pins[i];
+				os << "{\"id\":";
+				appendEscaped(os, pin.id);
+				os << ",\"name\":";
+				appendEscaped(os, pin.name);
+				os << ",\"aliases\":[";
+				for (size_t j = 0; j < pin.aliases.size(); ++j) {
+					if (j) os << ',';
+					appendEscaped(os, pin.aliases[j]);
+				}
+				os << "],\"dir\":";
+				appendEscaped(os, pin.dir);
+				os << ",\"note\":";
+				appendEscaped(os, pin.note);
+				os << '}';
+			}
+		}
+		os << ']';
+	};
+
+	auto appendResolvedMap = [&](const std::vector<OperatingCondition> &ocs) {
+		os << '{';
+		for (size_t i = 0; i < ocs.size(); ++i) {
+			if (i) os << ',';
+			const auto &oc = ocs[i];
+			appendEscaped(os, oc.id);
+			os << ":{";
+			os << "\"inputs\":";
+			appendResolvedLabelArray(oc.inputs);
+			os << ",\"outputs\":";
+			appendResolvedLabelArray(oc.outputs);
+			os << ",\"enables\":";
+			appendResolvedLabelArray(oc.enables);
+			os << '}';
+		}
+		os << '}';
+	};
+
 	const char *sourceStr = "none";
 	switch (merged.source) {
 		case ConditionSource::Board: sourceStr = "board"; break;
@@ -840,6 +920,9 @@ std::string ExportPartSummaryJson(const Board &board, const Annotations &ann,
 	appendOcArray(merged.effective);
 	os << '}';
 
+	os << ",\"chipPins\":";
+	appendChipPinsArray();
+
 	os << ",\"conditions\":{";
 	os << "\"source\":";
 	appendEscaped(os, sourceStr);
@@ -849,6 +932,8 @@ std::string ExportPartSummaryJson(const Board &board, const Annotations &ann,
 	appendOcArray(merged.board);
 	os << ",\"chip\":";
 	appendOcArray(merged.chip);
+	os << ",\"resolved\":";
+	appendResolvedMap(merged.effective);
 	os << "}}";
 	return os.str();
 }
