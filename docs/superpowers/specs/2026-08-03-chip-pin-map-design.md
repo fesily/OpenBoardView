@@ -1,7 +1,7 @@
 # Chip Library Pin Map (Datasheet Ball ↔ Signal) — Design Spec
 
 **Date:** 2026-08-03  
-**Status:** Approved — implementation in progress
+**Status:** Implemented
 **Parent:** `2026-08-01-chip-library-operating-conditions-design.md`  
 **Goal:** Extend the chip library (`boardRoot/chips/<part_type>.yaml`) with a datasheet-style **pin map**: bidirectional lookup between package pin/ball id and signal name (plus aliases). Surface the table on chip APIs and board part reads; resolve operating-condition labels for agents/UI. Do **not** auto-write board overlay `show_name`.
 
