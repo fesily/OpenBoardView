@@ -256,7 +256,7 @@ export default function InfoPane({
   const [conditionsTick, setConditionsTick] = useState(0);
   /** Two-level accordion: only open panels expand body. */
   const [openPanels, setOpenPanels] = useState<Set<PanelId>>(
-    () => new Set<PanelId>(['pin', 'pinOverlay']),
+    () => new Set<PanelId>(),
   );
   const togglePanel = useCallback((id: PanelId) => {
     setOpenPanels((prev) => {
@@ -686,114 +686,11 @@ export default function InfoPane({
         </p>
       ) : (
         <div className="info-sections">
-          <CollapsibleSection
-            id="pin"
-            title="Pin"
-            summary={pinSummary}
-            open={openPanels.has('pin')}
-            onToggle={togglePanel}
-          >
-            <dl className="info-dl">
-              <dt>id</dt>
-              <dd className="mono">{selectedPin.id}</dd>
-              <dt>part</dt>
-              <dd>{selectedPin.component ?? '—'}</dd>
-              <dt>number</dt>
-              <dd>{selectedPin.number || '—'}</dd>
-              <dt>name</dt>
-              <dd>{selectedPin.name || '—'}</dd>
-              <dt>show_name</dt>
-              <dd>
-                {pinDisplayLabel(selectedPin, pinInfo.show_name) || '—'}
-              </dd>
-              <dt>net</dt>
-              <dd>
-                {net
-                  ? `${netDisplayName(net, netInfo?.showname)}${
-                      netDisplayName(net, netInfo?.showname) !== net.name
-                        ? ` ← ${net.name}`
-                        : ''
-                    } (#${net.id}${net.isGround ? ', GND' : ''})`
-                  : selectedPin.netId != null
-                    ? `id ${selectedPin.netId}`
-                    : '—'}
-              </dd>
-              <dt>pos</dt>
-              <dd className="mono">
-                ({selectedPin.pos.x.toFixed(1)}, {selectedPin.pos.y.toFixed(1)}) · {selectedPin.side}
-              </dd>
-            </dl>
-          </CollapsibleSection>
-
-          {part && (
-            <CollapsibleSection
-              id="part"
-              title="Part"
-              summary={partSummary}
-              open={openPanels.has('part')}
-              onToggle={togglePanel}
-            >
-              <dl className="info-dl">
-                <dt>name</dt>
-                <dd>{part.name}</dd>
-                <dt>type</dt>
-                <dd>{part.type || '—'}</dd>
-                <dt>mount</dt>
-                <dd>{part.mount || '—'}</dd>
-                <dt>side</dt>
-                <dd>{part.side}</dd>
-                <dt>mfg</dt>
-                <dd>{part.mfgcode || '—'}</dd>
-              </dl>
-              <h5 className="info-subhead">Part overlay</h5>
-              <label className="info-field">
-                <span>part_type</span>
-                <input
-                  type="text"
-                  value={partType}
-                  onChange={(e) => setPartType(e.target.value)}
-                  disabled={savingPart}
-                />
-              </label>
-              <label className="info-field">
-                <span>angle</span>
-                <select
-                  value={partAngle}
-                  onChange={(e) => setPartAngle(e.target.value)}
-                  disabled={savingPart}
-                >
-                  <option value="">(none)</option>
-                  {PART_ANGLE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="row">
-                <button
-                  type="button"
-                  onClick={() => void savePartOverlay()}
-                  disabled={savingPart || !partName}
-                >
-                  {savingPart ? 'Saving…' : 'Save part overlay'}
-                </button>
-              </div>
-              {partMsg && (
-                <p
-                  className={
-                    partMsg.startsWith('Save failed') || partMsg.startsWith('Angle')
-                      ? 'err'
-                      : 'msg'
-                  }
-                >
-                  {partMsg}
-                </p>
-              )}
-            </CollapsibleSection>
-          )}
-
-          {partName && (
+          {conditions != null &&
+            (ocCount > 0 ||
+              conditions.board.length > 0 ||
+              conditions.chip.length > 0 ||
+              (conditions.operating_conditions?.length ?? 0) > 0) && (
             <CollapsibleSection
               id="conditions"
               title="Operating conditions"
@@ -948,6 +845,113 @@ export default function InfoPane({
                     on the conditions API.
                   </p>
                 </>
+              )}
+            </CollapsibleSection>
+          )}
+
+          <CollapsibleSection
+            id="pin"
+            title="Pin"
+            summary={pinSummary}
+            open={openPanels.has('pin')}
+            onToggle={togglePanel}
+          >
+            <dl className="info-dl">
+              <dt>id</dt>
+              <dd className="mono">{selectedPin.id}</dd>
+              <dt>part</dt>
+              <dd>{selectedPin.component ?? '—'}</dd>
+              <dt>number</dt>
+              <dd>{selectedPin.number || '—'}</dd>
+              <dt>name</dt>
+              <dd>{selectedPin.name || '—'}</dd>
+              <dt>show_name</dt>
+              <dd>
+                {pinDisplayLabel(selectedPin, pinInfo.show_name) || '—'}
+              </dd>
+              <dt>net</dt>
+              <dd>
+                {net
+                  ? `${netDisplayName(net, netInfo?.showname)}${
+                      netDisplayName(net, netInfo?.showname) !== net.name
+                        ? ` ← ${net.name}`
+                        : ''
+                    } (#${net.id}${net.isGround ? ', GND' : ''})`
+                  : selectedPin.netId != null
+                    ? `id ${selectedPin.netId}`
+                    : '—'}
+              </dd>
+              <dt>pos</dt>
+              <dd className="mono">
+                ({selectedPin.pos.x.toFixed(1)}, {selectedPin.pos.y.toFixed(1)}) · {selectedPin.side}
+              </dd>
+            </dl>
+          </CollapsibleSection>
+
+          {part && (
+            <CollapsibleSection
+              id="part"
+              title="Part"
+              summary={partSummary}
+              open={openPanels.has('part')}
+              onToggle={togglePanel}
+            >
+              <dl className="info-dl">
+                <dt>name</dt>
+                <dd>{part.name}</dd>
+                <dt>type</dt>
+                <dd>{part.type || '—'}</dd>
+                <dt>mount</dt>
+                <dd>{part.mount || '—'}</dd>
+                <dt>side</dt>
+                <dd>{part.side}</dd>
+                <dt>mfg</dt>
+                <dd>{part.mfgcode || '—'}</dd>
+              </dl>
+              <h5 className="info-subhead">Part overlay</h5>
+              <label className="info-field">
+                <span>part_type</span>
+                <input
+                  type="text"
+                  value={partType}
+                  onChange={(e) => setPartType(e.target.value)}
+                  disabled={savingPart}
+                />
+              </label>
+              <label className="info-field">
+                <span>angle</span>
+                <select
+                  value={partAngle}
+                  onChange={(e) => setPartAngle(e.target.value)}
+                  disabled={savingPart}
+                >
+                  <option value="">(none)</option>
+                  {PART_ANGLE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="row">
+                <button
+                  type="button"
+                  onClick={() => void savePartOverlay()}
+                  disabled={savingPart || !partName}
+                >
+                  {savingPart ? 'Saving…' : 'Save part overlay'}
+                </button>
+              </div>
+              {partMsg && (
+                <p
+                  className={
+                    partMsg.startsWith('Save failed') || partMsg.startsWith('Angle')
+                      ? 'err'
+                      : 'msg'
+                  }
+                >
+                  {partMsg}
+                </p>
               )}
             </CollapsibleSection>
           )}
