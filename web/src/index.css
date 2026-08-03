@@ -805,6 +805,29 @@ tr.row-selected td {
   margin-top: 0.65rem !important;
 }
 
+
+.oc-pane {
+  padding: 0;
+  overflow: hidden;
+}
+
+.oc-pane-head {
+  border-radius: 0;
+  background: #151a24;
+}
+
+.oc-pane-body {
+  padding: 0.5rem 0.65rem 0.65rem;
+  border-top: 1px solid #2a2f3a;
+  max-height: 40vh;
+  overflow: auto;
+}
+
+.oc-pane-part {
+  margin: 0 0 0.4rem;
+  font-size: 0.78rem;
+}
+
 .oc-section-head {
   align-items: center;
   gap: 0.5rem;

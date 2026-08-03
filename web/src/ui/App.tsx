@@ -17,6 +17,7 @@ import type {
   Pin,
 } from '../types/board';
 import InfoPane from './InfoPane';
+import OperatingConditionsPane from './OperatingConditionsPane';
 import SearchBox, { type SearchSelection } from './SearchBox';
 
 type HealthState =
@@ -405,6 +406,14 @@ export default function App() {
                     onSelectionChange={onSearchSelection}
                   />
                 </div>
+                <OperatingConditionsPane
+                  boardId={board.boardId}
+                  selectedPin={selectedPin}
+                  overlay={overlay}
+                  onReloadOverlays={() => {
+                    void loadOverlays(board.boardId);
+                  }}
+                />
                 <div className="right-section right-section-grow">
                   <InfoPane
                     boardId={board.boardId}
