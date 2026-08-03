@@ -653,7 +653,76 @@ tr.row-selected td {
 .info-sections {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 0.45rem;
+}
+
+.collapsible-section {
+  margin-top: 0;
+  border: 1px solid #2a2f3a;
+  border-radius: 8px;
+  background: #12161f;
+  overflow: hidden;
+}
+
+.collapsible-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.45rem 0.55rem;
+  border: none;
+  background: #171c27;
+  color: #e8eaed;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: left;
+  cursor: pointer;
+}
+
+.collapsible-head:hover {
+  background: #1c2230;
+}
+
+.collapsible-chevron {
+  flex: 0 0 auto;
+  width: 0.9rem;
+  color: #9aa0a6;
+  font-size: 0.75rem;
+}
+
+.collapsible-title {
+  flex: 0 1 auto;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #c5cad3;
+}
+
+.collapsible-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+  font-size: 0.75rem;
+  text-align: right;
+}
+
+.collapsible-body {
+  padding: 0.5rem 0.55rem 0.6rem;
+  border-top: 1px solid #2a2f3a;
+}
+
+.collapsible-body .info-subhead {
+  margin: 0.55rem 0 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #9aa0a6;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .info-section {

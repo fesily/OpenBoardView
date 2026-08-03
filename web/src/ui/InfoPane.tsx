@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   ApiError,
   deleteAnnotation,
@@ -128,6 +129,61 @@ function conditionTitle(oc: OperatingCondition, index: number): string {
   return `Group ${index + 1}`;
 }
 
+type PanelId =
+  | 'pin'
+  | 'part'
+  | 'conditions'
+  | 'net'
+  | 'pinOverlay'
+  | 'annotations';
+
+function CollapsibleSection({
+  id,
+  title,
+  summary,
+  open,
+  onToggle,
+  children,
+  className = '',
+  badge,
+}: {
+  id: PanelId;
+  title: string;
+  summary?: string;
+  open: boolean;
+  onToggle: (id: PanelId) => void;
+  children: ReactNode;
+  className?: string;
+  badge?: ReactNode;
+}) {
+  return (
+    <section className={`info-section collapsible-section ${className}`.trim()}>
+      <button
+        type="button"
+        className="collapsible-head"
+        aria-expanded={open}
+        aria-controls={`panel-${id}`}
+        onClick={() => onToggle(id)}
+      >
+        <span className="collapsible-chevron" aria-hidden>
+          {open ? '▾' : '▸'}
+        </span>
+        <span className="collapsible-title">{title}</span>
+        {badge}
+        {summary && !open ? (
+          <span className="collapsible-summary muted mono">{summary}</span>
+        ) : null}
+      </button>
+      {open ? (
+        <div className="collapsible-body" id={`panel-${id}`}>
+          {children}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+
 export default function InfoPane({
   boardId,
   board,
@@ -198,6 +254,19 @@ export default function InfoPane({
   const [clearBoardOnPromote, setClearBoardOnPromote] = useState(false);
   const [promoting, setPromoting] = useState(false);
   const [conditionsTick, setConditionsTick] = useState(0);
+  /** Two-level accordion: only open panels expand body. */
+  const [openPanels, setOpenPanels] = useState<Set<PanelId>>(
+    () => new Set<PanelId>(['pin', 'pinOverlay']),
+  );
+  const togglePanel = useCallback((id: PanelId) => {
+    setOpenPanels((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
 
 
   const measureTargets = useMemo((): Record<PinValueMode, Pin> | null => {
@@ -573,6 +642,30 @@ export default function InfoPane({
 
   const annotations = overlay?.annotations ?? [];
 
+  const pinSummary = selectedPin
+    ? `${selectedPin.component ?? '—'} · ${pinDisplayLabel(selectedPin, pinInfo.show_name) || selectedPin.id}`
+    : '';
+  const partSummary = part
+    ? `${part.name}${partType.trim() ? ` · ${partType.trim()}` : part.type ? ` · ${part.type}` : ''}`
+    : '';
+  const netSummary = net
+    ? netDisplayName(net, netInfo?.showname)
+    : '';
+  const ocCount = conditions
+    ? (conditions.effective?.length
+        ? conditions.effective.length
+        : conditions.operating_conditions?.length ?? 0)
+    : 0;
+  const conditionsSummary = conditions
+    ? `${SOURCE_BADGE[conditions.source]?.label ?? conditions.source} · ${ocCount}`
+    : conditionsLoading
+      ? 'loading…'
+      : '';
+  const pinOverlaySummary = selectedPin?.component
+    ? `${partName}/${pinKey}${pinEditMode === 'net_source' ? ' · net src' : ' · local'}`
+    : 'no part';
+  const annSummary = `${annotations.length}`;
+
   return (
     <div className="info-pane">
       <div className="info-pane-header row">
@@ -593,8 +686,13 @@ export default function InfoPane({
         </p>
       ) : (
         <div className="info-sections">
-          <section className="info-section">
-            <h4>Pin (board)</h4>
+          <CollapsibleSection
+            id="pin"
+            title="Pin"
+            summary={pinSummary}
+            open={openPanels.has('pin')}
+            onToggle={togglePanel}
+          >
             <dl className="info-dl">
               <dt>id</dt>
               <dd className="mono">{selectedPin.id}</dd>
@@ -625,11 +723,16 @@ export default function InfoPane({
                 ({selectedPin.pos.x.toFixed(1)}, {selectedPin.pos.y.toFixed(1)}) · {selectedPin.side}
               </dd>
             </dl>
-          </section>
+          </CollapsibleSection>
 
           {part && (
-            <section className="info-section">
-              <h4>Part (board)</h4>
+            <CollapsibleSection
+              id="part"
+              title="Part"
+              summary={partSummary}
+              open={openPanels.has('part')}
+              onToggle={togglePanel}
+            >
               <dl className="info-dl">
                 <dt>name</dt>
                 <dd>{part.name}</dd>
@@ -642,7 +745,7 @@ export default function InfoPane({
                 <dt>mfg</dt>
                 <dd>{part.mfgcode || '—'}</dd>
               </dl>
-              <h4 className="info-subhead">Part overlay</h4>
+              <h5 className="info-subhead">Part overlay</h5>
               <label className="info-field">
                 <span>part_type</span>
                 <input
@@ -687,22 +790,28 @@ export default function InfoPane({
                   {partMsg}
                 </p>
               )}
-            </section>
+            </CollapsibleSection>
           )}
 
           {partName && (
-            <section className="info-section oc-section">
-              <div className="row oc-section-head">
-                <h4>Operating conditions</h4>
-                {conditions && (
+            <CollapsibleSection
+              id="conditions"
+              title="Operating conditions"
+              summary={conditionsSummary}
+              open={openPanels.has('conditions')}
+              onToggle={togglePanel}
+              className="oc-section"
+              badge={
+                conditions ? (
                   <span
                     className={SOURCE_BADGE[conditions.source]?.className ?? SOURCE_BADGE.none.className}
                     title={`source=${conditions.source}`}
                   >
                     {SOURCE_BADGE[conditions.source]?.label ?? SOURCE_BADGE.none.label}
                   </span>
-                )}
-              </div>
+                ) : null
+              }
+            >
               {conditionsLoading && <p className="muted">Loading conditions…</p>}
               {conditionsError && <p className="err">{conditionsError}</p>}
               {!conditionsLoading && conditionsError && (
@@ -778,7 +887,7 @@ export default function InfoPane({
                   </p>
                   {!partType.trim() && (
                     <p className="muted">
-                      Set <span className="mono">part_type</span> above and save to bind shared
+                      Set <span className="mono">part_type</span> in Part and save to bind shared
                       chip-library conditions.
                     </p>
                   )}
@@ -840,13 +949,17 @@ export default function InfoPane({
                   </p>
                 </>
               )}
-            </section>
+            </CollapsibleSection>
           )}
 
-
           {net && (
-            <section className="info-section">
-              <h4>Net (board + overlay)</h4>
+            <CollapsibleSection
+              id="net"
+              title="Net"
+              summary={netSummary}
+              open={openPanels.has('net')}
+              onToggle={togglePanel}
+            >
               <dl className="info-dl">
                 <dt>name</dt>
                 <dd>{net.name}</dd>
@@ -857,7 +970,7 @@ export default function InfoPane({
                 <dt>ground</dt>
                 <dd>{net.isGround ? 'yes' : 'no'}</dd>
               </dl>
-              <h4 className="info-subhead">Net overlay</h4>
+              <h5 className="info-subhead">Net overlay</h5>
               <label className="info-field">
                 <span>showname</span>
                 <input
@@ -884,11 +997,16 @@ export default function InfoPane({
               {netMsg && (
                 <p className={netMsg.startsWith('Save failed') ? 'err' : 'msg'}>{netMsg}</p>
               )}
-            </section>
+            </CollapsibleSection>
           )}
 
-          <section className="info-section">
-            <h4>Pin overlay</h4>
+          <CollapsibleSection
+            id="pinOverlay"
+            title="Pin overlay"
+            summary={pinOverlaySummary}
+            open={openPanels.has('pinOverlay')}
+            onToggle={togglePanel}
+          >
             {!selectedPin.component ? (
               <p className="muted">Pin has no part; cannot store PartInfos entry.</p>
             ) : (
@@ -1011,12 +1129,18 @@ export default function InfoPane({
                 )}
               </>
             )}
-          </section>
+          </CollapsibleSection>
         </div>
       )}
 
-      <section className="info-section annotations-section">
-        <h4>Annotations ({annotations.length})</h4>
+      <CollapsibleSection
+        id="annotations"
+        title="Annotations"
+        summary={annSummary}
+        open={openPanels.has('annotations')}
+        onToggle={togglePanel}
+        className="annotations-section"
+      >
         {annotations.length === 0 ? (
           <p className="muted">None yet — right-click canvas to create.</p>
         ) : (
@@ -1060,7 +1184,7 @@ export default function InfoPane({
         {annMsg && (
           <p className={annMsg.includes('failed') ? 'err' : 'msg'}>{annMsg}</p>
         )}
-      </section>
+      </CollapsibleSection>
     </div>
   );
 }
