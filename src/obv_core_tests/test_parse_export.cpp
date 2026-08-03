@@ -452,7 +452,7 @@ static void test_chip_yaml_roundtrip() {
 	rec.operating_conditions.push_back(oc);
 
 	std::string code, msg;
-	assert(store.Put(rec, true, code, msg));
+	assert(store.Put(rec, true, true, code, msg));
 
 	obv::ChipRecord got;
 	assert(store.Get("MP3398E", got, code, msg));
@@ -486,6 +486,93 @@ static void test_allocate_from_vector() {
 	std::cout << "allocate vector ok\n";
 }
 
+static void test_chip_pin_normalize_and_resolve() {
+	obv::ChipPin p;
+	p.id = "  B3  ";
+	p.name = " VBAT ";
+	p.aliases = {" BAT ", "", "VBAT"}; // VBAT dup with name → Validate fails later; normalize keeps
+	p.dir = "power";
+	std::string err;
+	assert(obv::NormalizeChipPin(p, err));
+	assert(p.id == "B3" && p.name == "VBAT");
+	// aliases: empty dropped; "BAT" kept; "VBAT" still present until Validate
+	p.aliases = {"BAT"};
+	assert(obv::NormalizeChipPin(p, err));
+
+	obv::ChipPin bad; bad.id = "X"; bad.dir = "nope";
+	assert(!obv::NormalizeChipPin(bad, err));
+
+	std::vector<obv::ChipPin> table;
+	obv::ChipPin a; a.id = "B3"; a.name = "VBAT"; a.aliases = {"BAT"}; a.dir = "power";
+	assert(obv::NormalizeChipPin(a, err));
+	table.push_back(a);
+	obv::ChipPin b; b.id = "H4"; b.name = "UART_TXD"; b.dir = "out";
+	assert(obv::NormalizeChipPin(b, err));
+	table.push_back(b);
+	assert(obv::ValidateChipPinTable(table, err));
+
+	obv::ChipPin c; c.id = "Z1"; c.name = "B3"; // name conflicts with a.id
+	assert(obv::NormalizeChipPin(c, err));
+	table.push_back(c);
+	assert(!obv::ValidateChipPinTable(table, err));
+	table.pop_back();
+
+	obv::ChipRecord rec;
+	rec.pins = table;
+	auto r1 = obv::ResolveChipPin(rec, "B3");
+	assert(r1.matched == obv::ChipPinMatch::Id && r1.pin && r1.pin->name == "VBAT");
+	auto r2 = obv::ResolveChipPin(rec, "VBAT");
+	assert(r2.matched == obv::ChipPinMatch::Name && r2.pin->id == "B3");
+	auto r3 = obv::ResolveChipPin(rec, "BAT");
+	assert(r3.matched == obv::ChipPinMatch::Alias);
+	auto r4 = obv::ResolveChipPin(rec, "nope");
+	assert(r4.matched == obv::ChipPinMatch::None && !r4.pin);
+	std::cout << "chip pin resolve ok\n";
+}
+
+static void test_chip_pins_yaml_roundtrip() {
+	const auto dir = filesystem::temp_directory_path() / "obv_chip_pins_test";
+	std::error_code ec;
+	filesystem::remove_all(dir, ec);
+	filesystem::create_directories(dir, ec);
+	obv::ChipStore store(dir);
+	obv::ChipRecord rec;
+	rec.part_type = "MP3398E";
+	rec.note = "n";
+	obv::ChipPin pin; pin.id = "B3"; pin.name = "VBAT"; pin.aliases = {"BAT"}; pin.dir = "power";
+	rec.pins.push_back(pin);
+	OperatingCondition oc; oc.id = "oc_0001"; oc.inputs = {"B3"};
+	rec.operating_conditions.push_back(oc);
+	std::string code, msg;
+	assert(store.Put(rec, true, true, code, msg));
+
+	obv::ChipRecord got;
+	assert(store.Get("MP3398E", got, code, msg));
+	assert(got.pins.size() == 1 && got.pins[0].name == "VBAT");
+	assert(got.operating_conditions.size() == 1);
+
+	// preserve pins when replacePins false
+	got.note = "n2";
+	got.pins.clear();
+	assert(store.Put(got, false, false, code, msg));
+	obv::ChipRecord got2;
+	assert(store.Get("MP3398E", got2, code, msg));
+	assert(got2.note == "n2");
+	assert(got2.pins.size() == 1);
+	assert(got2.operating_conditions.size() == 1);
+
+	// clear pins
+	got2.pins.clear();
+	assert(store.Put(got2, false, true, code, msg));
+	obv::ChipRecord got3;
+	assert(store.Get("MP3398E", got3, code, msg));
+	assert(got3.pins.empty());
+	assert(got3.operating_conditions.size() == 1);
+
+	filesystem::remove_all(dir, ec);
+	std::cout << "chip pins yaml ok\n";
+}
+
 int main() {
 	test_unrecognized_fails();
 	test_parse_sample_ok_if_env();
@@ -502,6 +589,8 @@ int main() {
 	test_merge_conditions();
 	test_chip_yaml_roundtrip();
 	test_allocate_from_vector();
+	test_chip_pin_normalize_and_resolve();
+	test_chip_pins_yaml_roundtrip();
 	run_part_render_tests();
 	run_pin_grid_tests();
 	std::cout << "ok\n";

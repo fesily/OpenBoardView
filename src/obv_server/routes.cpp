@@ -2549,7 +2549,7 @@ svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
 						return;
 					}
 					rec.operating_conditions[idx] = body;
-					if (!registry.chips().Put(rec, true, code, msg)) {
+					if (!registry.chips().Put(rec, true, false, code, msg)) {
 						mapChipStoreError(res, code, msg);
 						return;
 					}
@@ -2616,7 +2616,7 @@ svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
 						   return;
 					   }
 					   rec.operating_conditions.erase(it);
-					   if (!registry.chips().Put(rec, true, code, msg)) {
+					   if (!registry.chips().Put(rec, true, false, code, msg)) {
 						   mapChipStoreError(res, code, msg);
 						   return;
 					   }
@@ -2827,7 +2827,7 @@ svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
 						 return;
 					 }
 					 rec.operating_conditions.push_back(body);
-					 if (!registry.chips().Put(rec, true, code, msg)) {
+					 if (!registry.chips().Put(rec, true, false, code, msg)) {
 						 mapChipStoreError(res, code, msg);
 						 return;
 					 }
@@ -3358,7 +3358,7 @@ svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
 					return;
 				}
 				rec.operating_conditions[idx] = body;
-				if (!registry.chips().Put(rec, true, code, msg)) {
+				if (!registry.chips().Put(rec, true, false, code, msg)) {
 					mapChipStoreError(res, code, msg);
 					return;
 				}
@@ -3391,7 +3391,7 @@ svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
 					   return;
 				   }
 				   rec.operating_conditions.erase(it);
-				   if (!registry.chips().Put(rec, true, code, msg)) {
+				   if (!registry.chips().Put(rec, true, false, code, msg)) {
 					   mapChipStoreError(res, code, msg);
 					   return;
 				   }
@@ -3463,7 +3463,7 @@ svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
 					 return;
 				 }
 				 rec.operating_conditions.push_back(body);
-				 if (!registry.chips().Put(rec, true, code, msg)) {
+				 if (!registry.chips().Put(rec, true, false, code, msg)) {
 					 mapChipStoreError(res, code, msg);
 					 return;
 				 }
@@ -3579,7 +3579,7 @@ svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
 					rec.operating_conditions = std::move(ocs);
 				}
 				// replaceConditions=true when body supplied conditions; else preserve existing.
-				if (!registry.chips().Put(rec, hasConditions, code, msg)) {
+				if (!registry.chips().Put(rec, hasConditions, false, code, msg)) {
 					mapChipStoreError(res, code, msg);
 					return;
 				}

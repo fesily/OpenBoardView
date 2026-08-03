@@ -61,7 +61,25 @@ std::string emitChipYaml(const ChipRecord &rec) {
 	appendEscapedYaml(os, rec.part_type);
 	os << "\nnote: ";
 	appendEscapedYaml(os, rec.note);
-	os << "\noperating_conditions:\n";
+	os << "\npins:\n";
+	if (rec.pins.empty()) {
+		os << "  []\n";
+	} else {
+		for (const auto &pin : rec.pins) {
+			os << "  - id: ";
+			appendEscapedYaml(os, pin.id);
+			os << "\n    name: ";
+			appendEscapedYaml(os, pin.name);
+			os << "\n    aliases: ";
+			appendStringArray(os, pin.aliases);
+			os << "\n    dir: ";
+			appendEscapedYaml(os, pin.dir);
+			os << "\n    note: ";
+			appendEscapedYaml(os, pin.note);
+			os << "\n";
+		}
+	}
+	os << "operating_conditions:\n";
 	if (rec.operating_conditions.empty()) {
 		os << "  []\n";
 		return os.str();
@@ -206,6 +224,124 @@ struct YamlParser {
 				if (!parseString(out.part_type)) return false;
 			} else if (key == "note") {
 				if (!parseString(out.note)) return false;
+			} else if (key == "pins") {
+				skipWs(false);
+				if (consume('[')) {
+					skipWs();
+					if (!consume(']')) {
+						return false;
+					}
+				} else {
+					for (;;) {
+						while (i < src.size() && (src[i] == ' ' || src[i] == '\t' || src[i] == '\r')) ++i;
+						if (i < src.size() && src[i] == '\n') {
+							++i;
+							continue;
+						}
+						if (i >= src.size()) break;
+						if (src[i] == '#') {
+							while (i < src.size() && src[i] != '\n') ++i;
+							continue;
+						}
+						if (src[i] == '[') {
+							skipWs(false);
+							if (!consume('[')) return false;
+							skipWs();
+							if (!consume(']')) return false;
+							break;
+						}
+						size_t indent = 0;
+						while (i + indent < src.size() &&
+						       (src[i + indent] == ' ' || src[i + indent] == '\t'))
+							++indent;
+						const size_t content = i + indent;
+						if (content >= src.size()) break;
+						if (src[content] != '-') {
+							i = content;
+							break;
+						}
+						i = content + 1;
+						skipWs(false);
+						ChipPin pin;
+						if (i < src.size() && src[i] != '\n') {
+							const std::string fk = readIdent();
+							if (!fk.empty()) {
+								skipWs(false);
+								if (!consume(':')) return false;
+								skipWs(false);
+								if (fk == "id") {
+									if (!parseString(pin.id)) return false;
+								} else if (fk == "name") {
+									if (!parseString(pin.name)) return false;
+								} else if (fk == "note") {
+									if (!parseString(pin.note)) return false;
+								} else if (fk == "dir") {
+									if (!parseString(pin.dir)) return false;
+								} else if (fk == "aliases") {
+									if (!parseStringArray(pin.aliases)) return false;
+								} else {
+									std::string dump;
+									if (!parseString(dump)) return false;
+								}
+								while (i < src.size() && src[i] != '\n') ++i;
+							}
+						}
+						for (;;) {
+							if (i < src.size() && src[i] == '\n') ++i;
+							size_t line = i;
+							size_t ind = 0;
+							while (line + ind < src.size() &&
+							       (src[line + ind] == ' ' || src[line + ind] == '\t'))
+								++ind;
+							const size_t cpos = line + ind;
+							if (cpos >= src.size()) {
+								i = cpos;
+								break;
+							}
+							if (src[cpos] == '\n') {
+								i = cpos;
+								continue;
+							}
+							if (src[cpos] == '#') {
+								i = cpos;
+								while (i < src.size() && src[i] != '\n') ++i;
+								continue;
+							}
+							if (src[cpos] == '-' || ind == 0) {
+								i = line;
+								break;
+							}
+							i = cpos;
+							const std::string fk = readIdent();
+							if (fk.empty()) return false;
+							skipWs(false);
+							if (!consume(':')) return false;
+							skipWs(false);
+							if (fk == "id") {
+								if (!parseString(pin.id)) return false;
+							} else if (fk == "name") {
+								if (!parseString(pin.name)) return false;
+							} else if (fk == "note") {
+								if (!parseString(pin.note)) return false;
+							} else if (fk == "dir") {
+								if (!parseString(pin.dir)) return false;
+							} else if (fk == "aliases") {
+								if (!parseStringArray(pin.aliases)) return false;
+							} else {
+								if (peek('[')) {
+									std::vector<std::string> dump;
+									if (!parseStringArray(dump)) return false;
+								} else {
+									std::string dump;
+									if (!parseString(dump)) return false;
+								}
+							}
+							while (i < src.size() && src[i] != '\n') ++i;
+						}
+						out.pins.push_back(std::move(pin));
+					}
+					continue;
+				}
 			} else if (key == "operating_conditions") {
 				skipWs(false);
 				if (consume('[')) {
@@ -423,6 +559,128 @@ bool readFileText(const filesystem::path &path, std::string &out, std::string &e
 
 } // namespace
 
+namespace {
+
+bool isValidChipPinDir(const std::string &dir) {
+	return dir.empty() || dir == "in" || dir == "out" || dir == "io" || dir == "power" ||
+	       dir == "ground" || dir == "nc" || dir == "analog" || dir == "other";
+}
+
+} // namespace
+
+bool NormalizeChipPin(ChipPin &pin, std::string &err) {
+	err.clear();
+	pin.id = trimCopy(pin.id);
+	pin.name = trimCopy(pin.name);
+	pin.dir = trimCopy(pin.dir);
+	pin.note = trimCopy(pin.note);
+
+	std::vector<std::string> cleaned;
+	cleaned.reserve(pin.aliases.size());
+	for (const auto &a : pin.aliases) {
+		std::string t = trimCopy(a);
+		if (!t.empty()) cleaned.push_back(std::move(t));
+	}
+	pin.aliases = std::move(cleaned);
+
+	if (pin.id.empty()) {
+		err = "pin id is required";
+		return false;
+	}
+	if (pin.id.size() > 64) {
+		err = "pin id exceeds 64 characters";
+		return false;
+	}
+	if (pin.name.size() > 64) {
+		err = "pin name exceeds 64 characters";
+		return false;
+	}
+	if (pin.aliases.size() > 32) {
+		err = "pin aliases exceed 32 entries";
+		return false;
+	}
+	for (const auto &a : pin.aliases) {
+		if (a.size() > 64) {
+			err = "pin alias exceeds 64 characters";
+			return false;
+		}
+	}
+	if (pin.note.size() > 2048) {
+		err = "pin note exceeds 2048 characters";
+		return false;
+	}
+	if (!isValidChipPinDir(pin.dir)) {
+		err = "invalid pin dir";
+		return false;
+	}
+	return true;
+}
+
+bool ValidateChipPinTable(const std::vector<ChipPin> &pins, std::string &err) {
+	err.clear();
+	if (pins.size() > 1024) {
+		err = "pin table exceeds 1024 entries";
+		return false;
+	}
+	// key -> first owner pin index; same pin may claim same key (id==name)
+	std::vector<std::pair<std::string, size_t>> keys;
+	keys.reserve(pins.size() * 2);
+	for (size_t i = 0; i < pins.size(); ++i) {
+		const auto &p = pins[i];
+		auto claim = [&](const std::string &k) -> bool {
+			if (k.empty()) return true;
+			for (const auto &kv : keys) {
+				if (kv.first == k) {
+					if (kv.second != i) {
+						err = "pin key conflict: " + k;
+						return false;
+					}
+					return true;
+				}
+			}
+			keys.emplace_back(k, i);
+			return true;
+		};
+		if (!claim(p.id)) return false;
+		if (!claim(p.name)) return false;
+		for (const auto &a : p.aliases) {
+			if (!claim(a)) return false;
+		}
+	}
+	return true;
+}
+
+ChipPinResolveResult ResolveChipPin(const ChipRecord &rec, const std::string &label) {
+	ChipPinResolveResult r;
+	const std::string key = trimCopy(label);
+	if (key.empty()) return r;
+
+	for (const auto &p : rec.pins) {
+		if (p.id == key) {
+			r.matched = ChipPinMatch::Id;
+			r.pin = &p;
+			return r;
+		}
+	}
+	for (const auto &p : rec.pins) {
+		if (!p.name.empty() && p.name == key) {
+			r.matched = ChipPinMatch::Name;
+			r.pin = &p;
+			return r;
+		}
+	}
+	for (const auto &p : rec.pins) {
+		for (const auto &a : p.aliases) {
+			if (a == key) {
+				r.matched = ChipPinMatch::Alias;
+				r.pin = &p;
+				return r;
+			}
+		}
+	}
+	return r;
+}
+
 bool SanitizePartTypeFilename(const std::string &partType, std::string &outFileStem, std::string &err) {
 	outFileStem.clear();
 	err.clear();
@@ -490,6 +748,14 @@ bool SaveChipRecordFile(const filesystem::path &path, const ChipRecord &rec, std
 	}
 	if (trimCopy(verify.part_type) != trimCopy(rec.part_type)) {
 		err = "reload verify part_type mismatch";
+		return false;
+	}
+	if (verify.pins.size() != rec.pins.size()) {
+		err = "reload verify pins size mismatch";
+		return false;
+	}
+	if (verify.operating_conditions.size() != rec.operating_conditions.size()) {
+		err = "reload verify conditions size mismatch";
 		return false;
 	}
 	return true;
@@ -579,8 +845,8 @@ bool ChipStore::List(std::vector<ChipRecord> &out, std::string &errCode, std::st
 	return true;
 }
 
-bool ChipStore::Put(const ChipRecord &rec, bool replaceConditionsIfPresent, std::string &errCode,
-                    std::string &errMsg) {
+bool ChipStore::Put(const ChipRecord &rec, bool replaceConditionsIfPresent, bool replacePinsIfPresent,
+                    std::string &errCode, std::string &errMsg) {
 	std::lock_guard<std::mutex> lock(mu_);
 	errCode.clear();
 	errMsg.clear();
@@ -621,6 +887,9 @@ bool ChipStore::Put(const ChipRecord &rec, bool replaceConditionsIfPresent, std:
 		if (!replaceConditionsIfPresent) {
 			toSave.operating_conditions = existing.operating_conditions;
 		}
+		if (!replacePinsIfPresent) {
+			toSave.pins = existing.pins;
+		}
 	}
 
 	std::string serr;
@@ -637,8 +906,7 @@ bool ChipStore::ReplaceConditions(const std::string &partType, std::vector<Opera
 	// Get without holding caller's expectation of nested lock: use unlocked path via Put.
 	ChipRecord rec;
 	{
-		std::string code, msg;
-		// Best-effort load existing note
+		// Best-effort load existing note + pins
 		std::string stem;
 		std::string serr;
 		if (SanitizePartTypeFilename(partType, stem, serr)) {
@@ -649,13 +917,39 @@ bool ChipStore::ReplaceConditions(const std::string &partType, std::vector<Opera
 				if (LoadChipRecordFile(path, existing, serr) &&
 				    trimCopy(existing.part_type) == trimCopy(partType)) {
 					rec.note = existing.note;
+					rec.pins = existing.pins;
 				}
 			}
 		}
 	}
 	rec.part_type = trimCopy(partType);
 	rec.operating_conditions = std::move(ocs);
-	return Put(rec, true, errCode, errMsg);
+	return Put(rec, true, false, errCode, errMsg);
+}
+
+bool ChipStore::ReplacePins(const std::string &partType, std::vector<ChipPin> pins, std::string &errCode,
+                            std::string &errMsg) {
+	ChipRecord rec;
+	{
+		// Best-effort load existing note + conditions
+		std::string stem;
+		std::string serr;
+		if (SanitizePartTypeFilename(partType, stem, serr)) {
+			const auto path = chipPathForStem(root_, stem);
+			std::error_code ec;
+			if (filesystem::exists(path, ec) && !ec) {
+				ChipRecord existing;
+				if (LoadChipRecordFile(path, existing, serr) &&
+				    trimCopy(existing.part_type) == trimCopy(partType)) {
+					rec.note = existing.note;
+					rec.operating_conditions = existing.operating_conditions;
+				}
+			}
+		}
+	}
+	rec.part_type = trimCopy(partType);
+	rec.pins = std::move(pins);
+	return Put(rec, false, true, errCode, errMsg);
 }
 
 bool ChipStore::Delete(const std::string &partType, std::string &errCode, std::string &errMsg) {

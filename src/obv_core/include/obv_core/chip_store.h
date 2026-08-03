@@ -10,11 +10,34 @@
 
 namespace obv {
 
+struct ChipPin {
+	std::string id;
+	std::string name;
+	std::vector<std::string> aliases;
+	std::string dir;
+	std::string note;
+};
+
 struct ChipRecord {
 	std::string part_type;
 	std::string note;
+	std::vector<ChipPin> pins;
 	std::vector<OperatingCondition> operating_conditions;
 };
+
+enum class ChipPinMatch { None, Id, Name, Alias };
+
+struct ChipPinResolveResult {
+	ChipPinMatch matched = ChipPinMatch::None;
+	const ChipPin *pin = nullptr; // non-owning into record.pins
+};
+
+// trim; drop empty aliases; limits; dir enum; id non-empty
+bool NormalizeChipPin(ChipPin &pin, std::string &err);
+// uniqueness of all keys; max 1024; err mentions conflict key
+bool ValidateChipPinTable(const std::vector<ChipPin> &pins, std::string &err);
+// trim label; search id, then name, then aliases in table order
+ChipPinResolveResult ResolveChipPin(const ChipRecord &rec, const std::string &label);
 
 // Returns false + err if empty after trim or maps to empty/./..
 bool SanitizePartTypeFilename(const std::string &partType, std::string &outFileStem, std::string &err);
@@ -44,10 +67,14 @@ public:
 	// Thread-safe. codes: empty / CHIP_NOT_FOUND / CHIP_PATH_COLLISION / CHIP_STORE_FAILED / INVALID_PART_TYPE
 	bool Get(const std::string &partType, ChipRecord &out, std::string &errCode, std::string &errMsg);
 	bool List(std::vector<ChipRecord> &out, std::string &errCode, std::string &errMsg);
-	bool Put(const ChipRecord &rec, bool replaceConditionsIfPresent, std::string &errCode, std::string &errMsg);
+	bool Put(const ChipRecord &rec, bool replaceConditionsIfPresent, bool replacePinsIfPresent,
+	         std::string &errCode, std::string &errMsg);
 	// PutUpsertConditions: replace conditions array entirely for partType (create if missing)
 	bool ReplaceConditions(const std::string &partType, std::vector<OperatingCondition> ocs,
 	                       std::string &errCode, std::string &errMsg);
+	// Replace pins array entirely for partType (create if missing); preserve note/conditions
+	bool ReplacePins(const std::string &partType, std::vector<ChipPin> pins, std::string &errCode,
+	                 std::string &errMsg);
 	bool Delete(const std::string &partType, std::string &errCode, std::string &errMsg);
 
 	std::mutex &mutex(); // for external lock-order with board overlay
