@@ -263,6 +263,21 @@ export default function InfoPane({
     setPartMsg(null);
   }, [partName, overlay]);
 
+  // Keep net overlay editors in sync when selection or overlays reload.
+  useEffect(() => {
+    if (!net) {
+      setNetShowName('');
+      setNetNote('');
+      setNetMsg(null);
+      return;
+    }
+    const info = overlay?.netInfos[net.name];
+    setNetShowName(info?.showname ?? '');
+    setNetNote(info?.note ?? '');
+    setNetMsg(null);
+  }, [net?.name, net?.id, overlay]);
+
+
   const reloadConditions = useCallback(() => {
     setConditionsTick((n) => n + 1);
   }, []);
