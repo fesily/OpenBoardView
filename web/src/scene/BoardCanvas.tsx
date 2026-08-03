@@ -12,6 +12,8 @@ import type { BoardDocument, OverlayAnnotation, OverlayDocument, Pin } from '../
 import { collectCopperLayers, drawBoard, LAYER_COPPER } from './draw';
 import { hitTestNearestPin } from './hitTest';
 import { isNonSelectablePin, netByIdMap } from './netKinds';
+import { netDisplayName } from './netDisplay';
+
 import {
   buildNetPropagatedValues,
   localPinValue,
@@ -586,7 +588,11 @@ export default function BoardCanvas({
       pin: statusPin,
       name,
       part: statusPin.component || '—',
-      netName: net?.name ?? (statusPin.netId != null ? `#${statusPin.netId}` : '—'),
+      netName: net
+        ? netDisplayName(net, overlay) || net.name
+        : statusPin.netId != null
+          ? `#${statusPin.netId}`
+          : '—',
       netId: statusPin.netId,
       isGround: !!net?.isGround,
       values,
