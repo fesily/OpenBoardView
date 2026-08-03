@@ -1220,6 +1220,194 @@ bool parsePinsShowNamePatch(const std::string &json, std::map<std::string, std::
 }
 
 
+
+// { "nets": { "GND": { "showname": "Ground" }, ... } }
+// out: boardNetName -> showname (empty = clear overlay override).
+bool parseNetsShowNamePatch(const std::string &json, std::map<std::string, std::string> &out,
+							std::string &err) {
+	out.clear();
+	MiniJson cur(json);
+	if (!cur.expect('{')) {
+		err = cur.err.empty() ? "invalid JSON object" : cur.err;
+		return false;
+	}
+	bool gotNets = false;
+	cur.skipWs();
+	if (cur.match('}')) {
+		err = "body requires nets object";
+		return false;
+	}
+	for (;;) {
+		std::string key;
+		if (!cur.parseString(key)) {
+			err = cur.err;
+			return false;
+		}
+		if (!cur.expect(':')) {
+			err = cur.err;
+			return false;
+		}
+		if (key == "nets") {
+			if (!cur.expect('{')) {
+				err = cur.err.empty() ? "nets must be an object" : cur.err;
+				return false;
+			}
+			gotNets = true;
+			cur.skipWs();
+			if (cur.match('}')) {
+				err = "nets object is empty";
+				return false;
+			}
+			for (;;) {
+				std::string netName;
+				if (!cur.parseString(netName)) {
+					err = cur.err;
+					return false;
+				}
+				if (!cur.expect(':')) {
+					err = cur.err;
+					return false;
+				}
+				if (!cur.expect('{')) {
+					err = cur.err.empty() ? "net value must be an object" : cur.err;
+					return false;
+				}
+				bool gotShowName = false;
+				std::string showName;
+				cur.skipWs();
+				if (!cur.match('}')) {
+					for (;;) {
+						std::string field;
+						if (!cur.parseString(field)) {
+							err = cur.err;
+							return false;
+						}
+						if (!cur.expect(':')) {
+							err = cur.err;
+							return false;
+						}
+						if (field == "showname") {
+							if (!cur.parseString(showName)) {
+								err = cur.err;
+								return false;
+							}
+							gotShowName = true;
+						} else {
+							err = "unknown field in net object: " + field;
+							return false;
+						}
+						cur.skipWs();
+						if (cur.match('}')) {
+							break;
+						}
+						if (!cur.expect(',')) {
+							err = cur.err;
+							return false;
+						}
+					}
+				}
+				if (!gotShowName) {
+					err = "net object requires showname";
+					return false;
+				}
+				showName = trimWs(showName);
+				if (showName.size() > 128) {
+					err = "showname exceeds 128 characters";
+					return false;
+				}
+				if (out.size() >= 512) {
+					err = "nets limit is 512 keys";
+					return false;
+				}
+				out[netName] = std::move(showName);
+				cur.skipWs();
+				if (cur.match('}')) {
+					break;
+				}
+				if (!cur.expect(',')) {
+					err = cur.err;
+					return false;
+				}
+			}
+			if (out.empty()) {
+				err = "nets object is empty";
+				return false;
+			}
+		} else {
+			if (!cur.skipValue()) {
+				err = cur.err;
+				return false;
+			}
+		}
+		cur.skipWs();
+		if (cur.match('}')) {
+			break;
+		}
+		if (!cur.expect(',')) {
+			err = cur.err;
+			return false;
+		}
+	}
+	cur.skipWs();
+	if (cur.i < cur.s.size()) {
+		err = "trailing data after nets patch JSON";
+		return false;
+	}
+	if (!gotNets) {
+		err = "body requires nets object";
+		return false;
+	}
+	return true;
+}
+
+const Net *findBoardNetByName(const Board &board, const std::string &name) {
+	for (const auto &n : const_cast<Board &>(board).Nets()) {
+		if (n && n->name == name) {
+			return n.get();
+		}
+	}
+	return nullptr;
+}
+
+// Load/mutate whole Annotations (for netInfos), save YAML.
+bool withBoardOverlay(
+	BoardRegistry &registry, const std::string &boardId, httplib::Response &res,
+	const std::function<bool(Annotations &, const Board &, httplib::Response &)> &fn) {
+	const auto snap = registry.GetParsed(boardId);
+	if (!snap) {
+		setError(res, 404, "NOT_FOUND", "board not found");
+		return false;
+	}
+	if (!snap->ok()) {
+		setError(res, 400, "PARSE_FAILED", snap->error.empty() ? "parse failed" : snap->error);
+		return false;
+	}
+	const auto boardPath = registry.BoardPath(boardId);
+	if (boardPath.empty()) {
+		setError(res, 404, "NOT_FOUND", "board not found");
+		return false;
+	}
+	std::lock_guard<std::mutex> lock(registry.OverlayMutex(boardId));
+	Annotations ann;
+	std::string err;
+	if (!obv::LoadOverlayForBoard(boardPath, ann, err)) {
+		setError(res, 500, "OVERLAY_LOAD_FAILED", err.empty() ? "failed to load overlay" : err);
+		ann.Close();
+		return false;
+	}
+	if (!fn(ann, *snap->board, res)) {
+		ann.Close();
+		return false;
+	}
+	if (!obv::SavePartNetYaml(boardPath, ann, err)) {
+		setError(res, 500, "OVERLAY_SAVE_FAILED", err.empty() ? "failed to save overlay yaml" : err);
+		ann.Close();
+		return false;
+	}
+	ann.Close();
+	return true;
+}
+
 // Load overlay under mutex, ensure part exists on board, mutate PartInfo, save YAML.
 // Creates PartInfo entry only when the part is present on the board.
 bool withPartOverlay(BoardRegistry &registry, const std::string &boardId, const std::string &part,
@@ -2043,7 +2231,172 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 			  });
 
 
-	svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
+	
+	// GET one net (board name + overlay showname/note).
+	svr.Get(R"(/api/v1/boards/:ref/nets/:netName)",
+			[&registry](const httplib::Request &req, httplib::Response &res) {
+				const std::string ref = pathParam(req, "ref");
+				const std::string netName = pathParam(req, "netName");
+				std::string boardId;
+				if (!applyBoardRef(registry, ref, res, boardId)) {
+					return;
+				}
+				if (netName.empty()) {
+					setError(res, 400, "BAD_REQUEST", "missing net name");
+					return;
+				}
+				const auto snap = registry.GetParsed(boardId);
+				if (!snap) {
+					setError(res, 404, "NOT_FOUND", "board not found");
+					return;
+				}
+				if (!snap->ok()) {
+					setError(res, 400, "PARSE_FAILED",
+							 snap->error.empty() ? "parse failed" : snap->error);
+					return;
+				}
+				const Net *net = findBoardNetByName(*snap->board, netName);
+				if (!net) {
+					setError(res, 404, "NET_NOT_FOUND", "net not found");
+					return;
+				}
+				const auto boardPath = registry.BoardPath(boardId);
+				if (boardPath.empty()) {
+					setError(res, 404, "NOT_FOUND", "board not found");
+					return;
+				}
+				std::lock_guard<std::mutex> lock(registry.OverlayMutex(boardId));
+				Annotations ann;
+				std::string err;
+				if (!obv::LoadOverlayForBoard(boardPath, ann, err)) {
+					setError(res, 500, "OVERLAY_LOAD_FAILED",
+							 err.empty() ? "failed to load overlay" : err);
+					ann.Close();
+					return;
+				}
+				std::string showname;
+				std::string note;
+				const auto it = ann.netInfos.find(netName);
+				if (it != ann.netInfos.end()) {
+					showname = it->second.showname;
+					note = it->second.note;
+				}
+				ann.Close();
+				const std::string display =
+					trimWs(showname).empty() ? net->name : trimWs(showname);
+				const bool isGround = net->is_ground || net->name == "GND" || net->name == "GROUND";
+				std::ostringstream os;
+				os << "{\"boardId\":\"" << jsonEscape(boardId) << "\",\"sourceName\":\""
+				   << jsonEscape(publicSourceName(registry, boardId)) << "\",\"name\":\""
+				   << jsonEscape(net->name) << "\",\"displayName\":\"" << jsonEscape(display)
+				   << "\",\"showname\":\"" << jsonEscape(trimWs(showname)) << "\",\"note\":\""
+				   << jsonEscape(note) << "\",\"isGround\":" << (isGround ? "true" : "false")
+				   << '}';
+				res.set_content(os.str(), "application/json");
+			});
+
+	// Batch net showname overlay write (agent rename).
+	svr.Patch(R"(/api/v1/boards/:ref/nets)",
+			  [&registry](const httplib::Request &req, httplib::Response &res) {
+				  const std::string ref = pathParam(req, "ref");
+				  std::string boardId;
+				  if (!applyBoardRef(registry, ref, res, boardId)) {
+					  return;
+				  }
+				  std::map<std::string, std::string> patch;
+				  std::string perr;
+				  if (!parseNetsShowNamePatch(req.body, patch, perr)) {
+					  setError(res, 400, "BAD_REQUEST", perr);
+					  return;
+				  }
+
+				  struct UpdatedNet {
+					  std::string name;
+					  std::string showname;
+					  std::string displayName;
+				  };
+				  std::vector<UpdatedNet> updated;
+
+				  if (!withBoardOverlay(registry, boardId, res,
+										[&](Annotations &ann, const Board &board,
+											httplib::Response &r) {
+											std::vector<std::string> unknown;
+											std::vector<std::pair<std::string, const Net *>> resolved;
+											resolved.reserve(patch.size());
+											for (const auto &kv : patch) {
+												const Net *n = findBoardNetByName(board, kv.first);
+												if (!n) {
+													if (unknown.size() < 8) {
+														unknown.push_back(kv.first);
+													}
+													continue;
+												}
+												resolved.emplace_back(kv.first, n);
+											}
+											if (!unknown.empty()) {
+												std::ostringstream msg;
+												msg << "unknown net name(s): ";
+												for (size_t i = 0; i < unknown.size(); ++i) {
+													if (i) {
+														msg << ", ";
+													}
+													msg << unknown[i];
+												}
+												if (unknown.size() == 8) {
+													msg << ", ...";
+												}
+												setError(r, 400, "UNKNOWN_NET", msg.str());
+												return false;
+											}
+
+											updated.reserve(resolved.size());
+											for (const auto &item : resolved) {
+												const std::string &netName = item.first;
+												const Net *n = item.second;
+												const std::string &showName = patch.at(netName);
+
+												if (showName.empty()) {
+													auto it = ann.netInfos.find(netName);
+													if (it != ann.netInfos.end()) {
+														it->second.showname.clear();
+														if (!it->second) {
+															ann.netInfos.erase(it);
+														}
+													}
+												} else {
+													NetInfo &ni = ann.netInfos[netName];
+													ni.name = netName;
+													ni.showname = showName;
+												}
+
+												UpdatedNet u;
+												u.name = netName;
+												u.showname = showName;
+												u.displayName =
+													showName.empty() ? n->name : showName;
+												updated.push_back(std::move(u));
+											}
+											return true;
+										})) {
+					  return;
+				  }
+
+				  std::ostringstream os;
+				  os << "{\"boardId\":\"" << jsonEscape(boardId) << "\",\"updated\":[";
+				  for (size_t i = 0; i < updated.size(); ++i) {
+					  if (i) {
+						  os << ',';
+					  }
+					  const auto &u = updated[i];
+					  os << "{\"name\":\"" << jsonEscape(u.name) << "\",\"showname\":\""
+						 << jsonEscape(u.showname) << "\",\"displayName\":\""
+						 << jsonEscape(u.displayName) << "\"}";
+				  }
+				  os << "]}";
+				  res.set_content(os.str(), "application/json");
+			  });
+
+svr.Get(R"(/api/v1/boards/:ref/parts/:part)",
 			[&registry](const httplib::Request &req, httplib::Response &res) {
 				const std::string ref = pathParam(req, "ref");
 				const std::string part = pathParam(req, "part");

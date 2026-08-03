@@ -247,10 +247,31 @@ def pick_fixture(base: str) -> Fixture:
         pin_name=str(pin_obj.get("name") or ""),
         pin_id=str(pin_obj.get("id") or ""),
         net_id=pin_obj.get("netId"),
-        net_name="",
+        net_name=_pick_net_name(board, pin_obj.get("netId")),
         other_part=other,
         multi_pin_part=multi,
     )
+
+
+
+def _pick_net_name(board: dict, net_id: Any) -> str:
+    nets = board.get("nets") or []
+    if net_id is not None:
+        for n in nets:
+            if n.get("id") == net_id and n.get("name"):
+                return str(n["name"])
+    for n in nets:
+        name = str(n.get("name") or "")
+        if not name:
+            continue
+        upper = name.upper()
+        if upper in ("GND", "GROUND") or upper.startswith("UNCONNECTED"):
+            continue
+        return name
+    for n in nets:
+        if n.get("name"):
+            return str(n["name"])
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -1362,6 +1383,88 @@ class Suite:
         self.created_condition_ids.clear()
 
 
+
+    def nets_patch_path(self, ref: Optional[str] = None) -> str:
+        r = ref if ref is not None else self.fx.board_id
+        return f"/api/v1/boards/{enc(r)}/nets"
+
+    def net_get_path(self, net_name: Optional[str] = None, ref: Optional[str] = None) -> str:
+        r = ref if ref is not None else self.fx.board_id
+        n = net_name if net_name is not None else self.fx.net_name
+        return f"/api/v1/boards/{enc(r)}/nets/{enc(n)}"
+
+    def t_net_get_and_patch_showname(self) -> None:
+        check(self.fx.net_name, "fixture has no net_name")
+        # GET baseline
+        _, body = request(self.base, "GET", self.net_get_path(), expect=200)
+        for k in ("boardId", "sourceName", "name", "displayName", "showname", "note", "isGround"):
+            check_in(k, body, f"net get missing {k}")
+        check_eq(body["name"], self.fx.net_name)
+        prev = str(body.get("showname") or "")
+
+        try:
+            st, patched = request(
+                self.base,
+                "PATCH",
+                self.nets_patch_path(),
+                body={"nets": {self.fx.net_name: {"showname": "AGENT_NET_TEST"}}},
+                expect=200,
+            )
+            check_eq(st, 200)
+            check_in("updated", patched)
+            check(len(patched["updated"]) == 1, "expected 1 updated")
+            u = patched["updated"][0]
+            check_eq(u.get("name"), self.fx.net_name)
+            check_eq(u.get("showname"), "AGENT_NET_TEST")
+            check_eq(u.get("displayName"), "AGENT_NET_TEST")
+
+            _, again = request(self.base, "GET", self.net_get_path(), expect=200)
+            check_eq(again.get("showname"), "AGENT_NET_TEST")
+            check_eq(again.get("displayName"), "AGENT_NET_TEST")
+
+            # clear
+            st, cleared = request(
+                self.base,
+                "PATCH",
+                self.nets_patch_path(),
+                body={"nets": {self.fx.net_name: {"showname": ""}}},
+                expect=200,
+            )
+            check_eq(cleared["updated"][0].get("showname"), "")
+            check_eq(cleared["updated"][0].get("displayName"), self.fx.net_name)
+            _, after = request(self.base, "GET", self.net_get_path(), expect=200)
+            check_eq(after.get("showname") or "", "")
+            check_eq(after.get("displayName"), self.fx.net_name)
+        finally:
+            # restore previous overlay showname
+            request(
+                self.base,
+                "PATCH",
+                self.nets_patch_path(),
+                body={"nets": {self.fx.net_name: {"showname": prev}}},
+                expect=200,
+            )
+
+    def t_net_patch_unknown(self) -> None:
+        st, err = request(
+            self.base,
+            "PATCH",
+            self.nets_patch_path(),
+            body={"nets": {"__NO_SUCH_NET_ZZ__": {"showname": "x"}}},
+            expect=400,
+        )
+        check_eq(error_code(err), "UNKNOWN_NET")
+
+    def t_net_not_found(self) -> None:
+        st, err = request(
+            self.base,
+            "GET",
+            f"/api/v1/boards/{enc(self.fx.board_id)}/nets/{enc('__NO_SUCH_NET_ZZ__')}",
+            expect=404,
+        )
+        check_eq(error_code(err), "NET_NOT_FOUND")
+
+
 # ---------------------------------------------------------------------------
 # Case registry
 # ---------------------------------------------------------------------------
@@ -1400,6 +1503,9 @@ ALL_CASES: list[tuple[str, str, Callable[[Suite], None]]] = [
     ("chip", "board_post_no_chip_mutate", lambda s: s.t_chip_board_post_does_not_mutate_chip()),
     ("chip", "scope_requires_part_type", lambda s: s.t_chip_scope_requires_part_type()),
     ("grid", "pin_grid_shape", lambda s: s.t_pin_grid_shape()),
+    ("nets", "get_patch_showname", lambda s: s.t_net_get_and_patch_showname()),
+    ("nets", "patch_unknown", lambda s: s.t_net_patch_unknown()),
+    ("nets", "not_found", lambda s: s.t_net_not_found()),
 ]
 
 
