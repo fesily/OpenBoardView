@@ -70,7 +70,7 @@ describe('hitTestNearestPin', () => {
     expect(miss).toBeNull();
   });
 
-  test('skips GND and true NC pins; keeps signal and test pads', () => {
+  test('skips GND and UNCONNECTED pins; keeps signal pads', () => {
     const nets: Net[] = [
       { id: 1, name: 'VCC', isGround: false },
       { id: 2, name: 'GND', isGround: true },
@@ -82,7 +82,7 @@ describe('hitTestNearestPin', () => {
         makePin({ id: 'gnd', pos: { x: 0, y: 0 }, diameter: 20, netId: 2, type: 'component' }),
         makePin({ id: 'gnd2', pos: { x: 0, y: 0 }, diameter: 20, netId: 3, type: 'component' }),
         makePin({ id: 'nc', pos: { x: 0, y: 0 }, diameter: 20, netId: 4, type: 'not_connected' }),
-        // Missing PIN_NET bucket: same UNCONNECTED net name but type component → selectable.
+        // UNCONNECTED net + component type still NC for color/selection.
         makePin({ id: 'bucket', pos: { x: 0, y: 0 }, diameter: 20, netId: 4, type: 'component' }),
         makePin({ id: 'sig', pos: { x: 5, y: 0 }, diameter: 20, netId: 1, type: 'component' }),
       ],
@@ -103,11 +103,11 @@ describe('hitTestNearestPin', () => {
       nets,
     );
     expect(hitTestNearestPin(onlyNc, view, 100, 100, 200, 200)).toBeNull();
-    // Bucket component on UNCONNECTED net (not typed NC) → selectable
+    // Component-typed pin on UNCONNECTED net → also not selectable
     const bucket = boardWith(
       [makePin({ id: 'b', pos: { x: 0, y: 0 }, diameter: 20, netId: 4, type: 'component' })],
       nets,
     );
-    expect(hitTestNearestPin(bucket, view, 100, 100, 200, 200)?.id).toBe('b');
+    expect(hitTestNearestPin(bucket, view, 100, 100, 200, 200)).toBeNull();
   });
 });
