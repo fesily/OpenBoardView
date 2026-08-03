@@ -1373,6 +1373,329 @@ class Suite:
         check_eq(st, 400)
         check_eq(error_code(err), "PART_TYPE_REQUIRED")
 
+    # ---- chip pin map ----
+    def chip_pins_path(self, part_type: str) -> str:
+        return f"{self.chip_path(part_type)}/pins"
+
+    def chip_pin_path(self, part_type: str, pin_key: str) -> str:
+        return f"{self.chip_pins_path(part_type)}/{enc(pin_key)}"
+
+    def chip_resolve_path(self, part_type: str, label: str) -> str:
+        return f"{self.chip_path(part_type)}/resolve?label={enc(label)}"
+
+    def _sample_pin_table(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": "B3",
+                "name": "VBAT",
+                "aliases": ["BAT"],
+                "dir": "power",
+                "note": "battery",
+            },
+            {
+                "id": "H4",
+                "name": "UART_TXD",
+                "aliases": [],
+                "dir": "out",
+                "note": "",
+            },
+        ]
+
+    def t_chip_pins_put_get(self) -> None:
+        """1. PUT pins on unique part_type → GET pins returns table."""
+        pt = self._unique_part_type()
+        try:
+            pins = self._sample_pin_table()
+            st, body = request(
+                self.base,
+                "PUT",
+                self.chip_pins_path(pt),
+                body={"pins": pins},
+                expect=200,
+            )
+            check_eq(st, 200)
+            got = body.get("pins") if isinstance(body, dict) and "pins" in body else body
+            if isinstance(body, dict) and body.get("part_type"):
+                check_eq(body.get("part_type"), pt)
+            check(isinstance(got, list) and len(got) == 2, f"pins put resp={body!r}")
+            by_id = {p.get("id"): p for p in got}
+            check_in("B3", by_id)
+            check_eq(by_id["B3"].get("name"), "VBAT")
+            check_in("BAT", by_id["B3"].get("aliases") or [])
+            check_eq(by_id["B3"].get("dir"), "power")
+            check_in("H4", by_id)
+
+            _, listed = request(self.base, "GET", self.chip_pins_path(pt), expect=200)
+            listed_pins = (
+                listed.get("pins") if isinstance(listed, dict) and "pins" in listed else listed
+            )
+            check(isinstance(listed_pins, list) and len(listed_pins) == 2, f"get pins={listed!r}")
+
+            _, one = request(self.base, "GET", self.chip_pin_path(pt, "B3"), expect=200)
+            check_eq(one.get("id"), "B3")
+            check_eq(one.get("name"), "VBAT")
+        finally:
+            self._delete_chip(pt)
+
+    def t_chip_pins_resolve_id_and_name(self) -> None:
+        """2. resolve by id and by name → same pin."""
+        pt = self._unique_part_type()
+        try:
+            request(
+                self.base,
+                "PUT",
+                self.chip_pins_path(pt),
+                body={"pins": self._sample_pin_table()},
+                expect=200,
+            )
+            _, by_id = request(
+                self.base, "GET", self.chip_resolve_path(pt, "B3"), expect=200
+            )
+            _, by_name = request(
+                self.base, "GET", self.chip_resolve_path(pt, "VBAT"), expect=200
+            )
+            _, by_alias = request(
+                self.base, "GET", self.chip_resolve_path(pt, "BAT"), expect=200
+            )
+
+            for label, body, matched in (
+                ("B3", by_id, "id"),
+                ("VBAT", by_name, "name"),
+                ("BAT", by_alias, "alias"),
+            ):
+                check_eq(body.get("matched"), matched, f"label={label} body={body!r}")
+                pin = body.get("pin") if isinstance(body.get("pin"), dict) else body
+                # resolve may nest pin or flatten id/name on top level
+                pid = pin.get("id") if isinstance(pin, dict) else body.get("id")
+                pname = pin.get("name") if isinstance(pin, dict) else body.get("name")
+                check_eq(pid, "B3", f"label={label} resolve={body!r}")
+                check_eq(pname, "VBAT", f"label={label} resolve={body!r}")
+
+            check_eq(
+                (by_id.get("pin") or by_id).get("id")
+                if isinstance(by_id.get("pin") or by_id, dict)
+                else by_id.get("id"),
+                (by_name.get("pin") or by_name).get("id")
+                if isinstance(by_name.get("pin") or by_name, dict)
+                else by_name.get("id"),
+            )
+        finally:
+            self._delete_chip(pt)
+
+    def t_chip_pins_key_conflict(self) -> None:
+        """3. second pin with same name as existing id → 400 PIN_KEY_CONFLICT."""
+        pt = self._unique_part_type()
+        try:
+            conflict = [
+                {"id": "B3", "name": "VBAT", "aliases": [], "dir": "power", "note": ""},
+                {"id": "Z1", "name": "B3", "aliases": [], "dir": "in", "note": ""},
+            ]
+            st, err = request(
+                self.base,
+                "PUT",
+                self.chip_pins_path(pt),
+                body={"pins": conflict},
+                expect=400,
+            )
+            check_eq(st, 400)
+            check_eq(error_code(err), "PIN_KEY_CONFLICT", f"err={err!r}")
+
+            # also via chip PUT body pins
+            st2, err2 = request(
+                self.base,
+                "PUT",
+                self.chip_path(pt),
+                body={"pins": conflict},
+                expect=400,
+            )
+            check_eq(st2, 400)
+            check_eq(error_code(err2), "PIN_KEY_CONFLICT", f"err={err2!r}")
+        finally:
+            self._delete_chip(pt)
+
+    def t_chip_pins_board_enrichment(self) -> None:
+        """4. bind part_type; GET conditions → chipPins + resolved hit for B3."""
+        pt = self._unique_part_type()
+        part = self._chip_part()
+        try:
+            put_body = {
+                "note": "pin_enrich_smoke",
+                "pins": self._sample_pin_table(),
+                "operating_conditions": [
+                    self._oc_body(
+                        cid="oc_pin_resolve",
+                        name="with_b3",
+                        inputs=["B3"],
+                        outputs=["E1"],
+                        enables=["VBAT"],
+                        note="resolve-me",
+                    )
+                ],
+            }
+            request(self.base, "PUT", self.chip_path(pt), body=put_body, expect=200)
+            self._patch_part_type(pt, part)
+
+            _, body = request(
+                self.base,
+                "GET",
+                f"/api/v1/boards/{enc(self.fx.board_id)}/parts/{enc(part)}/operating-conditions",
+                expect=200,
+            )
+            chip_pins = body.get("chipPins") or []
+            check(isinstance(chip_pins, list) and len(chip_pins) >= 1, f"chipPins={body!r}")
+            ids = {p.get("id") for p in chip_pins}
+            check_in("B3", ids, f"chipPins missing B3: {chip_pins!r}")
+
+            resolved = body.get("resolved") or {}
+            check(isinstance(resolved, dict), f"resolved not map: {body!r}")
+            oc_res = resolved.get("oc_pin_resolve") or {}
+            check(oc_res, f"resolved missing oc_pin_resolve: {resolved!r}")
+
+            inputs = oc_res.get("inputs") or []
+            check(inputs, f"resolved.inputs empty: {oc_res!r}")
+            r0 = inputs[0]
+            check_eq(r0.get("label"), "B3")
+            check_eq(r0.get("matched"), "id")
+            check_eq(r0.get("id"), "B3")
+            check_eq(r0.get("name"), "VBAT")
+
+            enables = oc_res.get("enables") or []
+            check(enables, f"resolved.enables empty: {oc_res!r}")
+            e0 = enables[0]
+            check_eq(e0.get("label"), "VBAT")
+            check_eq(e0.get("matched"), "name")
+            check_eq(e0.get("id"), "B3")
+            check_eq(e0.get("name"), "VBAT")
+
+            outputs = oc_res.get("outputs") or []
+            check(outputs, f"resolved.outputs empty: {oc_res!r}")
+            check_eq(outputs[0].get("label"), "E1")
+            check_eq(outputs[0].get("matched"), "none")
+        finally:
+            self._clear_part_type(part)
+            self._delete_chip(pt)
+
+    def t_chip_pins_promote_preserves(self) -> None:
+        """5. promote conditions does not clear pins."""
+        pt = self._unique_part_type()
+        part = self._chip_part()
+        board_cid = "oc_promo_pins"
+        try:
+            request(
+                self.base,
+                "PUT",
+                self.chip_path(pt),
+                body={
+                    "note": "promo_pins",
+                    "pins": self._sample_pin_table(),
+                    "operating_conditions": [],
+                },
+                expect=200,
+            )
+            self._patch_part_type(pt, part)
+
+            st, created = request(
+                self.base,
+                "POST",
+                f"/api/v1/boards/{enc(self.fx.board_id)}/parts/{enc(part)}/operating-conditions",
+                body=self._oc_body(
+                    cid=board_cid,
+                    name="to_promote_pins",
+                    inputs=["B3"],
+                    outputs=["PO"],
+                    note="promo-pins",
+                ),
+                expect=201,
+            )
+            check_eq(created.get("id"), board_cid)
+            self.created_condition_ids.append(board_cid)
+
+            st, promoted = request(
+                self.base,
+                "POST",
+                f"/api/v1/boards/{enc(self.fx.board_id)}/parts/{enc(part)}/operating-conditions/promote",
+                body={"clearBoard": True},
+                expect=200,
+            )
+            check_eq(st, 200)
+            check_eq(promoted.get("source"), "chip", f"promote resp: {promoted!r}")
+
+            # pins still present via dedicated GET and chip record
+            _, pins_body = request(self.base, "GET", self.chip_pins_path(pt), expect=200)
+            pins = (
+                pins_body.get("pins")
+                if isinstance(pins_body, dict) and "pins" in pins_body
+                else pins_body
+            )
+            check(isinstance(pins, list) and len(pins) >= 2, f"pins cleared after promote: {pins_body!r}")
+            pin_ids = {p.get("id") for p in pins}
+            check_in("B3", pin_ids)
+            check_in("H4", pin_ids)
+
+            _, chip_rec = request(self.base, "GET", self.chip_path(pt), expect=200)
+            rec_pins = chip_rec.get("pins") or []
+            check(len(rec_pins) >= 2, f"chip record pins cleared: {chip_rec!r}")
+            # promote response may also expose chipPins
+            promo_pins = promoted.get("chipPins")
+            if promo_pins is not None:
+                check(len(promo_pins) >= 2, f"promote chipPins cleared: {promoted!r}")
+
+            self.created_condition_ids = [
+                x for x in self.created_condition_ids if x != board_cid
+            ]
+        finally:
+            self._delete_board_condition(board_cid, part)
+            self._clear_part_type(part)
+            self._delete_chip(pt)
+
+    def t_chip_pins_put_omit_preserves(self) -> None:
+        """6. chip PUT omit pins preserves table."""
+        pt = self._unique_part_type()
+        try:
+            request(
+                self.base,
+                "PUT",
+                self.chip_path(pt),
+                body={
+                    "note": "omit_pins_v1",
+                    "pins": self._sample_pin_table(),
+                    "operating_conditions": [
+                        self._oc_body(cid="oc_keep", name="keep", inputs=["A"], outputs=["Y"])
+                    ],
+                },
+                expect=200,
+            )
+
+            st, updated = request(
+                self.base,
+                "PUT",
+                self.chip_path(pt),
+                body={
+                    "note": "omit_pins_v2",
+                    "operating_conditions": [
+                        self._oc_body(cid="oc_keep", name="keep2", inputs=["A"], outputs=["Y"])
+                    ],
+                },
+                expect=200,
+            )
+            check_eq(st, 200)
+            check_eq(updated.get("note"), "omit_pins_v2")
+            pins = updated.get("pins") or []
+            check(len(pins) == 2, f"omit pins wiped table: {updated!r}")
+            by_id = {p.get("id"): p for p in pins}
+            check_in("B3", by_id)
+            check_eq(by_id["B3"].get("name"), "VBAT")
+
+            _, got = request(self.base, "GET", self.chip_path(pt), expect=200)
+            check_eq(got.get("note"), "omit_pins_v2")
+            gpins = got.get("pins") or []
+            check_eq(len(gpins), 2, f"GET after omit lost pins: {got!r}")
+            ocs = got.get("operating_conditions") or []
+            check_eq(len(ocs), 1)
+            check_eq(ocs[0].get("name"), "keep2")
+        finally:
+            self._delete_chip(pt)
+
 
     def cleanup(self) -> None:
         for cid in list(self.created_condition_ids):
@@ -1502,6 +1825,12 @@ ALL_CASES: list[tuple[str, str, Callable[[Suite], None]]] = [
     ("chip", "scope_post_adds_library", lambda s: s.t_chip_scope_post_adds_library()),
     ("chip", "board_post_no_chip_mutate", lambda s: s.t_chip_board_post_does_not_mutate_chip()),
     ("chip", "scope_requires_part_type", lambda s: s.t_chip_scope_requires_part_type()),
+    ("chip_pins", "put_get", lambda s: s.t_chip_pins_put_get()),
+    ("chip_pins", "resolve_id_and_name", lambda s: s.t_chip_pins_resolve_id_and_name()),
+    ("chip_pins", "key_conflict", lambda s: s.t_chip_pins_key_conflict()),
+    ("chip_pins", "board_enrichment", lambda s: s.t_chip_pins_board_enrichment()),
+    ("chip_pins", "promote_preserves", lambda s: s.t_chip_pins_promote_preserves()),
+    ("chip_pins", "put_omit_preserves", lambda s: s.t_chip_pins_put_omit_preserves()),
     ("grid", "pin_grid_shape", lambda s: s.t_pin_grid_shape()),
     ("nets", "get_patch_showname", lambda s: s.t_net_get_and_patch_showname()),
     ("nets", "patch_unknown", lambda s: s.t_net_patch_unknown()),
