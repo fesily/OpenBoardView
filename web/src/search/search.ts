@@ -1,4 +1,4 @@
-import type { BoardDocument } from '../types/board';
+import type { BoardDocument, OverlayDocument } from '../types/board';
 
 /** Mirrors desktop SearchMode in Searcher.h (default Sub). */
 export type SearchMode = 'sub' | 'prefix' | 'whole';
@@ -38,17 +38,24 @@ export function searchParts(
   return out;
 }
 
-/** Net names matching q (order preserved, capped by limit; limit ≤ 0 → unlimited). */
+/** Net board-names matching q on name, board showName, or overlay showname. */
 export function searchNets(
   board: BoardDocument,
   q: string,
   mode: SearchMode,
   limit: number,
+  overlay?: OverlayDocument | null,
 ): string[] {
   if (!q) return [];
   const out: string[] = [];
   for (const n of board.nets ?? []) {
-    if (!matchesSearch(n.name, q, mode)) continue;
+    const ov = overlay?.netInfos?.[n.name]?.showname?.trim() || '';
+    const boardShow = (n.showName || '').trim();
+    const hit =
+      matchesSearch(n.name, q, mode) ||
+      (ov ? matchesSearch(ov, q, mode) : false) ||
+      (boardShow ? matchesSearch(boardShow, q, mode) : false);
+    if (!hit) continue;
     out.push(n.name);
     if (limit > 0 && out.length >= limit) break;
   }

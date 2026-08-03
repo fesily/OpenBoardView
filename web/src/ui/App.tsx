@@ -401,6 +401,7 @@ export default function App() {
                   <SearchBox
                     key={board.boardId}
                     board={board}
+                    overlay={overlay}
                     onSelectionChange={onSearchSelection}
                   />
                 </div>

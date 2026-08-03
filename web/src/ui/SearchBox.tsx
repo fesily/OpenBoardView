@@ -7,7 +7,7 @@ import {
   type SearchHighlight,
   type SearchMode,
 } from '../search/search';
-import type { BoardDocument } from '../types/board';
+import type { BoardDocument, OverlayDocument } from '../types/board';
 
 const DEFAULT_LIMIT = 40;
 
@@ -21,10 +21,12 @@ export interface SearchSelection {
 
 export interface SearchBoxProps {
   board: BoardDocument;
+  /** When set, net search also matches overlay showname. */
+  overlay?: OverlayDocument | null;
   onSelectionChange: (sel: SearchSelection) => void;
 }
 
-export default function SearchBox({ board, onSelectionChange }: SearchBoxProps) {
+export default function SearchBox({ board, overlay = null, onSelectionChange }: SearchBoxProps) {
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<SearchMode>('sub');
   const [includeParts, setIncludeParts] = useState(true);
@@ -36,8 +38,8 @@ export default function SearchBox({ board, onSelectionChange }: SearchBoxProps) 
     [board, query, mode, includeParts],
   );
   const netHits = useMemo(
-    () => (includeNets ? searchNets(board, query.trim(), mode, DEFAULT_LIMIT) : []),
-    [board, query, mode, includeNets],
+    () => (includeNets ? searchNets(board, query.trim(), mode, DEFAULT_LIMIT, overlay) : []),
+    [board, overlay, query, mode, includeNets],
   );
 
   // Typing / mode / toggles → live highlight all current hits (no forced center).

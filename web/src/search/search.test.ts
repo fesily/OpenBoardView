@@ -135,6 +135,17 @@ describe('searchNets', () => {
     expect(searchNets(sample, 'gnd', 'sub', 1)).toEqual(['GND']);
     expect(searchNets(sample, '', 'sub', 10)).toEqual([]);
   });
+
+  test('matches overlay showname', () => {
+    const ov = {
+      annotations: [],
+      partInfos: {},
+      netInfos: { '50': { showname: 'UART_TXD' } },
+    };
+    const b = board([], [net(1, '50'), net(2, 'GND')]);
+    expect(searchNets(b, 'UART', 'sub', 50, ov)).toEqual(['50']);
+    expect(searchNets(b, '50', 'whole', 50, ov)).toEqual(['50']);
+  });
 });
 
 describe('highlightFromMatches / focusPointForResult', () => {

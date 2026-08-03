@@ -51,6 +51,19 @@ function pinDisplayLabel(pin: Pin, overlayShow?: string): string {
   return pin.number || pin.id;
 }
 
+/** Net display: overlay showname > board showName > board name. */
+function netDisplayName(
+  net: Pick<Net, 'name' | 'showName'>,
+  overlayShowname?: string | null,
+): string {
+  const ov = (overlayShowname ?? '').trim();
+  if (ov) return ov;
+  const boardShow = (net.showName ?? '').trim();
+  if (boardShow) return boardShow;
+  return net.name;
+}
+
+
 /** Desktop PartAngle enum integers accepted by ApplyOverlayJson. */
 const PART_ANGLE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
   { value: '0', label: '0°' }, // PartAngle::_0
@@ -583,7 +596,11 @@ export default function InfoPane({
               <dt>net</dt>
               <dd>
                 {net
-                  ? `${net.name} (#${net.id}${net.isGround ? ', GND' : ''})`
+                  ? `${netDisplayName(net, netInfo?.showname)}${
+                      netDisplayName(net, netInfo?.showname) !== net.name
+                        ? ` ← ${net.name}`
+                        : ''
+                    } (#${net.id}${net.isGround ? ', GND' : ''})`
                   : selectedPin.netId != null
                     ? `id ${selectedPin.netId}`
                     : '—'}
@@ -818,6 +835,8 @@ export default function InfoPane({
               <dl className="info-dl">
                 <dt>name</dt>
                 <dd>{net.name}</dd>
+                <dt>display</dt>
+                <dd>{netDisplayName(net, netInfo?.showname)}</dd>
                 <dt>id</dt>
                 <dd>{net.id}</dd>
                 <dt>ground</dt>
