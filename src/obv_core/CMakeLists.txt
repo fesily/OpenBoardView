@@ -51,6 +51,8 @@ set(OBV_CORE_SOURCES
 	src/chip_store.cpp
 	src/part_render.cpp
 	src/pin_grid.cpp
+	src/part_match.cpp
+
 	${OBV_OPENBOARDVIEW_DIR}/Board.cpp
 	${OBV_OPENBOARDVIEW_DIR}/BRDBoard.cpp
 	${OBV_OPENBOARDVIEW_DIR}/annotations.cpp

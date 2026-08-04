@@ -4,6 +4,7 @@
 #include "obv_core/overlay_store.h"
 #include "obv_core/part_render.h"
 #include "obv_core/pin_grid.h"
+#include "obv_core/part_match.h"
 #include "obv_core/pin_resolve.h"
 
 #include <cctype>
@@ -2199,6 +2200,109 @@ bool parsePartTypePatch(const std::string &json, std::string &partType, std::str
 } // namespace
 
 
+
+struct MatchPartsBody {
+	std::string refA;
+	std::string refB;
+	int rotA = 0;
+	int rotB = 0;
+	std::string regionA = "all";
+	std::string regionB = "all";
+	std::string split = "none";
+	int minPins = 2;
+	double maxDist = 50;
+};
+
+bool parseMatchSideObject(MiniJson &cur, std::string &ref, int &rot, std::string &region) {
+	if (!cur.expect('{')) return false;
+	bool first = true;
+	bool hasRef = false;
+	while (!cur.match('}')) {
+		if (!first && !cur.expect(',')) return false;
+		first = false;
+		std::string key;
+		if (!cur.parseString(key) || !cur.expect(':')) return false;
+		if (key == "ref") {
+			if (!cur.parseString(ref)) return false;
+			hasRef = true;
+		} else if (key == "rot") {
+			if (!cur.parseInt(rot)) return false;
+		} else if (key == "region") {
+			if (!cur.parseString(region)) return false;
+		} else if (!cur.skipValue()) {
+			return false;
+		}
+	}
+	if (!hasRef) {
+		cur.err = "side.ref required";
+		return false;
+	}
+	return true;
+}
+
+bool parseMatchPartsBody(const std::string &json, MatchPartsBody &out, std::string &err) {
+	out = MatchPartsBody{};
+	MiniJson cur(json);
+	if (!cur.expect('{')) {
+		err = cur.err.empty() ? "invalid JSON object" : cur.err;
+		return false;
+	}
+	bool first = true;
+	bool hasA = false, hasB = false;
+	while (!cur.match('}')) {
+		if (!first && !cur.expect(',')) {
+			err = cur.err.empty() ? "expected ','" : cur.err;
+			return false;
+		}
+		first = false;
+		std::string key;
+		if (!cur.parseString(key) || !cur.expect(':')) {
+			err = cur.err.empty() ? "bad key" : cur.err;
+			return false;
+		}
+		if (key == "a") {
+			if (!parseMatchSideObject(cur, out.refA, out.rotA, out.regionA)) {
+				err = cur.err.empty() ? "invalid a" : cur.err;
+				return false;
+			}
+			hasA = true;
+		} else if (key == "b") {
+			if (!parseMatchSideObject(cur, out.refB, out.rotB, out.regionB)) {
+				err = cur.err.empty() ? "invalid b" : cur.err;
+				return false;
+			}
+			hasB = true;
+		} else if (key == "split") {
+			if (!cur.parseString(out.split)) {
+				err = cur.err.empty() ? "invalid split" : cur.err;
+				return false;
+			}
+		} else if (key == "minPins") {
+			if (!cur.parseInt(out.minPins)) {
+				err = cur.err.empty() ? "invalid minPins" : cur.err;
+				return false;
+			}
+		} else if (key == "maxDist") {
+			if (!cur.parseNumber(out.maxDist)) {
+				err = cur.err.empty() ? "invalid maxDist" : cur.err;
+				return false;
+			}
+		} else if (!cur.skipValue()) {
+			err = cur.err.empty() ? "skip failed" : cur.err;
+			return false;
+		}
+	}
+	if (!hasA || !hasB) {
+		err = "a and b are required";
+		return false;
+	}
+	if (out.refA.empty() || out.refB.empty()) {
+		err = "a.ref and b.ref are required";
+		return false;
+	}
+	return true;
+}
+
 void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 	svr.Get("/api/v1/config", [&registry](const httplib::Request &, httplib::Response &res) {
 		const auto &cfg = registry.config();
@@ -2407,6 +2511,70 @@ void RegisterBoardRoutes(httplib::Server &svr, BoardRegistry &registry) {
 				}
 				res.set_content(js, "application/json");
 			});
+
+
+	// Cross-board part match (rot + region, centroid auto-align; no offset).
+	svr.Post("/api/v1/boards/match-parts",
+			 [&registry](const httplib::Request &req, httplib::Response &res) {
+				 MatchPartsBody body;
+				 std::string perr;
+				 if (!parseMatchPartsBody(req.body, body, perr)) {
+					 setError(res, 400, "BAD_REQUEST", perr.empty() ? "invalid body" : perr);
+					 return;
+				 }
+				 if (!obv::IsValidPartMatchRot(body.rotA) || !obv::IsValidPartMatchRot(body.rotB)) {
+					 setError(res, 400, "BAD_REQUEST", "rot must be 0, 90, 180, or 270");
+					 return;
+				 }
+				 if (!obv::IsValidPartMatchRegion(body.regionA) ||
+					 !obv::IsValidPartMatchRegion(body.regionB)) {
+					 setError(res, 400, "BAD_REQUEST",
+							  "region must be all|left|right|top|bottom");
+					 return;
+				 }
+				 if (!obv::IsValidPartMatchSplit(body.split)) {
+					 setError(res, 400, "BAD_REQUEST",
+							  "split must be none|vertical|horizontal");
+					 return;
+				 }
+				 std::string boardIdA, boardIdB;
+				 if (!applyBoardRef(registry, body.refA, res, boardIdA)) return;
+				 if (!applyBoardRef(registry, body.refB, res, boardIdB)) return;
+				 const auto snapA = registry.GetParsed(boardIdA);
+				 if (!snapA) {
+					 setError(res, 404, "NOT_FOUND", "board a not found");
+					 return;
+				 }
+				 if (!snapA->ok()) {
+					 setError(res, 400, "PARSE_FAILED",
+							  snapA->error.empty() ? "parse failed" : snapA->error);
+					 return;
+				 }
+				 const auto snapB = registry.GetParsed(boardIdB);
+				 if (!snapB) {
+					 setError(res, 404, "NOT_FOUND", "board b not found");
+					 return;
+				 }
+				 if (!snapB->ok()) {
+					 setError(res, 400, "PARSE_FAILED",
+							  snapB->error.empty() ? "parse failed" : snapB->error);
+					 return;
+				 }
+				 const std::string srcA = publicSourceName(registry, boardIdA);
+				 const std::string srcB = publicSourceName(registry, boardIdB);
+				 obv::PartMatchResult result;
+				 std::string errCode, errMsg;
+				 if (!obv::MatchBoardParts(*snapA, boardIdA, srcA, body.rotA, body.regionA, *snapB,
+										   boardIdB, srcB, body.rotB, body.regionB, body.split,
+										   body.minPins, body.maxDist, result, errCode, errMsg)) {
+					 int status = 400;
+					 if (errCode == "EMPTY_REGION") status = 400;
+					 setError(res, status, errCode.empty() ? "BAD_REQUEST" : errCode.c_str(),
+							  errMsg.empty() ? "match failed" : errMsg);
+					 return;
+				 }
+				 res.set_content(obv::ExportPartMatchJson(result), "application/json");
+			 });
 
 	// Pin grid inference (row/col from board coordinates).
 	svr.Get(R"(/api/v1/boards/:ref/parts/:part/pin-grid)",

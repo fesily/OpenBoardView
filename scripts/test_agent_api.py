@@ -1832,6 +1832,51 @@ class Suite:
         check_eq(error_code(err), "BAD_REQUEST")
 
 
+
+    def t_match_parts_self(self) -> None:
+        # Same board, rot0/all: near-perfect self match.
+        body = {
+            "a": {"ref": self.fx.board_id, "rot": 0, "region": "all"},
+            "b": {"ref": self.fx.board_id, "rot": 0, "region": "all"},
+            "split": "none",
+            "minPins": 2,
+            "maxDist": 1,
+        }
+        st, resp = request(self.base, "POST", "/api/v1/boards/match-parts", body=body, expect=200)
+        for k in ("a", "b", "matchCount", "matches", "unmatchedA", "unmatchedB", "align", "minPins", "maxDist"):
+            check_in(k, resp, f"match-parts missing {k}")
+        check_eq(resp["align"], "region_centroid")
+        check_eq(int(resp["minPins"]), 2)
+        check_eq(float(resp["maxDist"]), 1.0)
+        check_eq(int(resp["a"]["rot"]), 0)
+        check_eq(resp["a"]["region"], "all")
+        n = int(resp["a"]["partCount"])
+        check(n >= 1, "no parts on side a")
+        check_eq(int(resp["matchCount"]), len(resp["matches"]))
+        # self-match with maxDist=1 should match most/all same-name centers
+        check(int(resp["matchCount"]) >= max(1, n // 2), "self match too low")
+        if resp["matches"]:
+            m0 = resp["matches"][0]
+            for k in ("partA", "partB", "pinCount", "dist", "canvasA", "canvasB"):
+                check_in(k, m0, f"match.{k}")
+            # many exact self pairs
+            same = sum(1 for m in resp["matches"] if m["partA"] == m["partB"])
+            check(same >= 1, "expected at least one same-name self match")
+
+    def t_match_parts_bad_rot(self) -> None:
+        body = {
+            "a": {"ref": self.fx.board_id, "rot": 45, "region": "all"},
+            "b": {"ref": self.fx.board_id, "rot": 0, "region": "all"},
+        }
+        st, err = request(self.base, "POST", "/api/v1/boards/match-parts", body=body, expect=400)
+        check_eq(error_code(err), "BAD_REQUEST")
+
+    def t_match_parts_missing_side(self) -> None:
+        body = {"a": {"ref": self.fx.board_id, "rot": 0, "region": "all"}}
+        st, err = request(self.base, "POST", "/api/v1/boards/match-parts", body=body, expect=400)
+        check_eq(error_code(err), "BAD_REQUEST")
+
+
 # ---------------------------------------------------------------------------
 # Case registry
 # ---------------------------------------------------------------------------
@@ -1880,6 +1925,9 @@ ALL_CASES: list[tuple[str, str, Callable[[Suite], None]]] = [
     ("nets", "patch_unknown", lambda s: s.t_net_patch_unknown()),
     ("nets", "not_found", lambda s: s.t_net_not_found()),
     ("layout", "part_layout_shape", lambda s: s.t_part_layout_shape()),
+    ("match", "parts_self", lambda s: s.t_match_parts_self()),
+    ("match", "parts_bad_rot", lambda s: s.t_match_parts_bad_rot()),
+    ("match", "parts_missing_side", lambda s: s.t_match_parts_missing_side()),
 ]
 
 
