@@ -434,8 +434,8 @@ std::vector<std::pair<double, double>> componentOutlineImagePts(const Component 
 	return pts;
 }
 
-bool isOrientationPin(const Pin &pin, size_t pinCount) {
-	if (pin.show_name == "A1" || pin.name == "A1") return true;
+bool isOrientationPin(const Pin &pin, size_t pinCount, const Annotations *ann) {
+	if (PinDisplayLabel(pin, ann) == "A1") return true;
 	if (pin.number == "1" && pinCount >= 3) return true;
 	return false;
 }
@@ -653,7 +653,7 @@ bool RenderPartScreenshot(const Board &board, const Annotations &ann, const std:
 		double ix, iy;
 		BoardToImagePoint(t, pin.position.x, pin.position.y, ix, iy);
 
-		const Color padColor = isOrientationPin(pin, pinCount) ? kPadA1 : kPad;
+		const Color padColor = isOrientationPin(pin, pinCount, &ann) ? kPadA1 : kPad;
 		const double diamBoard = std::max(0.0, static_cast<double>(pin.diameter));
 		double halfW = diamBoard * 0.5 * t.scale;
 		double halfH = halfW;

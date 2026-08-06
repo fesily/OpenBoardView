@@ -249,7 +249,7 @@ export function drawBoard(
   drawArcs(ctx, board, view, cssW, cssH, colors, highlight, enabledLayers);
   drawVias(ctx, board, view, cssW, cssH, colors, highlight, enabledLayers);
   drawParts(ctx, board, view, cssW, cssH, highlight, colors);
-  drawPins(ctx, board, view, cssW, cssH, highlight, colors);
+  drawPins(ctx, board, view, cssW, cssH, highlight, colors, overlay);
   drawNetWeb(ctx, board, view, cssW, cssH, highlight, colors);
   drawHighlights(ctx, board, view, cssW, cssH, highlight, colors);
   drawPartLabels(ctx, board, view, cssW, cssH, colors);
@@ -612,15 +612,16 @@ const PIN_A1_THRESHOLD = 3;
 
 /**
  * IC orientation marker (desktop DrawPins):
- * - show_name / name == "A1" (BGA corner) always
+ * - display label == "A1" (overlay show_name > board show_name > name) always
  * - number == "1" when part has >= pinA1threshold pins (default 3)
  */
 function isOrientationPin(
   pin: Pin,
   partPinCount: number,
+  overlay: OverlayDocument | null | undefined,
   threshold = PIN_A1_THRESHOLD,
 ): boolean {
-  const show = (pin.show_name || pin.name || '').trim().toUpperCase();
+  const show = pinDisplayName(pin, overlay).toUpperCase();
   if (show === 'A1') return true;
   if (String(pin.number || '').trim() === '1' && partPinCount >= threshold) return true;
   return false;
@@ -634,6 +635,7 @@ function drawPins(
   cssH: number,
   highlight: DrawHighlight,
   colors: DrawColors,
+  overlay: OverlayDocument | null = null,
 ): void {
   const pins = board.pins ?? [];
   const netById = new Map<number, Net>();
@@ -656,7 +658,7 @@ function drawPins(
     const notConnected = isNotConnectedPin(pin, net);
     const testPad = isTestPadPin(pin);
     const pinCount = pin.component ? (partPinCount.get(pin.component) ?? 0) : 0;
-    const orient = isOrientationPin(pin, pinCount);
+    const orient = isOrientationPin(pin, pinCount, overlay);
 
     pathPinShape(ctx, pin, view, s.x, s.y);
     if (selected) {
@@ -889,8 +891,9 @@ function drawPinLabels(
     const r = pinRadiusPx(pin, view.scale);
     const selected = highlight.selectedPinId === pin.id;
     const hi = highlight.pinIds?.has(pin.id) ?? false;
+    const partHi = !!(pin.component && highlight.partNames?.has(pin.component));
     const sameNet = !selected && netForcedVisible(pin.netId, highlight);
-    const forceText = selected || hi || sameNet;
+    const forceText = selected || hi || partHi || sameNet;
     if (!forceText && r < 3.5) continue;
     const s = boardToScreen(view, pin.pos.x, pin.pos.y, cssW, cssH);
     if (s.x < -r || s.x > cssW + r || s.y < -r || s.y > cssH + r) continue;
