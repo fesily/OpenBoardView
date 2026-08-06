@@ -3,6 +3,9 @@
 #endif
 #include <list>
 #include <map>
+#include <string>
+#include <vector>
+
 #ifndef __ANNOTATIONS
 #define __ANNOTATIONS
 #define ANNOTATION_FNAME_LEN_MAX 2048
