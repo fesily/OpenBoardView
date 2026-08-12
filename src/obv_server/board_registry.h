@@ -70,6 +70,9 @@ public:
 	obv::ChipStore &chips();
 
 	const filesystem::path &libraryDir() const { return libraryDir_; }
+	filesystem::path OverlayPath(const std::string &id) const;
+
+
 
 private:
 	struct CacheSlot {
@@ -94,7 +97,8 @@ private:
 	filesystem::path libraryDir_;
 	mutable std::mutex mu_;
 	std::unordered_map<std::string, CacheSlot> byId_;
-	// Separate from mu_: hold OverlayMutex across load/mutate/save without blocking List/GetParsed.
+
+
 	mutable std::mutex overlayMapMu_;
 	std::unordered_map<std::string, std::unique_ptr<std::mutex>> overlayMu_;
 	obv::ChipStore chips_;

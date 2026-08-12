@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build web/dist if needed and start obv_server with data + library boardRoot + SPA static root.
-# Env: OBV_HOST, OBV_PORT, OBV_DATA, OBV_BOARDS, OBV_WWW, OBV_BUILD_DIR
+# Build web/dist if needed and start obv_server with library boardRoot + SPA static root.
+# Env: OBV_HOST, OBV_PORT, OBV_BOARDS, OBV_WWW, OBV_BUILD_DIR
 # OBV_BOARDS defaults to the Windows BaiduSyncdisk pcb path (override on non-Windows).
 set -euo pipefail
 
@@ -9,7 +9,6 @@ cd "$ROOT"
 
 HOST="${OBV_HOST:-127.0.0.1}"
 PORT="${OBV_PORT:-8080}"
-DATA="${OBV_DATA:-$ROOT/data}"
 BOARDS="${OBV_BOARDS:-C:/Users/fesil/Documents/BaiduSyncdisk/pcb}"
 WWW="${OBV_WWW:-$ROOT/web/dist}"
 BUILD_DIR="${OBV_BUILD_DIR:-$ROOT/build-web}"
@@ -55,10 +54,11 @@ SERVER="$(find_server)" || {
   exit 1
 }
 
-mkdir -p "$DATA/boards" "$DATA/overlays" "$DATA/config"
-if [[ ! -f "$DATA/config/keys.json" && -f "$ROOT/data/config/keys.example.json" ]]; then
-  cp "$ROOT/data/config/keys.example.json" "$DATA/config/keys.example.json" 2>/dev/null || true
+# Ensure config dir exists under boardRoot for optional keys
+mkdir -p "$BOARDS/config"
+if [[ ! -f "$BOARDS/config/keys.json" && -f "$ROOT/data/config/keys.example.json" ]]; then
+  cp "$ROOT/data/config/keys.example.json" "$BOARDS/config/keys.example.json" 2>/dev/null || true
 fi
 
-echo "Starting: $SERVER --host $HOST --port $PORT --data $DATA --boards $BOARDS --www $WWW"
-exec "$SERVER" --host "$HOST" --port "$PORT" --data "$DATA" --boards "$BOARDS" --www "$WWW" "$@"
+echo "Starting: $SERVER --host $HOST --port $PORT --boards $BOARDS --www $WWW"
+exec "$SERVER" --host "$HOST" --port "$PORT" --boards "$BOARDS" --www "$WWW" "$@"

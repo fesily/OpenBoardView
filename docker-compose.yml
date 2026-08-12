@@ -37,9 +37,8 @@ services:
     #   - 0.0.0.0
     #   - --port
     #   - "8080"
-    #   - --data
-    #   - /app/data
     #   - --boards
+
     #   - /app/boards
     #   - --www
     #   - /app/www
@@ -48,14 +47,13 @@ services:
       # Documented for operators; binary uses CLI flags from CMD by default.
       OBV_HOST: "0.0.0.0"
       OBV_PORT: "8080"
-      OBV_DATA: /app/data
       OBV_BOARDS: /app/boards
+
       OBV_WWW: /app/www
 
     volumes:
       # Board library (host path must exist and contain board files)
       - ./boards:/app/boards:ro
-      # Runtime data: uploaded boards, overlays, config (needs write)
-      - ./data:/app/data
+      # Overlays and chip library persist alongside boards under /app/boards (needs write)
       # Optional decrypt keys:
-      # - ./data/config/keys.json:/app/data/config/keys.json:ro
+      # - ./boards/config/keys.json:/app/boards/config/keys.json:ro

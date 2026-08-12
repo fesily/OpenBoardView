@@ -90,7 +90,6 @@ int main(int argc, char **argv) {
 	}
 
 	std::cout << "listening " << cfg.host << ":" << cfg.port
-			  << " dataRoot=" << cfg.dataRoot.string()
 			  << " boardRoot=" << cfg.boardRoot.string();
 	if (!webRoot.empty()) {
 		std::cout << " webRoot=" << webRoot.string();

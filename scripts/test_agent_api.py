@@ -1974,11 +1974,7 @@ def wait_health(base: str, timeout: float = 15.0) -> None:
     raise SystemExit(f"server not healthy at {base} within {timeout}s ({last})")
 
 
-def start_server(binary: Path, boards: Path, host: str, port: int, data: Path) -> subprocess.Popen:
-    data.mkdir(parents=True, exist_ok=True)
-    (data / "boards").mkdir(exist_ok=True)
-    (data / "overlays").mkdir(exist_ok=True)
-    (data / "config").mkdir(exist_ok=True)
+def start_server(binary: Path, boards: Path, host: str, port: int) -> subprocess.Popen:
     cmd = [
         str(binary),
         "--host",
@@ -1987,8 +1983,6 @@ def start_server(binary: Path, boards: Path, host: str, port: int, data: Path) -
         str(port),
         "--boards",
         str(boards),
-        "--data",
-        str(data),
     ]
     print(f"Starting: {' '.join(cmd)}")
     # CREATE_NEW_PROCESS_GROUP on Windows so we can terminate cleanly
@@ -2042,8 +2036,8 @@ def main() -> int:
         default=os.environ.get("OBV_TEST_SERVER", ""),
         help="path to obv_server binary",
     )
-    ap.add_argument("--data", default=str(root / "data"), help="--data root for auto-started server")
     ap.add_argument("--no-start", action="store_true", help="do not start server; require --base")
+
     ap.add_argument(
         "-k",
         "--filter",
@@ -2078,7 +2072,7 @@ def main() -> int:
                 boards = Path(args.boards)
                 if not boards.is_dir():
                     raise SystemExit(f"boards dir not found: {boards}")
-                proc = start_server(binary, boards, args.host, args.port, Path(args.data))
+                proc = start_server(binary, boards, args.host, args.port)
                 try:
                     wait_health(base, timeout=20.0)
                 except SystemExit:

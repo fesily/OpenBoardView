@@ -99,7 +99,7 @@ filesystem::path overlaySqlitePath(const filesystem::path &boardPath) {
 BoardRegistry::BoardRegistry(ServerConfig cfg)
 	: cfg_(std::move(cfg)), libraryDir_(normalizeAbs(cfg_.boardRoot)),
 	  chips_(libraryDir_ / "chips") {
-	// Chip library lives next to the board library: boardRoot/chips (not dataRoot).
+	// Chip library and all data live under boardRoot (libraryDir_).
 	cfg_.boardRoot = libraryDir_;
 }
 

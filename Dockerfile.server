@@ -50,13 +50,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libsqlite3-0 \
       libstdc++6 \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /app/data/boards /app/data/overlays /app/data/config /app/boards
+    && mkdir -p /app/boards
 
 WORKDIR /app
 
 COPY --from=server-build /src/build/src/obv_server/obv_server /app/obv_server
 COPY --from=web-build /src/web/dist /app/www
-COPY data/config/keys.example.json /app/data/config/keys.example.json
+COPY data/config/keys.example.json /app/boards/config/keys.example.json
 
 # Default as root so bind-mounted host board libraries stay readable regardless
 # of host file UID/mode (common LAN deploy). To drop privileges when you own
@@ -65,11 +65,10 @@ EXPOSE 8080
 
 ENV OBV_HOST=0.0.0.0 \
     OBV_PORT=8080 \
-    OBV_DATA=/app/data \
     OBV_BOARDS=/app/boards \
     OBV_WWW=/app/www
 
 # Default: listen on all interfaces inside the container, serve SPA + API.
-# Mount board library at /app/boards and optionally /app/data for persistence.
+# Mount board library at /app/boards; overlays and chips persist alongside boards.
 ENTRYPOINT ["/app/obv_server"]
-CMD ["--host", "0.0.0.0", "--port", "8080", "--data", "/app/data", "--boards", "/app/boards", "--www", "/app/www"]
+CMD ["--host", "0.0.0.0", "--port", "8080", "--boards", "/app/boards", "--www", "/app/www"]
