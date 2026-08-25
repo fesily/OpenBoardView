@@ -1,8 +1,8 @@
 #ifndef _RENDERERS_H_
 #define _RENDERERS_H_
 
-#include "ImGuiRendererSDLGL3.h"
 #include "ImGuiRendererSDLGL1.h"
+#include "ImGuiRendererSDLGL3.h"
 
 #include <memory>
 
@@ -21,8 +21,8 @@ namespace Renderers {
 
 	extern std::unique_ptr<ImGuiRendererSDL> current;
 
-	std::unique_ptr<ImGuiRendererSDL> newInstance(Renderer r, SDL_Window *window);
-	bool initBestRenderer(Renderer preferred, SDL_Window *window);
-}
+	std::unique_ptr<ImGuiRendererSDL> newInstance(Renderer r);
+	bool initBestRenderer(Renderer preferred);
+} // namespace Renderers
 
 #endif

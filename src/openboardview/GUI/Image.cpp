@@ -1,7 +1,6 @@
 #include "Image.h"
 
 #include "imgui/imgui.h"
-#include <glad/glad.h>
 
 #include <array>
 
@@ -11,11 +10,11 @@ Image::Image(const filesystem::path &file) : file(file) {
 }
 
 Image::~Image() {
-	glDeleteTextures(1, &texture);
+	Renderers::current->deleteTexture(texture);
 }
 
 std::string Image::reload() {
-	glDeleteTextures(1, &texture);
+	Renderers::current->deleteTexture(texture);
 	texture = 0;
 	if (file.empty()) { // Ignore empty paths silently
 		return {};

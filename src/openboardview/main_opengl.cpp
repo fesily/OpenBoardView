@@ -223,8 +223,11 @@ int main(int argc, char **argv) {
 	std::string configDir;
 	globals g; // because some things we have to store *before* we load the config file in BoardView app.obvconf
 
-	// Log all messages
-	SDL_LogSetAllPriority(SDL_LOG_PRIORITY_VERBOSE);
+	SDL_LogSetAllPriority(SDL_LOG_PRIORITY_INFO);
+
+	// Print version information
+	SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "%s %s", OBV_NAME, OBV_VERSION);
+	SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "%s", OBV_BUILD);
 
 #if SDL_VERSION_ATLEAST(2, 24, 0)
 	SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "system");
@@ -240,6 +243,11 @@ int main(int argc, char **argv) {
 	parse_parameters(argc, argv, &g);
 
 	app.debug = g.debug;
+
+	// Log all messages
+	if (app.debug) {
+		SDL_LogSetAllPriority(SDL_LOG_PRIORITY_VERBOSE);
+	}
 
 	// Setup SDL
 	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
@@ -309,29 +317,24 @@ int main(int argc, char **argv) {
 		window_height = std::min(window_height, window_bounds.h);
 	}
 
-	// Setup window
-	uint32_t window_flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE;
-#if defined(_WIN32) || defined(__APPLE__)
-	window_flags |= SDL_WINDOW_ALLOW_HIGHDPI;
-#endif
-#ifdef ANDROID
-    window_flags |= SDL_WINDOW_FULLSCREEN;
-#endif
-	window = SDL_CreateWindow(
-	    OBV_NAME, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, window_width, window_height, window_flags);
-	if (window == NULL) {
-		SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Failed to create the sdlWindow: %s\n", SDL_GetError());
-		cleanupAndExit(1);
-	}
-
 	// Needs to be done before initializing the renderer or using any of ImGui stuff
 	ImGui::CreateContext();
+
 	// Setup renderer
-	bool initialized = Renderers::initBestRenderer(g.renderer, window);
+	bool initialized = Renderers::initBestRenderer(g.renderer);
 	if (!initialized) {
 		SDL_LogError(SDL_LOG_CATEGORY_RENDER, "%s", "No renderer not available. Exiting.");
 		cleanupAndExit(1);
 	}
+
+	SDL_Window *window = Renderers::current->getWindow();
+
+	if (window == NULL) {
+		cleanupAndExit(1);
+	}
+
+	SDL_SetWindowTitle(window, OBV_NAME " " OBV_VERSION);
+	SDL_SetWindowSize(window, window_width, window_height);
 
 	SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
 
@@ -366,6 +369,10 @@ int main(int argc, char **argv) {
 	app.m_board_surface.x = g.width;
 	app.m_board_surface.y = g.height;
 	if (app.config.showInfoPanel) app.m_board_surface.x -= app.m_info_surface.x;
+	if (app.m_board_surface.x <= 0.0f) {
+		app.m_board_surface.x = g.width * 0.66f;
+		app.m_info_surface.x = g.width - app.m_board_surface.x;
+	}
 
 	if (g.font_size > 0.0) app.config.fontSize = g.font_size;
 

@@ -3,7 +3,7 @@
 #include "Board.h"
 #include "Searcher.h"
 #include "SpellCorrector.h"
-#include "annotations.h"
+#include "Annotations.h"
 #include "confparse.h"
 #include "history.h"
 #include "imgui/imgui.h"

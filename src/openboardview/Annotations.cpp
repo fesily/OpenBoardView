@@ -11,7 +11,7 @@
 #define RYML_SINGLE_HDR_DEFINE_NOW 1
 #include "../rapidyaml.hpp"
 
-#include "annotations.h"
+#include "Annotations.h"
 #include "platform.h"
 
 int Annotations::SetFilename(const std::string &f) {

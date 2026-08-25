@@ -66,11 +66,11 @@ bool KeyBindings::isPressed(const std::string &name) const {
 }
 
 void KeyBindings::reset() {
-	keybindings["Quit"] = {KeyBinding(ImGuiKey_Q, {ImGuiKey_ModCtrl})};
-	keybindings["Open"] = {KeyBinding(ImGuiKey_O, {ImGuiKey_ModCtrl})};
-	keybindings["Search"] = {KeyBinding(ImGuiKey_F, {ImGuiKey_ModCtrl}), KeyBinding(ImGuiKey_Slash)};
+	keybindings["Quit"] = {KeyBinding(ImGuiKey_Q, {ImGuiMod_Ctrl})};
+	keybindings["Open"] = {KeyBinding(ImGuiKey_O, {ImGuiMod_Ctrl})};
+	keybindings["Search"] = {KeyBinding(ImGuiKey_F, {ImGuiMod_Ctrl}), KeyBinding(ImGuiKey_Slash)};
 	keybindings["CloseDialog"] = {KeyBinding(ImGuiKey_Escape)};
-	keybindings["Validate"] = {KeyBinding(ImGuiKey_Enter, {ImGuiKey_ModShift})};
+	keybindings["Validate"] = {KeyBinding(ImGuiKey_Enter, {ImGuiMod_Shift})};
 	keybindings["Accept"] = {KeyBinding(ImGuiKey_Enter)};
 
 	keybindings["Flip"] = {KeyBinding(ImGuiKey_Space)};

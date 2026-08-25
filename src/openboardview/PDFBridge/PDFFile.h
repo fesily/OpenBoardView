@@ -3,7 +3,6 @@
 
 #include <array>
 #include <string>
-#include <glad/glad.h>
 
 #include "imgui/imgui.h"
 

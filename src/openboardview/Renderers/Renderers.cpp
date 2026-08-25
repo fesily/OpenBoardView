@@ -7,27 +7,28 @@
 namespace Renderers {
 	std::unique_ptr<ImGuiRendererSDL> current;
 
-	Renderer &operator++(Renderer& r) {
-		return r = (r == Renderer::DEFAULT) ? static_cast<Renderer>(1 /*first renderer in Renderer enum class*/) : static_cast<Renderer>(static_cast<int>(r)+1);
+	Renderer &operator++(Renderer &r) {
+		return r = (r == Renderer::DEFAULT) ? static_cast<Renderer>(1 /*first renderer in Renderer enum class*/)
+											: static_cast<Renderer>(static_cast<int>(r) + 1);
 	}
 
 	Renderer get(int n) {
 		if (n > static_cast<int>(Renderer::DEFAULT)) {
-			std::cerr << "Unknown renderer specified: " << n << std::endl; // this is called before SDL is initalized when parsing parameters so we can't use SDL_Log
+			SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Unknown renderer specified: %d\n", n);
 			return Renderer::DEFAULT;
 		}
 		return static_cast<Renderer>(n);
 	}
 
-	std::unique_ptr<ImGuiRendererSDL> newInstance(Renderer r, SDL_Window *window) {
+	std::unique_ptr<ImGuiRendererSDL> newInstance(Renderer r) {
 		switch (r) {
 #ifdef ENABLE_GL1
 			case Renderer::OPENGL1:
-				return std::unique_ptr<ImGuiRendererSDL>(new ImGuiRendererSDLGL1(window));
+				return std::unique_ptr<ImGuiRendererSDL>(new ImGuiRendererSDLGL1());
 #endif
 #ifdef ENABLE_GL3
 			case Renderer::OPENGL3:
-				return std::unique_ptr<ImGuiRendererSDL>(new ImGuiRendererSDLGL3(window));
+				return std::unique_ptr<ImGuiRendererSDL>(new ImGuiRendererSDLGL3());
 #endif
 			case Renderer::DEFAULT: // skip this one
 				return std::unique_ptr<ImGuiRendererSDL>{};
@@ -37,12 +38,12 @@ namespace Renderers {
 		}
 	}
 
-	bool initBestRenderer(Renderer preferred, SDL_Window *window) {
+	bool initBestRenderer(Renderer preferred) {
 		Renderer tryrenderer = preferred;
 		std::unique_ptr<ImGuiRendererSDL> rendererInstance;
 		bool initialized = false;
 		do {
-			rendererInstance = newInstance(tryrenderer, window);
+			rendererInstance = newInstance(tryrenderer);
 			initialized = rendererInstance && rendererInstance->init();
 		} while (++tryrenderer != preferred && !initialized); // stop if we looped over or if it initalized successfully
 
@@ -53,4 +54,4 @@ namespace Renderers {
 		}
 		return initialized;
 	}
-}
+} // namespace Renderers

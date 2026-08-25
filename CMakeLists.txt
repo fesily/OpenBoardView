@@ -22,7 +22,7 @@ endif()
 # VERSION must be up to 4 groups of digits separated by a period.
 # major.90 are alpha releases
 # major.95 are beta releases
-project(OpenBoardView VERSION 9.95.2)
+project(OpenBoardView VERSION 10.0.0)
 set(CMAKE_C_STANDARD 11)
 
 # Include our project variables

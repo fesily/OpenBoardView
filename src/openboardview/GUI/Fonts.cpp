@@ -8,11 +8,12 @@
 #include <string>
 #include <vector>
 
-#include "imgui/imgui.h"
+#include <imgui.h>
 
 #include "Renderers/Renderers.h"
-#include "DPI.h"
 #include "utils.h"
+
+constexpr const float Fonts::MAX_FONT_SIZE;
 
 std::string Fonts::load(std::string customFont) {
 	// Font selection
@@ -24,21 +25,24 @@ std::string Fonts::load(std::string customFont) {
 	ImGuiIO &io = ImGui::GetIO();
 
 	for (const auto &name : fontList) {
-		std::vector<char> ttf = load_font(name);
+#ifdef _WIN32
+		std::vector<char> new_ttf = load_font(name);
 
-		ImFontConfig font_cfg{};
-		std::strncpy(font_cfg.Name, name.c_str(), sizeof(font_cfg.Name));
-		font_cfg.Name[sizeof(font_cfg.Name) - 1] = '\0';
-		font_cfg.FontData = ttf.data();
-		font_cfg.FontDataSize = ttf.size();
-		font_cfg.FontDataOwnedByAtlas = false;
+		if (!new_ttf.empty()) {
+			this->ttf = new_ttf;
+			ImFontConfig font_cfg{};
+			std::strncpy(font_cfg.Name, name.c_str(), sizeof(font_cfg.Name));
+			font_cfg.Name[sizeof(font_cfg.Name) - 1] = '\0';
+			font_cfg.FontData = this->ttf.data();
+			font_cfg.FontDataSize = this->ttf.size();
+			font_cfg.FontDataOwnedByAtlas = false;
 
-		if (!ttf.empty()) {
 			if (io.Fonts->AddFont(&font_cfg) != nullptr) {
 				SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Loaded font: %s", name.c_str());
 				return name;
 			} else {
 				SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Cannot load font %s", name.c_str());
+				this->ttf.clear();
 			}
 		} else {
 			SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Cannot load font %s: not found", name.c_str());
@@ -61,8 +65,13 @@ std::string Fonts::load(std::string customFont) {
 	return {};
 }
 
-std::string Fonts::reload(std::string customFont) {
+void Fonts::unload() {
 	ImGuiIO &io = ImGui::GetIO();
 	io.Fonts->Clear();
+	this->ttf.clear();
+}
+
+std::string Fonts::reload(std::string customFont) {
+	this->unload();
 	return this->load(customFont);
 }

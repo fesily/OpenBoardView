@@ -4,10 +4,14 @@
 #include <string>
 
 // SDL, glad
+#ifdef ENABLE_GLES2
+#include <glad/gles2.h>
+#else
+#include <glad/gl.h>
+#endif
 #include <SDL.h>
-#include <glad/glad.h>
 
-#include "imgui/imgui.h"
+#include <imgui.h>
 
 #include "filesystem_impl.h"
 
@@ -15,11 +19,11 @@ class ImGuiRendererSDL {
 public:
 	static float getDisplayScale();
 
-	explicit ImGuiRendererSDL(SDL_Window *window);
+	explicit ImGuiRendererSDL();
 	virtual ~ImGuiRendererSDL();
 
 	virtual std::string name();
-	virtual bool checkGLVersion() = 0;
+	virtual bool checkGLVersion(int version) = 0;
 	virtual bool init();
 	virtual void processEvent(SDL_Event &event);
 	virtual void initFrame();
@@ -27,11 +31,20 @@ public:
 	virtual void renderDrawData() = 0;
 	virtual void shutdown();
 
-	// Returned string is error message, empty if successful
-	virtual std::string loadTextureFromFile(const filesystem::path &filepath, GLuint* out_texture, int* out_width, int* out_height);
+	virtual std::string createTexture(ImTextureID* out_texture, uint8_t* data, int w, int h, char fmt) = 0;
+	std::string loadTextureFromFile(const filesystem::path &filepath, ImTextureID* out_texture, int* out_width, int* out_height);
+	virtual void deleteTexture(ImTextureID tex);
+
+	virtual void toggleFullScreen();
+	virtual SDL_Window *getWindow();
+
 protected:
 	SDL_Window *window = nullptr;
+	int version = 0;
+	int glMaxTextureSize = 0;
+
 	virtual void setGLVersion();
+
 private:
 	SDL_GLContext glcontext = nullptr;
 };

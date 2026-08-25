@@ -34,7 +34,7 @@
 #include "GUI/DPI.h"
 #include "GUI/Fonts.h"
 #include "GUI/widgets.h"
-#include "annotations.h"
+#include "Annotations.h"
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h" // For ImGui::FocusWindow()
 #include "imgui/misc/cpp/imgui_stdlib.h"
@@ -398,7 +398,7 @@ void BoardView::ShowInfoPane(void) {
 	} else {
 		if (m_dragging_token == 2) {
 			config.infoPanelWidth = IDPIF(m_info_surface.x); // Convert back to DPI-independant value
-			obvconfig.WriteInt("infoPanelWidth", m_info_surface.x);
+			obvconfig.WriteInt("infoPanelWidth", config.infoPanelWidth);
 		}
 		m_dragging_token = 0;
 	}
@@ -596,7 +596,7 @@ void BoardView::ContextMenu(void) {
 	if (ImGui::BeginPopupModal("Annotations", &dummy, ImGuiWindowFlags_AlwaysAutoResize)) {
 
 		if (m_showContextMenu) {
-			contextbuf[0]      = 0;
+			note.clear();
 			m_showContextMenu  = false;
 			for (auto &ann : m_annotations.annotations) ann.hovered = false;
 		}
@@ -687,7 +687,7 @@ void BoardView::ContextMenu(void) {
 					if (m_annotationedit_retain || (m_annotation_clicked_id >= 0)) {
 						Annotation ann = m_annotations.annotations[m_annotation_clicked_id];
 						if (!m_annotationedit_retain) {
-							snprintf(contextbuf, sizeof(contextbuf), "%s", ann.note.c_str());
+							note = ann.note;
 							m_annotationedit_retain = true;
 							m_annotationnew_retain  = false;
 						}
@@ -702,24 +702,22 @@ void BoardView::ContextMenu(void) {
 						            ann.pin.c_str(),
 						            ann.part.size() && ann.pin.size() ? ']' : ' ');
 						ImGui::InputTextMultiline("##annotationedit",
-						                          contextbuf,
-						                          sizeof(contextbuf),
-						                          ImVec2(DPI(600), ImGui::GetTextLineHeight() * 8),
-						                          0,
-						                          NULL,
-						                          contextbuf);
+						                          &note,
+						                          ImVec2(DPI(600), ImGui::GetTextLineHeight() * 8));
 
 						if (ImGui::Button("Update##1") || keybindings.isPressed("Validate")) {
 							m_annotationedit_retain = false;
-							m_annotations.Update(m_annotations.annotations[m_annotation_clicked_id].id, contextbuf);
+							m_annotations.Update(m_annotations.annotations[m_annotation_clicked_id].id, note);
 							m_annotations.GenerateList();
 							m_needsRedraw      = true;
+							note.clear();
 							ImGui::CloseCurrentPopup();
 						}
 						ImGui::SameLine();
 						if (ImGui::Button("Cancel##1")) {
 							ImGui::CloseCurrentPopup();
 							m_annotationnew_retain = false;
+							note.clear();
 						}
 						ImGui::Separator();
 					}
@@ -777,7 +775,7 @@ void BoardView::ContextMenu(void) {
 						}
 					};
 					if (m_annotationnew_retain == false) {
-						contextbufnew[0]        = 0;
+						note_new.clear();
 						m_annotationnew_retain  = true;
 						m_annotation_clicked_id = -1;
 						m_annotationedit_retain = false;
@@ -928,6 +926,7 @@ void BoardView::ContextMenu(void) {
 						}
 						m_needsRedraw = true;
 
+						note_new.clear();
 						ImGui::CloseCurrentPopup();
 					}
 					/*
@@ -954,6 +953,7 @@ void BoardView::ContextMenu(void) {
 
 		ImGui::SameLine();
 		if (ImGui::Button("Cancel##2") || keybindings.isPressed("CloseDialog")) {
+			note_new.clear();
 			m_annotationnew_retain  = false;
 			m_annotationedit_retain = false;
 			ImGui::CloseCurrentPopup();

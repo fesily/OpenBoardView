@@ -19,7 +19,7 @@
 #define kBoardArcPrefix "a_"
 #define kBoardElementNameLength 127
 
-#include "annotations.h"
+#include "Annotations.h"
 
 struct Point;
 struct BoardElement;

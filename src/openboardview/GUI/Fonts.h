@@ -4,11 +4,14 @@
 #include <string>
 
 class Fonts {
+private:
+	std::vector<char> ttf{};
 public:
 	 // Arbritarily chosen small value to attempt not to overflow texture size especially on poor GPU/drivers with e.g., 1024x1024 max (Windows GDI)
 	static constexpr const float MAX_FONT_SIZE = 72.0f;
 
 	std::string load(std::string customFont);
+	void unload();
 	std::string reload(std::string customFont);
 };
 

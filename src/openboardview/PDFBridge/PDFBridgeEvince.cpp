@@ -6,9 +6,7 @@ PDFBridgeEvince::PDFBridgeEvince() {
 }
 
 PDFBridgeEvince::~PDFBridgeEvince() {
-	if (dbusConnection != nullptr)
-		g_object_unref(dbusConnection);
-	dbusConnection = nullptr;
+	g_clear_object(&dbusConnection);
 }
 
 void PDFBridgeEvince::OnSignal(GDBusProxy *proxy, gchar *senderName, gchar *signalName, GVariant *parameters, gpointer userData) {
@@ -135,10 +133,8 @@ void PDFBridgeEvince::OpenDocument(const PDFFile &pdfFile) {
 void PDFBridgeEvince::CloseDocument() {
 	/* No way to close document in Evince for now so just clean state up */
 
-	g_object_unref(daemonProxy);
-	daemonProxy = nullptr;
-	g_object_unref(windowProxy);
-	windowProxy = nullptr;
+	g_clear_object(&daemonProxy);
+	g_clear_object(&windowProxy);
 }
 
 void PDFBridgeEvince::DocumentSearch(const std::string &str, bool wholeWordsOnly, bool caseSensitive) {

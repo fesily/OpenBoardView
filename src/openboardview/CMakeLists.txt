@@ -79,11 +79,11 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(iguana)
 
 set(SOURCES
-	annotations.cpp
 	confparse.cpp
 	vectorhulls.cpp
 	history.cpp
 	utils.cpp
+	Annotations.cpp
 	BoardView.cpp
 	Board.cpp
 	BRDBoard.cpp

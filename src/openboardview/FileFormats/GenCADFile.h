@@ -8,6 +8,7 @@
 #include "mpc/mpc.h"
 
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -58,7 +59,7 @@ class GenCADFile : public BRDFileBase {
 	// returns true if content_holder is not null, and contains value exactly equal to passed non-null text
 	bool has_text_content(mpc_ast_t *content_holder, const char *text);
 	char *get_stringtoend_child(mpc_ast_t *parent, const char *name);
-	mpc_ast_t *get_padstack_by_name(const char *padstack_name);
+	void fill_padstacks_cache();
 	mpc_ast_t *get_pad_by_name(const char *pad_name);
 	double get_padstack_radius(mpc_ast_t *padstack_ast);
 	BRDPinSide get_padstack_side(mpc_ast_t *padstack_ast);
@@ -80,6 +81,16 @@ class GenCADFile : public BRDFileBase {
 
 	typedef std::tuple<std::string, std::string> ComponentPin;
 	std::map<ComponentPin, std::string> m_signals_cache;
+
+	struct PadStackInfo {
+		bool is_drilled = {};
+		BRDPinSide side = {};
+	};
+	std::map<std::string, PadStackInfo> m_pad_stack_info_cache;
+
+	// stores all loaded shapes to perform duplicate detection
+	typedef std::tuple<BRDPartMountingSide, int, int, std::string> PositionedNamedShape;
+	std::set<PositionedNamedShape> m_parsed_shapes;
 	int nc_counter = 0;
 
 };

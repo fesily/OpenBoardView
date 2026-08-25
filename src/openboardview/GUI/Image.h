@@ -3,7 +3,6 @@
 
 #include <array>
 #include <string>
-#include <glad/glad.h>
 
 #include "imgui/imgui.h"
 
@@ -18,7 +17,7 @@ namespace Preferences {
 class Image {
 private:
 	filesystem::path file{};
-	GLuint texture = 0;
+	ImTextureID texture = 0;
 	int width = 0;
 	int height = 0;
 	int offsetX = 0;

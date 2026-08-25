@@ -60,18 +60,15 @@ execute_process(
 	COMMAND git submodule update --init src/glad
 	WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
 )
-set(GLAD_PROFILE "compatibility" CACHE STRING "GL Profile" FORCE) # Using OpenGL Compatibility profile (for enabling use of fixed-function pipeline)
-if(ANDROID) #GLES2 support only
-	set(GLAD_API "gles2=2.0" CACHE STRING "GL versions" FORCE) # Build for OpenGLES 2
-else()
-	set(GLAD_API "gl=3.2,gles2=2.0" CACHE STRING "GL versions" FORCE) # Build for OpenGL 3.0 and OpenGLES 2
+set(GLAD_SOURCES_DIR "${PROJECT_SOURCE_DIR}/src/glad")
+add_subdirectory(glad/cmake glad_cmake)
+
+if(ENABLE_GL1 OR ENABLE_GL3)
+glad_add_library(glad_gl REPRODUCIBLE API gl:compatibility=3.2 EXTENSIONS NONE)
 endif()
-set(GLAD_EXTENSIONS "GL_EXT_texture_compression_s3tc,GL_OES_element_index_uint" CACHE STRING "Gl exts" FORCE) # S3TC used to load texture for pins — delete when removing support. The other is used by GLES2.
-set(GLAD_NO_LOADER ON CACHE BOOL "Disable loader" FORCE) # We're using SDL2 loader
-set(GLAD_REPRODUCIBLE ON CACHE BOOL "Reproducible build" FORCE)
-set(CMAKE_POLICY_VERSION_MINIMUM 3.11) # force glad 1.x compatibility with cmake 4.0
-add_subdirectory(glad)
-unset(CMAKE_POLICY_VERSION_MINIMUM)
+if(ENABLE_GLES2)
+glad_add_library(glad_gles REPRODUCIBLE API gles2=2.0 EXTENSIONS GL_OES_element_index_uint GL_EXT_texture_format_BGRA8888)
+endif()
 
 ## SDL2 ##
 if(ANDROID)
@@ -130,22 +127,18 @@ execute_process(
 	COMMAND git submodule update --init src/imgui
 	WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
 )
-add_definitions("-DImDrawIdx=unsigned int") # short is not enough for us
-add_definitions("-DIMGUI_IMPL_OPENGL_LOADER_GLAD") # We use glad
-# Configure GL3 renderer to be GLES2 compatible if GLES2 is enabled
-if(ENABLE_GLES2)
-    add_definitions("-DIMGUI_IMPL_OPENGL_ES2")
-endif()
 
 # workaround for OpenGL include for OpenGL2, need to be glad rather than gl itself
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends/imgui_impl_opengl2.cpp" input)
-string(REPLACE "OpenGL/gl.h" "glad/glad.h" input "${input}")
-string(REPLACE "GL/gl.h" "glad/glad.h" input "${input}")
+string(REPLACE "OpenGL/gl.h" "glad/gl.h" input "${input}")
+string(REPLACE "GL/gl.h" "glad/gl.h" input "${input}")
 file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends/imgui_impl_opengl2.cpp" "${input}")
 
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/imgui
-	${GLAD_INCLUDE_DIRS}
-)
+# workaround for OpenGLES includes, need to be glad rather than gles itself
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends/imgui_impl_opengl3.cpp" input)
+string(REPLACE "GLES2/gl2.h" "glad/gles.h" input "${input}")
+string(REPLACE "GLES3/gl3.h" "glad/gles.h" input "${input}")
+file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends/imgui_impl_opengl3.cpp" "${input}")
 
 set(SOURCES
 	imgui/imgui.cpp
@@ -168,13 +161,31 @@ if(ENABLE_GL3)
 endif()
 
 add_library(imgui STATIC ${SOURCES})
-target_link_libraries(imgui
-	${GLAD_LIBRARIES}
+target_compile_definitions(imgui PUBLIC "-DImDrawIdx=unsigned int") # short is not enough for us
+target_compile_definitions(imgui PUBLIC "-DIMGUI_IMPL_OPENGL_LOADER_GLAD") # We use glad
+# Configure GL3 renderer to be GLES2 compatible if GLES2 is enabled
+if(ENABLE_GLES2)
+	target_compile_definitions(imgui PUBLIC "-DIMGUI_IMPL_OPENGL_ES2")
+endif()
+target_include_directories(imgui PUBLIC
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/examples
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui/misc/cpp
 )
 add_definitions(-DNOMINMAX)
+if(ENABLE_GLES2)
+target_link_libraries(imgui
+  glad_gles
+)
+elseif(ENABLE_GL1 OR ENABLE_GL3)
+  target_link_libraries(imgui
+    glad_gl
+  )
+endif()
 if(MSVC OR ANDROID)
 target_include_directories(imgui PRIVATE ${SDL2_INCLUDE_DIRS})
-elseif(MINGW)
+endif()
+if(MINGW)
 target_link_libraries(imgui
 	SDL2::SDL2-static
 )
@@ -184,15 +195,21 @@ target_link_libraries(imgui
 )
 endif()
 
-set(IMGUI_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/imgui ${CMAKE_CURRENT_SOURCE_DIR}/imgui/examples)
-
-
 #install(TARGETS imgui DESTINATION ${INSTALL_ARCHIVE_DIR}) # No need to install a static lib
 
 ## filesystem ##
 message(CHECK_START "Checking for std::filesystem")
+# On macOS, std::filesystem requires macOS 10.15 or newer
+if(APPLE AND DEFINED CMAKE_OSX_DEPLOYMENT_TARGET AND CMAKE_OSX_DEPLOYMENT_TARGET VERSION_LESS "10.15")
+	message(CHECK_FAIL "not available (macOS ${CMAKE_OSX_DEPLOYMENT_TARGET}), using ghc::filesystem")
+	execute_process(
+		COMMAND git submodule update --init src/filesystem
+		WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+	)
+	add_subdirectory(filesystem)
+	set(FILESYSTEM_LIBRARIES ghc_filesystem)
 ## GCC 9 and Clang 9 include filesystem in the standard library. Apple is of course messing with us and AppleClang 11.4 is Clang 9.0
-if(((CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU") AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 9.0)
+elseif(((CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU") AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 9.0)
 	OR (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 11.4))
 	message(CHECK_PASS "available")
 	set(CMAKE_CXX_STANDARD 20)

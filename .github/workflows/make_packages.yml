@@ -86,19 +86,23 @@ jobs:
           name: "openboardview-32bit.exe.${{ github.sha }}"
           path: bin/openboardview.exe
   build-and-package_intel-DMG:
-    runs-on: macos-13 # intel runner
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
       - name: MacOS dependencies
-        run: brew update && brew install sdl2
+        run: |
+          pip3 install jinja2 --break-system-packages
+          brew tap-new local/oldermacos
+          ln -s $(pwd)/utilities/brew_oldermacos/sdl2.rb "$(brew --repository local/oldermacos)/Formula/sdl2.rb"
+          brew install local/oldermacos/sdl2
       - name: MacOS build
         run: TERM=xterm bash ./build.sh --recompile
       - uses: actions/upload-artifact@v4
         with:
-          name: "openboardview_unsigned_macos13_intel_dmg.${{ github.sha }}"
+          name: "openboardview_unsigned_macos_intel_dmg.${{ github.sha }}"
           path: '*.dmg'
   build-and-package_universal-DMG:
     runs-on: macos-15
@@ -107,15 +111,17 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
-      - name: MacOS dependencies
+      - name: MacOS dependencies (jinja2)
+        run: pip3 install jinja2 --break-system-packages
+      - name: MacOS dependencies (SDL2)
         uses: BrettDong/setup-sdl2-frameworks@v2 # Installing as a framework to build univeral x86_64 + arm64 binary
         with:
           sdl2: 2.32.0
       - name: MacOS build
-        run: TERM=xterm bash ./build.sh --recompile
+        run: TERM=xterm SIGNER=- bash ./build.sh --recompile
       - uses: actions/upload-artifact@v4
         with:
-          name: "openboardview_unsigned_macos15_universal_dmg.${{ github.sha }}"
+          name: "openboardview_adhoc_signed_macos15_universal_dmg.${{ github.sha }}"
           path: '*.dmg'
   build-64bit-exe-on-windows:
     runs-on: windows-2025
@@ -135,6 +141,12 @@ jobs:
           pacman -Sy
           pacman -S --noconfirm make mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-SDL2
           # Preinstalled python forced into UTF8 mode is used
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Install dependencies (jinja2)
+        shell: bash
+        run: PYTHONUTF8=1 python3 -m pip install jinja2 --break-system-packages
       - name: Build ucrt64 debug
         if: always()
         shell: bash
