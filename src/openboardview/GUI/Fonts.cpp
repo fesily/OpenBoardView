@@ -47,7 +47,7 @@ std::string Fonts::load(std::string customFont) {
 		} else {
 			SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Cannot load font %s: not found", name.c_str());
 		}
-
+#else
 		const std::string fontpath = get_font_path(name);
 		if (fontpath.empty() || !filesystem::exists(fontpath)) {
 			SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Cannot load font %s: not found", name.c_str());
@@ -61,6 +61,7 @@ std::string Fonts::load(std::string customFont) {
 		} else {
 			SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Cannot load font %s: file name %s does not have .ttf or .otf extension", name.c_str(), fontpath.c_str());
 		}
+#endif
 	}
 	return {};
 }

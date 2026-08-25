@@ -573,6 +573,7 @@ void BoardView::ContextMenu(void) {
 	static char contextbuf[10240]    = "";
 	static char contextbufnew[10240] = "";
 	static std::string pin, pin_name, partn, net, net_name;
+	static std::string note, note_new;
 	double tx, ty;
 
 	ImVec2 pos = ScreenToCoord(m_showContextMenuPos.x, m_showContextMenuPos.y);

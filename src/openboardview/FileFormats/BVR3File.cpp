@@ -55,7 +55,7 @@ BVR3File::BVR3File(std::vector<char> &buf) {
 	BRDTrack blank_track;
 	BRDVia blank_via;
 	BRDArc blank_arc;
-	BRDPart part;
+	BVR3Part part;
 	BRDPin pin;
 	BRDTrack track;
 	BRDVia via;
@@ -163,7 +163,7 @@ BVR3File::BVR3File(std::vector<char> &buf) {
 		} else if (!strcmp(line, "PART_END")) {
 			part.end_of_pins = pins.size();
 			parts.push_back(part);
-			part = blank_part;
+			part = {};
 		} else if (!strncmp(line, "TRACK_ID ", 9)) {
 
 		} else if (!strncmp(line, "TRACK_NET ", 10)) {
