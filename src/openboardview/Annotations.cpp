@@ -296,13 +296,13 @@ void Annotations::Remove(int id) {
 #endif
 }
 
-void Annotations::Update(int id, char *note) {
+void Annotations::Update(int id, const std::string &note) {
 #ifdef HAVE_SQLITE3
 	char sql[10240];
 	char *zErrMsg = 0;
 	int r;
 
-	sqlite3_snprintf(sizeof(sql), sql, "UPDATE annotations set note = '%q' where id=%d;", note, id);
+	sqlite3_snprintf(sizeof(sql), sql, "UPDATE annotations set note = '%q' where id=%d;", note.c_str(), id);
 	r = sqlite3_exec(sqldb, sql, NULL, 0, &zErrMsg);
 	if (r != SQLITE_OK) {
 		if (debug) fprintf(stderr, "SQL error: %s\n", zErrMsg);

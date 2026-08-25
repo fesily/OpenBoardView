@@ -82,7 +82,7 @@ struct Annotations {
 	int Close(void);
 	void Remove(int id);
 	void Add(int side, double x, double y, const char *net, const char *part, const char *pin, const char *note);
-	void Update(int id, char *note);
+	void Update(int id, const std::string &note);
 	void GenerateList(void);
 
 	PartInfo& NewPartInfo(const char* partName);
