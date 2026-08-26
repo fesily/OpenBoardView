@@ -10,7 +10,7 @@
 #include <iguana/json_reader.hpp>
 
 #include "XJsonFile.h"
-#include <set>
+#include "XzzLayers.h"
 
 constexpr float number_scale = 10000;
 namespace xjsonfile {
@@ -21,61 +21,6 @@ struct Position {
 	YLT_REFL(Position, x, y);
 };
 
-enum PCB_LAYER_ID { Unknown = 0, Bottom = 16, SILKSCREEN = 17, Board3 = 18, Board = 28, PART_OUTLINES = 29, TestPad = 34 };
-
-struct LayerMapper {
-	std::vector<int> layers;
-	LayerMapper(std::vector<int> &&l = {})
-	    : layers(l) {
-		if (layers.size() < 2) return;
-		for (size_t i = 1; i < layers.size(); i++) {
-			if (layers[i] != layers[i - 1] + 1) {
-				max = layers[i - 1];
-				break;
-			}
-		}
-		if (max == 1) { // only top no bottom
-			max = -1;
-		}
-	}
-	int max = -1;
-	static BRDPartMountingSide castSide(PCB_LAYER_ID id) {
-		switch (id) {
-			case Board: return BRDPartMountingSide::Both;
-			case Bottom: return BRDPartMountingSide::Bottom;
-			case SILKSCREEN:
-			case PART_OUTLINES:
-			case Board3:
-			case TestPad: return BRDPartMountingSide::Top;
-			// todo: both
-			default: return (BRDPartMountingSide)(id + (int)BRDPartMountingSide::Top);
-		}
-	}
-
-	BRDPartMountingSide toSide(PCB_LAYER_ID id) {
-		auto side = castSide(id);
-		return side;
-	}
-
-	static BRDPinSide castPinSide(PCB_LAYER_ID id) {
-		switch (id) {
-			case Board: return BRDPinSide::Both;
-			case Bottom: return BRDPinSide::Bottom;
-			case SILKSCREEN:
-			case PART_OUTLINES:
-			case Board3:
-			case TestPad: return BRDPinSide::Top;
-			// todo: both
-			default: return (BRDPinSide)(id + (int)BRDPinSide::Top);
-		}
-	}
-
-	BRDPinSide toPinSide(PCB_LAYER_ID id) {
-		auto side = castPinSide(id);
-		return side;
-	}
-};
-static std::unique_ptr<LayerMapper> layerMapper;
 static BRDPoint toPt(const std::optional<Position> &p) {
 	if (!p) return {};
 	BRDPoint ret;
@@ -96,7 +41,7 @@ struct PcbTrack {
 		BRDTrack t;
 		t.netId         = netId.value_or(t.netId);
 		t.width         = width.value_or(0.1) * number_scale;
-		t.side          = layerMapper->toSide(layer);
+		t.side          = LayerMapper::castSide(layer);
 		t.points.first  = toPt(start);
 		t.points.second = toPt(end);
 		return t;
@@ -127,7 +72,7 @@ struct PcbPad {
 		p.diode_vale   = diode.value_or("");
 		p.pos          = toPt(position);
 		p.name         = name.value_or("");
-		p.side         = layerMapper->toPinSide(layer);
+		p.side         = LayerMapper::castPinSide(layer);
 		p.netId        = netId.value_or(p.netId);
 		p.top_size     = toPt(topSize);
 		p.top_shape    = (BPDPinShape)topShape.value_or(0);
@@ -168,7 +113,7 @@ struct PcbArc {
 		a.startAngle *= (M_PI / 180.0);
 		a.endAngle *= (M_PI / 180.0);
 		a.radius = rectWidth.value_or(0.1) * number_scale;
-		a.side   = layerMapper->toSide(layer);
+		a.side   = LayerMapper::castSide(layer);
 		a.width  = width.value_or(0.1f) * number_scale;
 		return a;
 	}
@@ -196,9 +141,9 @@ struct PcbVia {
 	operator BRDVia() const {
 		BRDVia v;
 		v.netId = netId.value_or(v.netId);
-		v.side  = layerMapper->toSide(layer);
+		v.side  = LayerMapper::castSide(layer);
 		v.pos   = toPt(position);
-		if (to.has_value()) v.target_side = layerMapper->toSide(to.value());
+		if (to.has_value()) v.target_side = LayerMapper::castSide(to.value());
 		v.size = size.value_or(1) * number_scale;
 		return v;
 	}
@@ -218,7 +163,7 @@ struct PcbText {
 
 	operator BRDText() const {
 		BRDText t;
-		t.side  = layerMapper->toSide(layer);
+		t.side  = LayerMapper::castSide(layer);
 		t.netId = netId.value_or(t.netId);
 		t.pos   = toPt(position);
 		t.text  = text.value();
@@ -277,16 +222,6 @@ struct variant_type_field_helper<std::variant<xjsonfile::PcbPad, xjsonfile::PcbT
 
 XJsonFile::~XJsonFile() {}
 
-auto get_all_layer(XJsonFileImpl *file) {
-	std::set<int> layers;
-	ylt::reflection::for_each(file->root, [&](auto &filed, auto name, auto index) {
-		for (const auto &v : filed) {
-			layers.emplace(v.layer);
-		}
-	});
-	return std::vector<int>{layers.cbegin(), layers.cend()};
-}
-
 XJsonFile::XJsonFile(std::vector<char> &b)
     : buf{std::move(b)} {
 
@@ -298,9 +233,6 @@ XJsonFile::XJsonFile(std::vector<char> &b)
 		std::cerr << e.what() << '\n';
 		return;
 	}
-	auto layers = get_all_layer(file.get());
-	std::ranges::sort(layers);
-	xjsonfile::layerMapper = std::make_unique<xjsonfile::LayerMapper>(std::move(layers));
 
 	for (const auto &track : file->root.track) {
 		if (track.layer == xjsonfile::Board) {
@@ -333,7 +265,7 @@ XJsonFile::XJsonFile(std::vector<char> &b)
 		pins.back().part = parts.size() + 1;
 		parts.push_back(BRDPart{
 		    .name          = "..." + std::string{pad.name.value()},
-		    .mounting_side = xjsonfile::layerMapper->toSide(pad.layer),
+		    .mounting_side = xjsonfile::LayerMapper::castSide(pad.layer),
 		    .part_type     = BRDPartType::SMD,
 		    .end_of_pins   = (uint32_t)pins.size(),
 		});
@@ -342,7 +274,7 @@ XJsonFile::XJsonFile(std::vector<char> &b)
 	for (const auto &mod : file->root.module) {
 		BRDPart part;
 		part.name          = mod.text.value().text.value_or("unknown");
-		part.mounting_side = xjsonfile::layerMapper->toSide(mod.layer);
+		part.mounting_side = xjsonfile::LayerMapper::castSide(mod.layer);
 		part.part_type     = BRDPartType::SMD;
 		int partId         = parts.size() + 1;
 		auto pinsz         = pins.size();
@@ -387,6 +319,8 @@ XJsonFile::XJsonFile(std::vector<char> &b)
 	num_pins   = pins.size();
 	num_format = format.size();
 	num_nails  = nails.size();
+
+	xjsonfile::LayerMapper::compactSequential(*this);
 
 	boardSymmetry = true;
 	valid         = num_parts > 0 || num_format > 0;

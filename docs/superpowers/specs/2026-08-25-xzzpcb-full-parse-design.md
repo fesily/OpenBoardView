@@ -3,9 +3,11 @@
 日期：2026-08-25  
 状态：draft，待用户审阅
 
+配对文件（`compare/`）：`Switch OLED-HEG-CPU-01 PCB layer.pcb` + 同名 `.json`。下列偏移已对该板钉死。
+
 ## 问题
 
-上游 `XZZPCBFile` 只把 PCB 当网表+封装外形：走线、过孔、铜皮弧、焊盘几何、元件层都丢掉。本 fork 的 `BRDFileBase` / `BRDBoard` / `BoardView` 已经能吃 TRACK/VIA/ARC、pin size/shape/angle、多层 side。打开 `.pcb` 时这些字段是空的。
+上游 `XZZPCBFile` 只把 PCB 当网表+封装外形：走线、过孔、铜皮弧、焊盘几何、元件层都丢掉。本 fork 的 `BRDFileBase` / `BRDBoard` / `BoardView` 已经能吃 TRACK/VIA/ARC、pin size/shape、多层 side。打开 `.pcb` 时这些字段是空的。
 
 不再做 PCB→BVR3 转换器。补全 `XZZPCBFile`，直接填 `BRDFileBase`。
 
@@ -16,19 +18,20 @@
 - 不抽公共 decoder，不把 XZZ 先填进 iguana JSON 结构。
 - 不改 DES/XOR/密钥校验路径。
 - 不把单块几何解析失败升级成整板 `valid=false`。
+- 不从 PCB 填 `BRDPin.angle` / `diode_vale`：json 里有，该对 4424 个 pin 的二进制里没有对应槽（json 来自绘制劫持，可含运行时测量）。
 
 ## 架构
 
 ```
 .pcb ──► XZZPCBFile ──► BRDFileBase ──► BRDBoard ──► BoardView
-. json ──► XJsonFile ─┘（同一套字段；json 只作布局真相和验收基准）
+. json ──► XJsonFile ─┘（同一套字段；json 作布局真相和验收基准）
 ```
 
 - 原地改 `XZZPCBFile.cpp` / `.h`。
-- `LayerMapper` + `PCB_LAYER_ID` 从 `XJsonFile.cpp` 抽到 `src/openboardview/FileFormats/XzzLayers.h`，两处共用。每个解析器实例自己构造 `LayerMapper`，禁止文件级 `static unique_ptr`（避免两次加载互相覆盖）。XJson 映射规则不变。
-- `XZZPCBFile` 构造结束时：`scale = 10000`，`boardSymmetry = true`。
-- 坐标保持文件里的整数，**不再** `/ XZZ_GLOBAL_SCALE`，**不再**调用 `find_xy_translation` / `translate_pins` / `translate_segments`。这三个函数删除。
-- `BRDBoard` 已经对所有几何做 `/ scale`。与 `XJsonFile`（`toPt` = json 浮点 × 10000，`scale = 10000`）对齐。
+- `LayerMapper` + `PCB_LAYER_ID` 从 `XJsonFile.cpp` 抽到 `src/openboardview/FileFormats/XzzLayers.h`。每个解析器自己用静态 `castSide` / `castPinSide`。禁止文件级 `static unique_ptr`。XJson 映射规则不变。
+- 构造结束：`scale = 10000`，`boardSymmetry = true`。
+- 坐标保持文件整数，**不再** `/ XZZ_GLOBAL_SCALE`，删除 `find_xy_translation` / `translate_pins` / `translate_segments`。
+- `BRDBoard` 对几何 `/ scale`。与 `XJsonFile`（`toPt` = json×10000）对齐。
 
 ## 层
 
@@ -44,135 +47,167 @@
 | 34 | TestPad | Top |
 | 其它 | 铜层 | `(BRDPartMountingSide)(id + Top)` |
 
-`BRDBoard` 仍会把出现过的最大层号折成 Bottom。解析器不要自己做这个折叠。
+`BRDBoard` 把出现过的最大层号折成 Bottom。解析器不做这个折叠。
 
-## 语义映射（目标字段）
-
-XJson 是劫持绘制路径得到的可见数据，作为语义真相。`XZZPCBFile` 填同一套 `BRD*` 字段：
+## 语义映射
 
 | 来源 | BRD 目标 | 规则 |
 |------|----------|------|
-| net 块 | `nets[id]={id,name}`，保留 `net_dict` | pin/track/via/arc 同时写 `netId` 和 `net` 字符串。`NC` → `UNCONNECTED` |
-| 0x05 线，layer≠28 | `tracks` | `points`、`width`、`side`、`net`/`netId` |
-| 0x05 线，layer=28 | `outline_segments` | 两端点，不写 width |
-| 0x01 弧，layer≠28 | `arcs` | `pos`、`radius`、`width`、`startAngle`/`endAngle`（弧度）、`side`、`net`/`netId`。角度按 XJson：度，若 start>end 则 start-=360，再 ×π/180 |
-| 0x01 弧，layer=28 | `outline_segments` | 继续用现有 `xzz_arc_to_segments` 细分；输入角度为度 |
-| 0x02 via | `vias` | `pos`、`size`、`side`、`target_side`、`net`/`netId` |
-| 0x06 text | `texts` | `pos`、`text`、`side`、`net`/`netId`。BoardView 本轮不画 |
-| 0x07 part | `parts` + `pins` | 名、layer→`mounting_side`、内部 0x05→`part.format`（恰好 4 点时 `BRDBoard` 走 `special_outline`）、内部 0x09→pin |
-| 顶层 0x09 | dummy part `"..."+name` + pin | 与现在 test pad 行为一致，补 size/side/netId |
-| pin | `BRDPin` | `pos`、`name`/`snum`、`side`、`size`/`shape`/`angle`、`radius`（无 length 时 `min(size)/2`）、`top_*`/`bottom_*`+`complex_draw`（与 XJson pad 相同条件）、`diode_vale`、`net`/`netId` |
+| net 块 | `nets[id]={id,name}`，保留 `net_dict` | 同时写 `netId` 和 `net`。`NC` → `UNCONNECTED` |
+| 顶层 0x05，layer≠28 | `tracks` | points、width、side、net/netId |
+| 顶层 0x05，layer=28 | `outline_segments` | 两端点 |
+| 顶层 0x01，layer≠28 | `arcs` | pos、radius、width、角度（度=raw/10000；start>end 则 start-=360；再 ×π/180）、side、net/netId |
+| 顶层 0x01，layer=28 | `outline_segments` | `xzz_arc_to_segments`，输入为度 |
+| 顶层 0x02 | `vias` | pos、size、side、target_side（`to` 层）、net/netId。aperture、panelPos 不进 BRD |
+| 0x06（顶层或 part 内） | `texts` | pos、text、side。本轮不画 |
+| 0x07 part | `parts` + `pins` | 名=第一个非空 0x06 文本；layer→`mounting_side`；内部 0x05 端点去重进 `part.format`（恰好 4 点时 special_outline）；内部 0x09→pin |
+| 顶层 0x09 | dummy `"..."+name` + pin | 保持 test pad 行为，补 size/side/netId |
+| pin | `BRDPin` | pos、name/snum、side、size/shape、top_*/bottom_*、`complex_draw`（topShape≠shape 或 shape≠bottomShape）、radius=`min(size)/2`、net/netId。angle=0 |
 
-数值单位：json 浮点 × 10000 = BRD 整数。XZZ 整数应直接等于这个值（匹配容差 1）。
+单位：json 浮点 × 10000 = XZZ/BRD 整数。容差 1。
 
-## 二进制偏移：已知假设 + 配对发现
+## 二进制布局（已钉死）
 
-实现者**没有**一份权威 XZZ 布局文档。用户提供**同名** `.pcb` + `.json`（json 由绘制劫持得到）。偏移用几何匹配钉死，然后写进解析器，不在运行时猜。
+主数据块：`u8 type` + `u32 size` + `size` 字节 payload。part 内部子块相同。整数均为 LE。
 
-### 已解析、只需改用途的块
-
-**0x05 线**（`parse_line_segment_block` 现有顺序）：
+### 0x05 线（payload 28）
 
 ```
-u32[0] layer
-u32[1] x1
-u32[2] y1
-u32[3] x2
-u32[4] y2
-u32[5] 现被当成 scale 后丢弃 → 按 width 用（json.width×10000）
-u32[6] 现注释掉的 net index → netId
+u32 layer
+u32 x1, y1, x2, y2
+u32 width          // json.width × 10000；本对 width=2 → 20000
+u32 netId
 ```
 
-**0x01 弧**（`parse_arc_block` 现有顺序）：
+该对：json 26438 条全部命中；XZZ 多 1 条，照填。layer 28：104 条进 outline。
+
+### 0x01 弧（payload 32）
 
 ```
-u32[0] layer
-u32[1] x
-u32[2] y
-u32[3] r          → radius（json.rectWidth×10000）
-u32[4] angle_start → 度 = raw/10000（与当前 /XZZ_GLOBAL_SCALE 再当度 一致）
-u32[5] angle_end
-u32[6] 现被当成 scale 后丢弃 → width
-u32[7] 现未读 → netId
+u32 layer
+u32 x, y
+u32 r              // json.rectWidth × 10000
+u32 angle_start    // 度 × 10000（180° → 1800000）
+u32 angle_end
+u32 width          // json.width × 10000
+u32 netId
 ```
 
-这两块用配对文件**确认或改槽位**。坐标匹配：`|xzz - json×10000| ≤ 1`。netId 必须能在 `nets`/`net_dict` 对上 json.netId。对不上就改假设，禁止 silently 填错网。
+该对：74/74 命中。json 多 1 条无 position，忽略。
 
-### 必须靠配对发现的块
+### 0x02 via（payload 32）
 
-对每个主数据块打：`type`、`size`、按 LE u32 列出 payload（尾部不足 4 字节单独标）。
+```
+u32 x, y
+u32 size           // json.size × 10000；本对 6 → 60000
+u32 aperture       // json.aperture × 10000；不进 BRD
+u32 layer
+u32 to             // 目标层 → target_side
+u32 netId
+u32 panelPos_inv   // 0=json panelPos true，1=false；不进 BRD
+```
 
-匹配规则：
+该对：XZZ 3547 条按坐标全部命中。json 多 1 条无 position。同坐标碰撞 2 条（layer/to/net 以 XZZ 为准）。
 
-1. **Via（0x02）**  
-   按 `pos` 对 json.via。剩余整数分别对应 `size`（json.size×10000）、`layer`、`to`、`netId`。`panelPos`/`aperture` 若对不上任何 u32 则忽略（BoardView 不用）。
+### 0x07 part（DES 解密后）
 
-2. **Text（0x06）**  
-   按 `pos` 对 json.text。字符串按 length-prefixed 扫；layer/netId 同 via。
+```
+u32 part_size      // 子块走到 offset part_size+4
+u32 layer
+u32 x, y           // json.module.postion × 10000
+u32 angle          // 度 × 10000；本轮不写入 BRDPart（结构无此字段）
+u16 unk            // 本对为 1
+u32 fpid_len
+char fpid[fpid_len]
+然后子块：
+  0x06 文本（第一个非空 → part.name）
+  0x05 线（与顶层同布局；端点进 part.format，不进全局 tracks）
+  0x09 焊盘
+```
 
-3. **Pin（0x07 解密后的 0x09 子块）**  
-   现有：`size` 头、跳 4、x、y、跳 8、name、跳 32、net_index。  
-   按 `pos` 对 json.module.items pad / json.pad。把「跳过的 4+8+32 字节」按 u32 对齐到：`layer`、`size`、`shape`、`topSize`/`topShape`、`bottomSize`/`bottomShape`、`length`、`angle`、`diode`。对不上的槽保持跳过，**不得**丢掉已经能填的 pos/name/net。
+该对：1039 part = 1039 module。不要再用「跳 18 字节再 skip 31 取名」。
 
-4. **Part 头 / 内部 0x05**  
-   内部 0x05 与顶层线同一布局，端点收集进 `part.format`（去重；`BRDBoard` 只在恰好 4 点时画 special outline）。  
-   当前 `part_size` 后跳过的 18 字节 + group name：从中找 layer，对 json.module.layer。找不到则该 part 仍默认 Top（与现在行为相同），不要让整板失败。
+### 0x06 文本（part 内 payload 36，本对无顶层 0x06）
 
-5. **顶层 0x09 test pad**  
-   现有 x/y/name/net 保留。inner diameter 那 8 字节按 json.pad.size/length 对齐。
+```
+u32 layer
+u32 x, y
+u32 orient_or_unused
+u32 scale_or_unused    // 常见 10000
+u32 unk
+然后与 FPID 相同的名字：u16 unk, u32 len, char[len]
+```
 
-发现结果写成解析器里的具名偏移（常量或局部 `constexpr`），不要留「magic skip N」。
+解析器仍应能处理顶层 0x06（同布局或按 size 截断）。
 
-同一块 json 对象匹配到多个 XZZ 块或零个：记 `SDL_LogWarn`，该对象跳过，继续下一块。
+### 0x09 pin（part 内；type 之后 `u32 size` + size 字节）
+
+```
+u32 layer              // 现代码当 unknown 跳过的 4 字节
+u32 x, y
+u32 drill_x, drill_y   // json.drillSize × 10000；本对为 0。不进 BRDPin
+u32 name_len
+char name[name_len]
+然后 32 字节几何：
+  u32 top_w, top_h;  u8 topShape
+  u32 size_w, size_h; u8 shape
+  u32 bot_w, bot_h;  u8 bottomShape
+  剩余 5 字节本对全 0（不要当 angle）
+u32 netId
+u8 extra[8]            // 本对全 0；不是 diode
+```
+
+该对：4424 pin 的 pos/size/shape/net 与 json pad 全中。json `pad.angle` 与这 32 字节无关（1606 个非 0 角在二进制里找不到）。
+
+顶层 0x09（test pad）：本对没有。保持现有解析，几何字段能填则填。
 
 ## 数据流（构造函数）
 
 1. 密钥 / XOR 到 `v6v6555v6v6`：不变。
-2. `parse_net_block`：除 `net_dict` 外写 `nets[net_index]`。
-3. `process_blocks`：按 type 调新/改过的 parse_*。0x02、0x06 不再空 return。
-4. 解析过程中用 `LayerMapper::castSide` / `castPinSide` 设 side（`toSide` 不依赖收集到的 layer 列表；最大层折 Bottom 仍由 `BRDBoard` 做）。
-5. `this->scale = 10000`；`boardSymmetry = true`。
-6. 不平移。`valid = true` 条件保持：结构完整且 `parse_*` 没有把 `error_msg` 设成结构错误。
+2. `parse_net_block`：写 `net_dict` 和 `nets[net_index]`。
+3. `process_blocks`：0x01/0x05 按层分流；0x02 调 `parse_via_block`；0x06 调 `parse_text_block`；0x07 解密后走子块。
+4. side 用 `LayerMapper::castSide` / `castPinSide`。
+5. `scale = 10000`；`boardSymmetry = true`。
+6. 不平移。结构完整且 `error_msg` 空则 `valid = true`。
 7. `num_parts` / `num_pins` / `num_format` / `num_nails` 照旧。
 
-`process_block` 里未识别 type：现有 `SDL_LogWarn`，跳过。
+未识别 type：`SDL_LogWarn` + skip。
 
 ## 错误处理
 
 | 情况 | 行为 |
 |------|------|
-| 文件截断、`read_uint32_t` 越界、net_size 非法、DES 后 part 头对不上 0x06 | `ENSURE_OR_FAIL` → `error_msg`，`valid` 保持 false |
-| 密钥非法 | 现有 Invalid Key 路径 |
-| 单条 track/via/arc/text/pin 字段不够或匹配不到 net | `SDL_LogWarn`，丢这一条，继续 |
-| json 对里有、pcb 解析后没有的对象 | 验收失败（实现阶段），不是运行时错误 |
+| 截断、`read_uint32_t` 越界、非法 net_size、DES 后 `part_size` 越界 | `ENSURE_OR_FAIL` → `error_msg`，`valid` false |
+| 密钥非法 | 现有 Invalid Key |
+| 单条 track/via/arc/text/pin 字段不够或 net 缺失 | `SDL_LogWarn`，丢这一条，继续 |
+| json 有、pcb 没有（无 position 的 via/arc；json 独有的 pad.angle/diode） | 验收时记录，不是运行时错误 |
 | 未知主块 type | warn + skip |
 
 ## 文件
 
 | 路径 | 动作 |
 |------|------|
-| `src/openboardview/FileFormats/XzzLayers.h` | 新建。`PCB_LAYER_ID`、`LayerMapper`（从 XJson 原样搬）。无文件级静态 mapper。 |
+| `src/openboardview/FileFormats/XzzLayers.h` | 新建。`PCB_LAYER_ID`、`LayerMapper`。无静态 mapper |
 | `src/openboardview/FileFormats/XJsonFile.cpp` | 删本地 LayerMapper，include 共享头 |
-| `src/openboardview/FileFormats/XZZPCBFile.h` | 声明 `parse_via_block` / `parse_text_block`；删 translation API；`scale` 不再靠默认 1 |
-| `src/openboardview/FileFormats/XZZPCBFile.cpp` | 按上表改 parse_*、构造函数、process_block |
+| `src/openboardview/FileFormats/XZZPCBFile.h` | `parse_via_block` / `parse_text_block`；删除 translation API |
+| `src/openboardview/FileFormats/XZZPCBFile.cpp` | 按上表改 parse_* 和构造函数 |
 
-CMake 不用改（头文件被 cpp include 即可）。
+CMake 不用改。
 
 ## 验收
 
-前置：用户给出至少一对同名 `.pcb` + `.json`。没有这对文件则不能钉 VIA/pin 偏移，也不能做数量对比。
+基准：`compare/Switch OLED-HEG-CPU-01 PCB layer.{pcb,json}`。
 
-1. **布局钉死**：配对匹配后，0x05/0x01/0x02/pin 尾字段槽位写进代码，与 json 抽检 20 条 track、全部 via、10 个 pad 的 pos/layer/netId/width-or-size 一致（整数容差 1，角度容差 0.5°）。
-2. **打开 `.pcb`**：`tracks`/`vias`/`arcs` 非空（json 里对应数组非空的前提下）；pin 有非零 `size`；多层出现在 `AllSide()`。
-3. **对比 json**：同板 `XJsonFile` vs `XZZPCBFile`：`tracks.size()`、`vias.size()`、`arcs.size()`、`pins.size()` 差为 0，或文档化每一处差的原因（例如 json 劫持没画 silk text）。
-4. **回归**：layer 28 轮廓仍在；非法 key 仍报 Invalid Key；损坏 net_size 仍走 `error_msg`，不崩。
-5. **肉眼**：BoardView 打开该 pcb，走线/过孔/弧按层可显隐，焊盘矩形/旋转可见。
+1. 打开 pcb：`tracks` ≈ 26334（26438−104 条 layer28）或含 silk 的非 28 全进 tracks；`vias.size()==3547`；`arcs` 为非 28 的弧（该对 0 条铜弧，74 条 layer28 进 outline）；`pins.size()==4424`；pin.size 非 0。
+2. 与 json：顶层非 28 track 条数一致；via 3547；pin 4424；layer28 轮廓非空。允许 json 多 1 条无坐标 via/arc。
+3. 回归：非法 key；损坏 net_size 不崩。
+4. 肉眼：BoardView 打开该 pcb，走线/过孔按层显隐，焊盘矩形可见。pad 旋转与 json 不一致可接受（二进制无角）。
 
-仓库无单元测试框架，不为此新建。对比用一次性本地程序或调试日志，不提交测试夹具（除非用户把配对文件放进仓库并要求保留）。
+不新建测试框架。不提交 `compare/` 夹具，除非用户要求。
 
 ## 风险
 
-- json 只含绘制路径上的对象，PCB 里未画的块会对不完。多出来的 XZZ 块：能填 BRD 的照填，对不上 json 的不因此丢弃。
-- `part.format` 非 4 点时 `BRDBoard` 不画 special outline，只影响元件框，不影响 pin。
-- 取消原点平移后，旧 pcb 在屏幕上的绝对位置会变，相对几何与 json/BVR3 一致。
-- `ARC` 角度单位若配对证明不是 ×10000，以配对为准并改本 spec 的 0x01 假设。
+- json 劫持可含 PCB 没有的字段（pad.angle、diode、无坐标 via/arc）。PCB 多出来的块照填。
+- `part.format` 非 4 点时不画 special outline。
+- 取消平移后，旧 pcb 屏幕原点会变。
+- 本布局来自一块 Switch OLED 板。其它板 type/size 不同则按 `size` 截断解析，缺字段 skip，不要假设永远 28/32/69。

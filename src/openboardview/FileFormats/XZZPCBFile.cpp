@@ -6,7 +6,6 @@
 #include <cstdint>
 #include <cstring>
 #include <iomanip>
-#include <list>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -28,6 +27,24 @@ static inline uint32_t read_uint32_t(const std::vector<char> &buf, size_t start_
 			(static_cast<uint32_t>(static_cast<unsigned char>(buf[start_pos + 1])) <<  8) |
 			(static_cast<uint32_t>(static_cast<unsigned char>(buf[start_pos + 0])) <<  0));
 }
+
+namespace {
+static bool read_named_string(const std::vector<char> &buf, uint32_t &ptr, std::string &out, std::string &error_msg) {
+	if (ptr + 6 > buf.size()) {
+		return false;
+	}
+	ptr += 2; // u16 unk
+	uint32_t nlen = read_uint32_t(buf, ptr, error_msg);
+	ptr += 4;
+	if (!error_msg.empty() || ptr + nlen > buf.size()) {
+		error_msg.clear();
+		return false;
+	}
+	out.assign(buf.begin() + ptr, buf.begin() + ptr + nlen);
+	ptr += nlen;
+	return true;
+}
+} // namespace
 
 std::vector<char> XZZPCBFile::des_decrypt(const std::vector<char> &inbuf) {
 	std::vector<char> outbuf(inbuf.size());
@@ -136,7 +153,6 @@ bool XZZPCBFile::verifyFormat(const std::vector<char> &buf) {
 }
 
 XZZPCBFile::XZZPCBFile(std::vector<char> &buf, uint64_t xzzkey) {
-	std::list<std::pair<BRDPoint, BRDPoint>> outline_segments;
 
 	if (checkKey(xzzkey)) {
 		key = xzzkey;
@@ -183,16 +199,19 @@ XZZPCBFile::XZZPCBFile(std::vector<char> &buf, uint64_t xzzkey) {
 		return;
 	}
 
-	BRDPoint xy_translation = find_xy_translation();
-	translate_segments(xy_translation);
-	translate_pins(xy_translation);
+	xjsonfile::LayerMapper::compactSequential(*this);
 
+	scale = static_cast<float>(XZZ_GLOBAL_SCALE);
+	boardSymmetry = true;
 	valid = true;
 
 	num_parts  = parts.size();
 	num_pins   = pins.size();
 	num_format = format.size();
 	num_nails  = nails.size();
+	SDL_Log("XZZPCBFile: parts=%u pins=%u tracks=%u vias=%u arcs=%u outline=%u nets=%u texts=%u",
+	        num_parts, num_pins, (unsigned)tracks.size(), (unsigned)vias.size(), (unsigned)arcs.size(),
+	        (unsigned)outline_segments.size(), (unsigned)nets.size(), (unsigned)texts.size());
 }
 
 void XZZPCBFile::process_block(std::vector<char> &block_buf, uint8_t block_type) {
@@ -201,13 +220,13 @@ void XZZPCBFile::process_block(std::vector<char> &block_buf, uint8_t block_type)
 			parse_arc_block(block_buf);
 			break;
 		case 0x02: // VIA
-			// Not currently relevant
+			parse_via_block(block_buf);
 			break;
 		case 0x05: // LINE SEGMENT
 			parse_line_segment_block(block_buf);
 			break;
 		case 0x06: // TEXT
-			// Not currently relevant
+			parse_text_block(block_buf);
 			break;
 		case 0x07: // PART/PIN
 			parse_part_block(block_buf);
@@ -250,107 +269,191 @@ void XZZPCBFile::process_blocks(const std::vector<char> &buf, uint32_t main_data
 // 28 Board edges
 
 void XZZPCBFile::parse_arc_block(const std::vector<char> &buf) {
-	uint32_t layer       = read_uint32_t(buf, 0 * sizeof(uint32_t), error_msg);
-	uint32_t x           = read_uint32_t(buf, 1 * sizeof(uint32_t), error_msg);
-	uint32_t y           = read_uint32_t(buf, 2 * sizeof(uint32_t), error_msg);
-	uint32_t r           = read_uint32_t(buf, 3 * sizeof(uint32_t), error_msg);
-	uint32_t angle_start = read_uint32_t(buf, 4 * sizeof(uint32_t), error_msg);
-	uint32_t angle_end   = read_uint32_t(buf, 5 * sizeof(uint32_t), error_msg);
-	uint32_t scale       = read_uint32_t(buf, 6 * sizeof(uint32_t), error_msg);
-	// int32_t unknown_arc = read_int32_t(buf, 7, error_msg);
-	if (!error_msg.empty()) { // Check if one of read_*int32_t() failed
+	if (buf.size() < 8 * sizeof(uint32_t)) {
+		SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "XZZPCBFile: short arc block (%zu)", buf.size());
+		return;
+	}
+	uint32_t layer = read_uint32_t(buf, 0 * sizeof(uint32_t), error_msg);
+	uint32_t x     = read_uint32_t(buf, 1 * sizeof(uint32_t), error_msg);
+	uint32_t y     = read_uint32_t(buf, 2 * sizeof(uint32_t), error_msg);
+	uint32_t r     = read_uint32_t(buf, 3 * sizeof(uint32_t), error_msg);
+	uint32_t as    = read_uint32_t(buf, 4 * sizeof(uint32_t), error_msg);
+	uint32_t ae    = read_uint32_t(buf, 5 * sizeof(uint32_t), error_msg);
+	uint32_t width = read_uint32_t(buf, 6 * sizeof(uint32_t), error_msg);
+	uint32_t net_index = read_uint32_t(buf, 7 * sizeof(uint32_t), error_msg);
+	if (!error_msg.empty()) {
+		error_msg.clear();
 		return;
 	}
 
-	scale = XZZ_GLOBAL_SCALE;
-	if (layer != 28) {
+	const double deg_start = static_cast<double>(as) / XZZ_GLOBAL_SCALE;
+	const double deg_end   = static_cast<double>(ae) / XZZ_GLOBAL_SCALE;
+	BRDPoint centre{static_cast<int>(x), static_cast<int>(y)};
+
+	if (layer == static_cast<uint32_t>(xjsonfile::Board)) {
+		auto segments = xzz_arc_to_segments(static_cast<int>(deg_start), static_cast<int>(deg_end),
+		                                    static_cast<int>(r), centre);
+		std::move(segments.begin(), segments.end(), std::back_inserter(outline_segments));
 		return;
 	}
 
-	int point_x     = x / scale;
-	int point_y     = y / scale;
-	r               = r / scale;
-	angle_start     = angle_start / scale;
-	angle_end       = angle_end / scale;
-	BRDPoint centre = {point_x, point_y};
+	BRDArc arc{};
+	arc.pos = centre;
+	arc.radius = static_cast<float>(r);
+	arc.width = static_cast<float>(width);
+	double start = deg_start;
+	double end = deg_end;
+	if (start > end) {
+		start -= 360.0;
+	}
+	constexpr double degToRad = 3.14159265358979323846 / 180.0;
+	arc.startAngle = static_cast<float>(start * degToRad);
+	arc.endAngle = static_cast<float>(end * degToRad);
+	arc.side = xjsonfile::LayerMapper::castSide(static_cast<xjsonfile::PCB_LAYER_ID>(layer));
+	apply_net(arc.net, arc.netId, net_index);
+	arcs.push_back(arc);
+}
 
-	std::vector<std::pair<BRDPoint, BRDPoint>> segments = xzz_arc_to_segments(angle_start, angle_end, r, centre);
-	std::move(segments.begin(), segments.end(), std::back_inserter(outline_segments));
+void XZZPCBFile::parse_via_block(const std::vector<char> &buf) {
+	if (buf.size() < 8 * sizeof(uint32_t)) {
+		SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "XZZPCBFile: short via block (%zu)", buf.size());
+		return;
+	}
+	uint32_t x     = read_uint32_t(buf, 0 * sizeof(uint32_t), error_msg);
+	uint32_t y     = read_uint32_t(buf, 1 * sizeof(uint32_t), error_msg);
+	uint32_t size  = read_uint32_t(buf, 2 * sizeof(uint32_t), error_msg);
+	// u32[3] aperture ignored
+	uint32_t layer = read_uint32_t(buf, 4 * sizeof(uint32_t), error_msg);
+	uint32_t to    = read_uint32_t(buf, 5 * sizeof(uint32_t), error_msg);
+	uint32_t net_index = read_uint32_t(buf, 6 * sizeof(uint32_t), error_msg);
+	if (!error_msg.empty()) {
+		error_msg.clear();
+		return;
+	}
+
+	BRDVia via{};
+	via.pos = {static_cast<int>(x), static_cast<int>(y)};
+	via.size = static_cast<float>(size);
+	via.side = xjsonfile::LayerMapper::castSide(static_cast<xjsonfile::PCB_LAYER_ID>(layer));
+	via.target_side = xjsonfile::LayerMapper::castSide(static_cast<xjsonfile::PCB_LAYER_ID>(to));
+	apply_net(via.net, via.netId, net_index);
+	vias.push_back(via);
 }
 
 void XZZPCBFile::parse_line_segment_block(const std::vector<char> &buf) {
-	uint32_t layer           = read_uint32_t(buf, 0 * sizeof(uint32_t), error_msg);
-	uint32_t x1              = read_uint32_t(buf, 1 * sizeof(uint32_t), error_msg);
-	uint32_t y1              = read_uint32_t(buf, 2 * sizeof(uint32_t), error_msg);
-	uint32_t x2              = read_uint32_t(buf, 3 * sizeof(uint32_t), error_msg);
-	uint32_t y2              = read_uint32_t(buf, 4 * sizeof(uint32_t), error_msg);
-	uint32_t scale           = read_uint32_t(buf, 5 * sizeof(uint32_t), error_msg);
-	// uint32_t trace_net_index = read_uint32_t(buf, 6, error_msg);	/* unused */
-	if (!error_msg.empty()) { // Check if one of read_int32_t() failed
+	if (buf.size() < 7 * sizeof(uint32_t)) {
+		SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "XZZPCBFile: short line block (%zu)", buf.size());
+		return;
+	}
+	uint32_t layer = read_uint32_t(buf, 0 * sizeof(uint32_t), error_msg);
+	uint32_t x1    = read_uint32_t(buf, 1 * sizeof(uint32_t), error_msg);
+	uint32_t y1    = read_uint32_t(buf, 2 * sizeof(uint32_t), error_msg);
+	uint32_t x2    = read_uint32_t(buf, 3 * sizeof(uint32_t), error_msg);
+	uint32_t y2    = read_uint32_t(buf, 4 * sizeof(uint32_t), error_msg);
+	uint32_t width = read_uint32_t(buf, 5 * sizeof(uint32_t), error_msg);
+	uint32_t net_index = read_uint32_t(buf, 6 * sizeof(uint32_t), error_msg);
+	if (!error_msg.empty()) {
+		error_msg.clear();
 		return;
 	}
 
-	scale = XZZ_GLOBAL_SCALE;
-	if (layer != 28) {
+	BRDPoint p1{static_cast<int>(x1), static_cast<int>(y1)};
+	BRDPoint p2{static_cast<int>(x2), static_cast<int>(y2)};
+
+	if (layer == static_cast<uint32_t>(xjsonfile::Board)) {
+		outline_segments.push_back({p1, p2});
 		return;
 	}
 
-	BRDPoint point;
-	point.x = x1 / scale;
-	point.y = y1 / scale;
-	BRDPoint point2;
-	point2.x = x2 / scale;
-	point2.y = y2 / scale;
-	outline_segments.push_back({point, point2});
+	BRDTrack track{};
+	track.points = {p1, p2};
+	track.width = static_cast<float>(width);
+	track.side = xjsonfile::LayerMapper::castSide(static_cast<xjsonfile::PCB_LAYER_ID>(layer));
+	apply_net(track.net, track.netId, net_index);
+	tracks.push_back(track);
 }
 
 BRDPin XZZPCBFile::parse_pin_block(const std::vector<char> &buf, uint32_t &current_pointer) {
 	BRDPin pin{};
-	pin.side = BRDPinSide::Top;
-
-	// Block size
 	uint32_t pin_block_size = read_uint32_t(buf, current_pointer, error_msg);
 	uint32_t pin_block_end  = current_pointer + pin_block_size + 4;
 	current_pointer += 4;
-	current_pointer += 4; // currently unknown
-
-	uint32_t x_origin = read_uint32_t(buf, current_pointer, error_msg);
-	current_pointer += 4;
-	uint32_t y_origin = read_uint32_t(buf, current_pointer, error_msg);
-	current_pointer += 4;
-	current_pointer += 8; // currently unknown
-
-	uint32_t pin_name_size = read_uint32_t(buf, current_pointer, error_msg);
-	current_pointer += 4;
-	if (!error_msg.empty()) { // Check if one of read_uint32_t() failed
+	if (!error_msg.empty() || pin_block_end > buf.size()) {
+		error_msg.clear();
+		current_pointer = pin_block_end > buf.size() ? static_cast<uint32_t>(buf.size()) : pin_block_end;
+		SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "XZZPCBFile: short pin block");
 		return {};
 	}
 
-	ENSURE_OR_FAIL(buf.size() >= current_pointer + pin_name_size, error_msg, return {});
+	uint32_t layer = read_uint32_t(buf, current_pointer, error_msg); current_pointer += 4;
+	uint32_t x     = read_uint32_t(buf, current_pointer, error_msg); current_pointer += 4;
+	uint32_t y     = read_uint32_t(buf, current_pointer, error_msg); current_pointer += 4;
+	current_pointer += 4; // drillSize.x unused
+	uint32_t angle_raw = read_uint32_t(buf, current_pointer, error_msg);
+	current_pointer += 4;
+	uint32_t pin_name_size = read_uint32_t(buf, current_pointer, error_msg); current_pointer += 4;
+	if (!error_msg.empty() || current_pointer + pin_name_size + 32 + 4 > pin_block_end) {
+		error_msg.clear();
+		current_pointer = pin_block_end;
+		SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "XZZPCBFile: short pin block");
+		return {};
+	}
 	std::string pin_name(buf.begin() + current_pointer, buf.begin() + current_pointer + pin_name_size);
 	current_pointer += pin_name_size;
-	current_pointer += 32;
 
+	auto ru32 = [&](uint32_t &p) {
+		uint32_t v = read_uint32_t(buf, p, error_msg);
+		p += 4;
+		return v;
+	};
+	uint32_t gp = current_pointer;
+	uint32_t top_w = ru32(gp), top_h = ru32(gp);
+	uint8_t top_shape = static_cast<uint8_t>(buf[gp]); gp += 1;
+	uint32_t size_w = ru32(gp), size_h = ru32(gp);
+	uint8_t shape = static_cast<uint8_t>(buf[gp]); gp += 1;
+	uint32_t bot_w = ru32(gp), bot_h = ru32(gp);
+	uint8_t bot_shape = static_cast<uint8_t>(buf[gp]); gp += 1;
+	current_pointer += 32; // leftover 5 geometry bytes unused (not angle)
 	uint32_t net_index = read_uint32_t(buf, current_pointer, error_msg);
-	current_pointer    = pin_block_end;
-	if (!error_msg.empty()) { // Check if read_uint32_t() failed
+	current_pointer = pin_block_end;
+	if (!error_msg.empty()) {
+		error_msg.clear();
+		SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "XZZPCBFile: short pin block");
 		return {};
 	}
 
-	pin.pos.x = x_origin / XZZ_GLOBAL_SCALE;
-	pin.pos.y = y_origin / XZZ_GLOBAL_SCALE;
-	pin.name = strdup(pin_name.c_str());
+	pin.pos = {static_cast<int>(x), static_cast<int>(y)};
+	pin.name = pin_name;
 	pin.snum = pin.name;
-
-	std::string pin_net = net_dict[net_index];
-
-	if (pin_net == "NC") {
-		pin.net = "UNCONNECTED";
-	} else {
-		pin.net = strdup(pin_net.c_str());
-	}
-
+	pin.side = xjsonfile::LayerMapper::castPinSide(static_cast<xjsonfile::PCB_LAYER_ID>(layer));
+	pin.top_size = {static_cast<int>(top_w), static_cast<int>(top_h)};
+	pin.top_shape = static_cast<BPDPinShape>(top_shape);
+	pin.size = {static_cast<int>(size_w), static_cast<int>(size_h)};
+	pin.shape = static_cast<BPDPinShape>(shape);
+	pin.bottom_size = {static_cast<int>(bot_w), static_cast<int>(bot_h)};
+	pin.bottom_shape = static_cast<BPDPinShape>(bot_shape);
+	pin.complex_draw = (top_shape != shape) || (shape != bot_shape);
+	pin.radius = static_cast<double>(std::min(pin.size.x, pin.size.y)) / 2.0;
+	pin.angle = static_cast<float>(angle_raw) / static_cast<float>(XZZ_GLOBAL_SCALE);
+	apply_net(pin.net, pin.netId, net_index);
 	return pin;
+}
+
+void XZZPCBFile::parse_text_block(const std::vector<char> &buf) {
+	if (buf.size() < 24) return;
+	uint32_t layer = read_uint32_t(buf, 0, error_msg);
+	uint32_t x = read_uint32_t(buf, 4, error_msg);
+	uint32_t y = read_uint32_t(buf, 8, error_msg);
+	if (!error_msg.empty()) { error_msg.clear(); return; }
+	uint32_t ptr = 24;
+	std::string text;
+	if (!read_named_string(buf, ptr, text, error_msg)) return;
+	if (text.empty()) return;
+	BRDText t;
+	t.pos = {static_cast<int>(x), static_cast<int>(y)};
+	t.text = text;
+	t.side = xjsonfile::LayerMapper::castSide(static_cast<xjsonfile::PCB_LAYER_ID>(layer));
+	texts.push_back(t);
 }
 
 void XZZPCBFile::parse_part_block(std::vector<char> &encrypted_buf) {
@@ -361,64 +464,122 @@ void XZZPCBFile::parse_part_block(std::vector<char> &encrypted_buf) {
 	uint32_t current_pointer = 0;
 	uint32_t part_size       = read_uint32_t(buf, current_pointer, error_msg);
 	current_pointer += 4;
-	current_pointer += 18;
-	uint32_t part_group_name_size = read_uint32_t(buf, current_pointer, error_msg);
+	if (!error_msg.empty()) {
+		return;
+	}
+	if (current_pointer + 18 > buf.size()) {
+		SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "XZZPCBFile: short part header");
+		return;
+	}
+	uint32_t layer = read_uint32_t(buf, current_pointer, error_msg);
 	current_pointer += 4;
-	current_pointer += part_group_name_size;
-
-	// So far 0x06 sub blocks have been first always
-	// Also contains part name so needed before pins
-	ENSURE_OR_FAIL(current_pointer < buf.size(), error_msg, return);
-	ENSURE_OR_FAIL(buf[current_pointer] == 0x06, error_msg, return);
-
-	current_pointer += 31;
-	uint32_t part_name_size = read_uint32_t(buf, current_pointer, error_msg);
+	uint32_t x     = read_uint32_t(buf, current_pointer, error_msg);
 	current_pointer += 4;
-	if (!error_msg.empty()) { // Check if one of read_uint32_t() failed
+	uint32_t y     = read_uint32_t(buf, current_pointer, error_msg);
+	current_pointer += 4;
+	current_pointer += 4; // angle unused (BRDPart has no angle)
+	if (!error_msg.empty()) {
+		error_msg.clear();
+		SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "XZZPCBFile: short part header");
+		return;
+	}
+	std::string fpid;
+	if (!read_named_string(buf, current_pointer, fpid, error_msg)) {
+		SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "XZZPCBFile: part FPID unreadable");
 		return;
 	}
 
-	ENSURE_OR_FAIL(buf.size() >= current_pointer + part_name_size, error_msg, return);
-	std::string part_name(buf.begin() + current_pointer, buf.begin() + current_pointer + part_name_size);
-	current_pointer += part_name_size;
-
-	part.name          = strdup(part_name.c_str());
-	part.mounting_side = BRDPartMountingSide::Top;
+	part.mounting_side = xjsonfile::LayerMapper::castSide(static_cast<xjsonfile::PCB_LAYER_ID>(layer));
 	part.part_type     = BRDPartType::SMD;
+	part.name          = fpid;
+	(void)x;
+	(void)y;
+	bool named_from_text = false;
 
-	ENSURE_OR_FAIL(buf.size() >= part_size + 4, error_msg, return);
-	while (current_pointer < part_size + 4) {
-		uint8_t sub_type_identifier = buf[current_pointer];
+	const uint32_t part_end = part_size + 4;
+	ENSURE_OR_FAIL(buf.size() >= part_end, error_msg, return);
+
+	auto push_unique = [](std::vector<BRDPoint> &pts, BRDPoint p) {
+		if (std::find(pts.begin(), pts.end(), p) == pts.end()) {
+			pts.push_back(p);
+		}
+	};
+
+	while (current_pointer < part_end) {
+		uint8_t sub = static_cast<uint8_t>(buf[current_pointer]);
+		if (sub == 0x00) {
+			current_pointer += 1;
+			continue;
+		}
+		if (sub == 0x09) {
+			current_pointer += 1;
+			auto pin = parse_pin_block(buf, current_pointer);
+			if (!error_msg.empty()) {
+				error_msg.clear();
+				break;
+			}
+			if (pin.name.empty() && pin.size.x == 0 && pin.size.y == 0) {
+				continue;
+			}
+			pin.part = static_cast<unsigned int>(parts.size() + 1);
+			pins.push_back(pin);
+			continue;
+		}
 		current_pointer += 1;
-
-		switch (sub_type_identifier) {
-			case 0x01: // Currently unsure what this is
-			case 0x05: // Line Segment, Not currently relevant for BRDPin
-			case 0x06: // Labels/Part Names, Not currently relevant for BRDPin
-				current_pointer += read_uint32_t(buf, current_pointer, error_msg) + 4; // Skip the block
-				if (!error_msg.empty()) { // Check if read_uint32_t() failed
-					return;
+		uint32_t sub_size = read_uint32_t(buf, current_pointer, error_msg);
+		current_pointer += 4;
+		if (!error_msg.empty()) {
+			error_msg.clear();
+			break;
+		}
+		if (current_pointer + sub_size > buf.size()) {
+			SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "XZZPCBFile: short part sub-block 0x%02X", sub);
+			break;
+		}
+		std::vector<char> sub_buf(buf.begin() + current_pointer, buf.begin() + current_pointer + sub_size);
+		current_pointer += sub_size;
+		switch (sub) {
+			case 0x06: {
+				const auto texts_before = texts.size();
+				parse_text_block(sub_buf);
+				if (!named_from_text && texts.size() > texts_before && !texts.back().text.empty()) {
+					part.name = texts.back().text;
+					named_from_text = true;
 				}
 				break;
-			case 0x09: { // Pins
-				auto pin = parse_pin_block(buf, current_pointer);
-				if (!error_msg.empty()) { // Check if parse_pin() failed
-					return;
+			}
+			case 0x05: {
+				if (sub_buf.size() >= 20) {
+					uint32_t x1 = read_uint32_t(sub_buf, 4, error_msg);
+					uint32_t y1 = read_uint32_t(sub_buf, 8, error_msg);
+					uint32_t x2 = read_uint32_t(sub_buf, 12, error_msg);
+					uint32_t y2 = read_uint32_t(sub_buf, 16, error_msg);
+					if (!error_msg.empty()) {
+						error_msg.clear();
+						break;
+					}
+					push_unique(part.format, {static_cast<int>(x1), static_cast<int>(y1)});
+					push_unique(part.format, {static_cast<int>(x2), static_cast<int>(y2)});
 				}
-				pin.part = parts.size() + 1;
-				pins.push_back(pin);
 				break;
 			}
 			default:
-				if (sub_type_identifier != 0x00) {
-					SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "XZZPCBFile: Unknown sub block type: 0x%02X at %d in %s",
-							sub_type_identifier, current_pointer, part_name.c_str());
-				}
+				SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "XZZPCBFile: Unknown sub block type: 0x%02X in %s",
+				            sub, part.name.c_str());
 				break;
 		}
 	}
 
-	part.end_of_pins = pins.size();
+	if (!part.format.empty()) {
+		std::ranges::sort(part.format, [](auto &l, auto &r) {
+			return (((int64_t)l.x << 32) | (uint32_t)l.y) < (((int64_t)r.x << 32) | (uint32_t)r.y);
+		});
+		auto iter = std::unique(part.format.begin(), part.format.end());
+		part.format.erase(iter, part.format.end());
+		if (part.format.size() >= 2) std::swap(part.format[0], part.format[1]);
+	}
+
+	part.end_of_pins = static_cast<unsigned int>(pins.size());
 	parts.push_back(part);
 }
 
@@ -436,16 +597,24 @@ void XZZPCBFile::parse_test_pad_block(const std::vector<char> &buf) {
 	current_pointer += 8; // inner_diameter + unknown1
 	uint32_t name_length = read_uint32_t(buf, current_pointer, error_msg);
 	current_pointer += 4;
-	if (!error_msg.empty()) { // Check if one of read_uint32_t() failed
+	if (!error_msg.empty()) {
+		error_msg.clear();
+		SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "XZZPCBFile: short test pad block");
 		return;
 	}
 
-	ENSURE_OR_FAIL(buf.size() >= current_pointer + name_length, error_msg, return);
+	if (buf.size() < current_pointer + name_length) {
+		error_msg.clear();
+		SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "XZZPCBFile: short test pad block");
+		return;
+	}
 	std::string name(buf.begin() + current_pointer, buf.begin() + current_pointer + name_length);
 	current_pointer += name_length;
 	current_pointer    = buf.size() - 4;
 	uint32_t net_index = read_uint32_t(buf, current_pointer, error_msg);
-	if (!error_msg.empty()) { // Check if one of read_uint32_t() failed
+	if (!error_msg.empty()) {
+		error_msg.clear();
+		SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "XZZPCBFile: short test pad block");
 		return;
 	}
 
@@ -455,20 +624,11 @@ void XZZPCBFile::parse_test_pad_block(const std::vector<char> &buf) {
 
 	pin.snum  = strdup(name.c_str());
 	pin.side  = BRDPinSide::Top;
-	pin.pos.x = x_origin / XZZ_GLOBAL_SCALE;
-	pin.pos.y = y_origin / XZZ_GLOBAL_SCALE;
-	if (net_dict.find(net_index) != net_dict.end()) {
-		if (net_dict[net_index] == "UNCONNECTED" || net_dict[net_index] == "NC") {
-			pin.net = ""; // As the part already gets the kPinTypeTestPad type if "UNCONNECTED" is used type will be changed
-			              // to kPinTypeNotConnected
-		} else {
-			pin.net = strdup(net_dict[net_index].c_str());
-		}
-	} else {
-		pin.net = ""; // As the part already gets the kPinTypeTestPad type if "UNCONNECTED" is used type will be changed to
-		              // kPinTypeNotConnected
-	}
+	pin.pos.x = static_cast<int>(x_origin);
+	pin.pos.y = static_cast<int>(y_origin);
+	apply_net(pin.net, pin.netId, net_index);
 	pin.part = parts.size() + 1;
+	pin.radius = 7.0 * XZZ_GLOBAL_SCALE;
 	pins.push_back(pin);
 	part.end_of_pins = pins.size();
 	parts.push_back(part);
@@ -485,41 +645,27 @@ void XZZPCBFile::parse_net_block(const std::vector<char> &buf) {
 			return;
 		}
 
-		ENSURE_OR_FAIL(buf.size() >= current_pointer + net_size - 8, error_msg, return);
-		std::string net_name(buf.begin() + current_pointer, buf.begin() + current_pointer + net_size - 8);
-		current_pointer += net_size - 8;
+		ENSURE_OR_FAIL(net_size >= 8, error_msg, return);
+		const size_t name_len = static_cast<size_t>(net_size) - 8;
+		ENSURE_OR_FAIL(buf.size() >= current_pointer + name_len, error_msg, return);
+		std::string net_name(buf.begin() + current_pointer, buf.begin() + current_pointer + name_len);
+		current_pointer += static_cast<uint32_t>(name_len);
 
 		net_dict[net_index] = net_name;
+
+		BRDNet n;
+		n.id = static_cast<int>(net_index);
+		n.name = net_name;
+		nets[static_cast<int>(net_index)] = n;
 	}
 }
 
-// Translation and mirroring functions
-BRDPoint XZZPCBFile::find_xy_translation() const {
-	// Assuming line segments encompass all parts
-	// Find the min and max x and y values
-	BRDPoint xy_translation{0, 0};
-
-	if (outline_segments.empty()) {
-		return xy_translation;
-	}
-	xy_translation.x = outline_segments[0].first.x;
-	xy_translation.y = outline_segments[0].first.y;
-	for (auto &segment : outline_segments) {
-		xy_translation.x = std::min({xy_translation.x, segment.first.x, segment.second.x});
-		xy_translation.y = std::min({xy_translation.y, segment.first.y, segment.second.y});
-	}
-	return xy_translation;
-}
-
-void XZZPCBFile::translate_segments(const BRDPoint &xy_translation) {
-	for (auto &segment : outline_segments) {
-		segment.first -= xy_translation;
-		segment.second -= xy_translation;
-	}
-}
-
-void XZZPCBFile::translate_pins(const BRDPoint &xy_translation) {
-	for (auto &pin : pins) {
-		pin.pos -= xy_translation;
+void XZZPCBFile::apply_net(std::string &net, int &netId, uint32_t net_index) {
+	netId = static_cast<int>(net_index);
+	auto it = net_dict.find(net_index);
+	if (it == net_dict.end() || it->second == "NC") {
+		net = "UNCONNECTED";
+	} else {
+		net = it->second;
 	}
 }
