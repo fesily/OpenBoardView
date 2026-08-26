@@ -185,13 +185,19 @@ endif()
 if(MSVC OR ANDROID)
 target_include_directories(imgui PRIVATE ${SDL2_INCLUDE_DIRS})
 endif()
-if(MINGW)
+if(MINGW OR MSVC OR ANDROID)
 target_link_libraries(imgui
 	SDL2::SDL2-static
 )
 else()
 target_link_libraries(imgui
 	SDL2::SDL2
+)
+endif()
+if(WIN32)
+find_package(OpenGL REQUIRED)
+target_link_libraries(imgui
+	OpenGL::GL
 )
 endif()
 

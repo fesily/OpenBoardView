@@ -2659,73 +2659,74 @@ void BoardView::DrawHex(ImDrawList *draw, ImVec2 c, double r, uint32_t color) {
 
 void BoardView::DrawOutlineSegments(ImDrawList *draw) {
 	const auto &segments = m_board->OutlineSegments();
-
 	draw->ChannelsSetCurrent(kChannelPolylines);
-
 	for (auto &segment: segments) {
 		ImVec2 spa = CoordToScreen(segment.first.x, segment.first.y);
 		ImVec2 spb = CoordToScreen(segment.second.x, segment.second.y);
-
-		/*
-		 * If we have a pin selected, we mask off the colour to shade out
-		 * things and make it easier to see associated pins/points
-		 */
+		uint32_t col;
 		if ((config.pinSelectMasks) && (m_pinSelected || m_pinHighlighted.size())) {
-			draw->AddLine(spa, spb, (m_colors.boardOutlineColor & m_colors.selectedMaskOutline) | m_colors.orMaskOutline);
+			col = (m_colors.boardOutlineColor & m_colors.selectedMaskOutline) | m_colors.orMaskOutline;
 		} else {
-			draw->AddLine(spa, spb, m_colors.boardOutlineColor);
+			col = m_colors.boardOutlineColor;
 		}
+		draw->AddLine(spa, spb, col);
+		draw->AddCircleFilled(spa, 0.6f, col, 6);
+		draw->AddCircleFilled(spb, 0.6f, col, 6);
 	}
 }
 
 void BoardView::DrawOutlinePoints(ImDrawList *draw) {
+	auto &outline = m_board->OutlinePoints();
+	if (outline.size() < 2) return;
+	draw->ChannelsSetCurrent(kChannelPolylines);
+	uint32_t col;
+	if ((config.pinSelectMasks) && (m_pinSelected || m_pinHighlighted.size())) {
+		col = (m_colors.boardOutlineColor & m_colors.selectedMaskOutline) | m_colors.orMaskOutline;
+	} else {
+		col = m_colors.boardOutlineColor;
+	}
 	int jump = 1;
 	Point fp;
-
-	auto &outline = m_board->OutlinePoints();
-	if (outline.size() < 1) { // Nothing to draw
-		return;
-	}
-
-	draw->ChannelsSetCurrent(kChannelPolylines);
-
-	// set our initial draw point, so we can detect when we encounter it again
 	fp = *outline[0];
-
-	draw->PathClear();
+	std::vector<ImVec2> strip;
+	strip.reserve(outline.size());
+	auto flush_strip = [&]() {
+		if (strip.size() >= 2) {
+			draw->AddPolyline(strip.data(), (int)strip.size(), col, ImDrawFlags_None, 1.0f);
+			for (auto &p : strip) draw->AddCircleFilled(p, 0.6f, col, 6);
+		} else if (strip.size() == 1) {
+			draw->AddCircleFilled(strip[0], 0.6f, col, 6);
+		}
+		strip.clear();
+	};
 	for (size_t i = 0; i < outline.size() - 1; i++) {
 		Point &pa = *outline[i];
 		Point &pb = *outline[i + 1];
-
-		// jump double/dud points
 		if (pa.x == pb.x && pa.y == pb.y) continue;
-
-		// if we encounter our hull/poly start point, then we've now created the
-		// closed
-		// hull, jump the next segment and reset the first-point
 		if ((!jump) && (fp.x == pb.x) && (fp.y == pb.y)) {
+			if (strip.empty()) strip.push_back(CoordToScreen(pa.x, pa.y));
+			else if (strip.back().x != CoordToScreen(pa.x, pa.y).x || strip.back().y != CoordToScreen(pa.x, pa.y).y)
+				strip.push_back(CoordToScreen(pa.x, pa.y));
+			strip.push_back(CoordToScreen(pb.x, pb.y));
+			flush_strip();
 			if (i < outline.size() - 2) {
-				fp   = *outline[i + 2];
+				fp = *outline[i + 2];
 				jump = 1;
 				i++;
 			}
 		} else {
 			jump = 0;
+			if (strip.empty()) strip.push_back(CoordToScreen(pa.x, pa.y));
+			else {
+				ImVec2 cur = CoordToScreen(pa.x, pa.y);
+				if (strip.back().x != cur.x || strip.back().y != cur.y) strip.push_back(cur);
+			}
+			if (i == outline.size() - 2) {
+				strip.push_back(CoordToScreen(pb.x, pb.y));
+			}
 		}
-
-		ImVec2 spa = CoordToScreen(pa.x, pa.y);
-		ImVec2 spb = CoordToScreen(pb.x, pb.y);
-
-		/*
-		 * If we have a pin selected, we mask off the colour to shade out
-		 * things and make it easier to see associated pins/points
-		 */
-		if ((config.pinSelectMasks) && (m_pinSelected || m_pinHighlighted.size())) {
-			draw->AddLine(spa, spb, (m_colors.boardOutlineColor & m_colors.selectedMaskOutline) | m_colors.orMaskOutline);
-		} else {
-			draw->AddLine(spa, spb, m_colors.boardOutlineColor);
-		}
-	} // for
+	}
+	flush_strip();
 }
 
 void BoardView::DrawOutline(ImDrawList *draw) {
@@ -3557,9 +3558,20 @@ inline void BoardView::DrawTracks(ImDrawList *draw) {
 		auto radius = track->width * m_scale;
 		if ((m_pinSelected && m_pinSelected->net == track->net) || (m_viaSelected && m_viaSelected->net == track->net)) {
 			color      = m_colors.layerColor[track->board_side][1];
-			draw->AddLine(pos_start, pos_end, m_colors.defaultBoardSelectColor, radius*2);
+			float hl_radius = radius * 2.0f;
+			float hl_r = hl_radius * 0.5f;
+			draw->AddLine(pos_start, pos_end, m_colors.defaultBoardSelectColor, hl_radius);
+			if (hl_r >= 0.5f) {
+				draw->AddCircleFilled(pos_start, hl_r, m_colors.defaultBoardSelectColor, 12);
+				draw->AddCircleFilled(pos_end, hl_r, m_colors.defaultBoardSelectColor, 12);
+			}
 		}
 		draw->AddLine(pos_start, pos_end, color, radius);
+		if (radius > 1.0f) {
+			float r = radius * 0.5f;
+			draw->AddCircleFilled(pos_start, r, color, 12);
+			draw->AddCircleFilled(pos_end, r, color, 12);
+		}
 	}
 }
 
