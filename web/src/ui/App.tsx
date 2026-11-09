@@ -18,6 +18,7 @@ import type {
 } from '../types/board';
 import InfoPane from './InfoPane';
 import OperatingConditionsPane from './OperatingConditionsPane';
+import PartPinsPane from './PartPinsPane';
 import SearchBox, { type SearchSelection } from './SearchBox';
 
 type HealthState =
@@ -35,6 +36,8 @@ export default function App() {
   const [boardError, setBoardError] = useState<string | null>(null);
   const [boardLoading, setBoardLoading] = useState(false);
   const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
+  /** Click-selected part; also set to the part of the selected pin. */
+  const [selectedPart, setSelectedPart] = useState<string | null>(null);
   const [searchSel, setSearchSel] = useState<SearchSelection | null>(null);
   const [overlay, setOverlay] = useState<OverlayDocument | null>(null);
   const [overlayLoading, setOverlayLoading] = useState(false);
@@ -44,8 +47,28 @@ export default function App() {
   const [rightOpen, setRightOpen] = useState(true);
   const openBoardGen = useRef(0);
 
+  const onSelectPin = useCallback((pin: Pin | null) => {
+    setSelectedPin(pin);
+    setSelectedPart(pin?.component ?? null);
+  }, []);
+
+  const onSelectPart = useCallback((partName: string | null) => {
+    setSelectedPart(partName);
+    setSelectedPin(null);
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedPart(null);
+    setSelectedPin(null);
+  }, []);
+
   const onSearchSelection = useCallback((sel: SearchSelection) => {
     setSearchSel(sel);
+    // Only an explicit part hit adopts the selection; typing just highlights.
+    if (sel.picked?.kind === 'part') {
+      setSelectedPart(sel.picked.name);
+      setSelectedPin(null);
+    }
   }, []);
 
   const refreshBoards = useCallback(async () => {
@@ -112,6 +135,7 @@ export default function App() {
       const gen = ++openBoardGen.current;
       setSelectedId(id);
       setSelectedPin(null);
+      setSelectedPart(null);
       setSearchSel(null);
       setOverlay(null);
       setOverlayError(null);
@@ -343,7 +367,9 @@ export default function App() {
             <BoardCanvas
               board={board}
               selectedPinId={selectedPin?.id ?? null}
-              onSelectPin={setSelectedPin}
+              selectedPartName={selectedPart}
+              onSelectPin={onSelectPin}
+              onSelectPart={onSelectPart}
               highlightPartNames={searchSel?.highlight.partNames}
               highlightPinIds={searchSel?.highlight.pinIds}
               highlightNetIds={searchSel?.highlight.netIds}
@@ -406,6 +432,14 @@ export default function App() {
                     onSelectionChange={onSearchSelection}
                   />
                 </div>
+                <PartPinsPane
+                  board={board}
+                  overlay={overlay}
+                  partName={selectedPart}
+                  selectedPin={selectedPin}
+                  onSelectPin={onSelectPin}
+                  onClear={clearSelection}
+                />
                 <OperatingConditionsPane
                   boardId={board.boardId}
                   selectedPin={selectedPin}

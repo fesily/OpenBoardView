@@ -1,4 +1,4 @@
-import type { BoardDocument, Pin } from '../types/board';
+import type { BoardDocument, Component, Pin } from '../types/board';
 import { isNonSelectablePin, netByIdMap } from './netKinds';
 import { screenToBoard, type ViewState } from './transform';
 
@@ -55,5 +55,46 @@ export function hitTestNearestPin(
       best = pin;
     }
   }
+  return best;
+}
+
+/**
+ * Topmost component hull containing the screen point.
+ * Port of desktop BoardView hull pick (ray casting); parts not on the visible
+ * side and `board` / `dummy` pseudo-parts are skipped. Later components win
+ * because drawParts paints in array order (last drawn = on top).
+ */
+export function hitTestComponent(
+  board: BoardDocument,
+  view: ViewState,
+  sx: number,
+  sy: number,
+  cssW: number,
+  cssH: number,
+): Component | null {
+  const pos = screenToBoard(view, sx, sy, cssW, cssH);
+  let best: Component | null = null;
+
+  for (const part of board.components ?? []) {
+    if (!sideVisible(part.side, view.side)) continue;
+    const type = (part.type || '').toLowerCase();
+    if (type === 'board' || type === 'dummy') continue;
+    const poly = part.outline;
+    if (!poly || poly.length < 3) continue;
+
+    let inside = false;
+    for (let a = 0, b = poly.length - 1; a < poly.length; b = a++) {
+      if (
+        (poly[a].y > pos.y) !== (poly[b].y > pos.y) &&
+        pos.x <
+          ((poly[b].x - poly[a].x) * (pos.y - poly[a].y)) / (poly[b].y - poly[a].y) +
+            poly[a].x
+      ) {
+        inside = !inside;
+      }
+    }
+    if (inside) best = part;
+  }
+
   return best;
 }

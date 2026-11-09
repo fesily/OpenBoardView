@@ -17,6 +17,8 @@ export interface SearchSelection {
   focus: { x: number; y: number } | null;
   /** Bumps when user clicks a result so canvas can re-center even on same point. */
   focusToken: number;
+  /** Explicit result click (part hit adopts the part selection); null while typing. */
+  picked: { kind: 'part' | 'net'; name: string } | null;
 }
 
 export interface SearchBoxProps {
@@ -45,7 +47,7 @@ export default function SearchBox({ board, overlay = null, onSelectionChange }: 
   // Typing / mode / toggles → live highlight all current hits (no forced center).
   useEffect(() => {
     const highlight = highlightFromMatches(board, partHits, netHits);
-    onSelectionChange({ highlight, focus: null, focusToken: 0 });
+    onSelectionChange({ highlight, focus: null, focusToken: 0, picked: null });
   }, [board, partHits, netHits, onSelectionChange]);
 
   const onPick = (kind: 'part' | 'net', name: string) => {
@@ -55,7 +57,7 @@ export default function SearchBox({ board, overlay = null, onSelectionChange }: 
     const focus = focusPointForResult(board, kind, name);
     const token = focusToken + 1;
     setFocusToken(token);
-    onSelectionChange({ highlight, focus, focusToken: token });
+    onSelectionChange({ highlight, focus, focusToken: token, picked: { kind, name } });
   };
 
   const empty = !query.trim();

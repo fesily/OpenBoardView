@@ -10,7 +10,7 @@ import {
 } from 'react';
 import type { BoardDocument, OverlayAnnotation, OverlayDocument, Pin } from '../types/board';
 import { collectCopperLayers, drawBoard, LAYER_COPPER } from './draw';
-import { hitTestNearestPin } from './hitTest';
+import { hitTestComponent, hitTestNearestPin } from './hitTest';
 import { isNonSelectablePin, netByIdMap } from './netKinds';
 import { netDisplayName } from './netDisplay';
 
@@ -35,7 +35,11 @@ import {
 export interface BoardCanvasProps {
   board: BoardDocument;
   onSelectPin?: (pin: Pin | null) => void;
+  /** Hull click: part name, or null when the click missed everything. */
+  onSelectPart?: (partName: string | null) => void;
   selectedPinId?: string | null;
+  /** Click-selected part (also set for the part of the selected pin). */
+  selectedPartName?: string | null;
   /** Search / selection highlight sets (parts + pins + nets). */
   highlightPartNames?: ReadonlySet<string>;
   highlightPinIds?: ReadonlySet<string>;
@@ -63,7 +67,9 @@ export interface BoardCanvasProps {
 export default function BoardCanvas({
   board,
   onSelectPin,
+  onSelectPart,
   selectedPinId = null,
+  selectedPartName = null,
   highlightPartNames,
   highlightPinIds,
   highlightNetIds,
@@ -261,12 +267,18 @@ export default function BoardCanvas({
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const partNames = new Set<string>(highlightPartNames ?? []);
+    const selectedPartNames = new Set<string>();
+    if (selectedPartName) selectedPartNames.add(selectedPartName);
     const pinIds = new Set<string>(highlightPinIds ?? []);
     let selectedNetId: number | null = null;
     if (selectedPinId) {
       pinIds.add(selectedPinId);
       const sel = board.pins.find((p) => p.id === selectedPinId);
-      if (sel?.component) partNames.add(sel.component);
+      if (sel?.component) {
+        // Pre-existing pin-selection behavior: force labels/outline for the part.
+        partNames.add(sel.component);
+        selectedPartNames.add(sel.component);
+      }
       // Desktop: same-net highlight for selectable nets only.
       // GND and true NC (pin.type not_connected): no net web / same-net expand.
       if (sel?.netId != null) {
@@ -294,6 +306,7 @@ export default function BoardCanvas({
         selectedNetId,
         highlightNetIds: highlightNetIds?.size ? highlightNetIds : undefined,
         partNames: partNames.size ? partNames : undefined,
+        selectedPartNames: selectedPartNames.size ? selectedPartNames : undefined,
         pinIds: pinIds.size ? pinIds : undefined,
       },
       undefined,
@@ -308,6 +321,7 @@ export default function BoardCanvas({
     size.w,
     size.h,
     selectedPinId,
+    selectedPartName,
     highlightPartNames,
     highlightPinIds,
     highlightNetIds,
@@ -489,7 +503,13 @@ export default function BoardCanvas({
     // Selection still skips GND/GROUND/UNCONNECTED.
     const pin = hitTestNearestPin(board, v, x, y, size.w, size.h);
     setHoverPin(null);
-    onSelectPin?.(pin);
+    if (pin) {
+      onSelectPin?.(pin);
+      return;
+    }
+    // No pin under the cursor: fall back to the part hull, else clear.
+    const part = hitTestComponent(board, v, x, y, size.w, size.h);
+    onSelectPart?.(part?.name ?? null);
   };
 
   const onPointerLeave = () => {

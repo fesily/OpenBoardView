@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'vitest';
-import type { BoardDocument, Net, Pin } from '../types/board';
-import { DEFAULT_PIN_RADIUS, hitTestNearestPin, pinPickRadius } from './hitTest';
-import { centerOnBounds, type ViewState } from './transform';
+import type { BoardDocument, Component, Net, Pin, Point } from '../types/board';
+import {
+  DEFAULT_PIN_RADIUS,
+  hitTestComponent,
+  hitTestNearestPin,
+  pinPickRadius,
+} from './hitTest';
+import { boardToScreen, centerOnBounds, type ViewState } from './transform';
 
 function makePin(partial: Partial<Pin> & Pick<Pin, 'id' | 'pos' | 'diameter'>): Pin {
   return {
@@ -17,14 +22,37 @@ function makePin(partial: Partial<Pin> & Pick<Pin, 'id' | 'pos' | 'diameter'>): 
   };
 }
 
-function boardWith(pins: Pin[], nets?: Net[]): BoardDocument {
+function makeComponent(
+  partial: Partial<Component> & Pick<Component, 'name' | 'outline'>,
+): Component {
+  return {
+    side: 'top',
+    mount: 'smd',
+    type: 'ic',
+    mfgcode: '',
+    center: { x: 0, y: 0 },
+    pins: [],
+    ...partial,
+  };
+}
+
+function square(half: number, center: Point = { x: 0, y: 0 }): Point[] {
+  return [
+    { x: center.x - half, y: center.y - half },
+    { x: center.x + half, y: center.y - half },
+    { x: center.x + half, y: center.y + half },
+    { x: center.x - half, y: center.y + half },
+  ];
+}
+
+function boardWith(pins: Pin[], nets?: Net[], components: Component[] = []): BoardDocument {
   return {
     boardSchemaVersion: 1,
     boardId: 'test',
     sourceName: 't',
     sides: ['top', 'bottom'],
     outline: { points: [], segments: [] },
-    components: [],
+    components,
     nets: nets ?? [{ id: 1, name: 'NET1', isGround: false }],
     pins,
     tracks: [],
@@ -109,5 +137,59 @@ describe('hitTestNearestPin', () => {
       nets,
     );
     expect(hitTestNearestPin(bucket, view, 100, 100, 200, 200)).toBeNull();
+  });
+});
+
+describe('hitTestComponent', () => {
+  const view: ViewState = centerOnBounds({ minX: -50, minY: -50, maxX: 50, maxY: 50 }, 200, 200);
+  const at = (x: number, y: number) => boardToScreen(view, x, y, 200, 200);
+
+  test('returns the part whose outline contains the point, null outside', () => {
+    const comp = makeComponent({ name: 'U1', outline: square(10) });
+    const board = boardWith([], undefined, [comp]);
+    const inside = at(0, 0);
+    const outside = at(20, 0);
+    expect(hitTestComponent(board, view, inside.x, inside.y, 200, 200)?.name).toBe('U1');
+    expect(hitTestComponent(board, view, outside.x, outside.y, 200, 200)).toBeNull();
+  });
+
+  test('skips parts on the other board side', () => {
+    const bottom = makeComponent({ name: 'U2', side: 'bottom', outline: square(10) });
+    const board = boardWith([], undefined, [bottom]);
+    const p = at(0, 0);
+    expect(hitTestComponent(board, view, p.x, p.y, 200, 200)).toBeNull();
+    const bottomView: ViewState = { ...view, side: 'bottom' };
+    expect(hitTestComponent(board, bottomView, p.x, p.y, 200, 200)?.name).toBe('U2');
+  });
+
+  test('skips board and dummy pseudo-parts', () => {
+    const boardPart = makeComponent({ name: 'BOARD', type: 'board', outline: square(10) });
+    const dummy = makeComponent({ name: 'TP1', type: 'dummy', outline: square(5) });
+    const board = boardWith([], undefined, [boardPart, dummy]);
+    const p = at(0, 0);
+    expect(hitTestComponent(board, view, p.x, p.y, 200, 200)).toBeNull();
+  });
+
+  test('overlapping hulls: later array entry (drawn on top) wins', () => {
+    const outer = makeComponent({ name: 'OUTER', outline: square(20) });
+    const inner = makeComponent({ name: 'INNER', outline: square(5) });
+    const board = boardWith([], undefined, [outer, inner]);
+    const p = at(0, 0);
+    expect(hitTestComponent(board, view, p.x, p.y, 200, 200)?.name).toBe('INNER');
+    const reversed = boardWith([], undefined, [inner, outer]);
+    expect(hitTestComponent(reversed, view, p.x, p.y, 200, 200)?.name).toBe('OUTER');
+  });
+
+  test('ignores outlines with fewer than 3 points', () => {
+    const line = makeComponent({
+      name: 'LINE',
+      outline: [
+        { x: -10, y: 0 },
+        { x: 10, y: 0 },
+      ],
+    });
+    const board = boardWith([], undefined, [line]);
+    const p = at(0, 0);
+    expect(hitTestComponent(board, view, p.x, p.y, 200, 200)).toBeNull();
   });
 });

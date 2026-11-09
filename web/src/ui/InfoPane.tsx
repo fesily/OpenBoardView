@@ -560,8 +560,8 @@ export default function InfoPane({
 
       {!selectedPin ? (
         <p className="muted">
-          Click a pin to inspect board + overlay fields. Right-click the canvas to add an
-          annotation at board coordinates.
+          Click a pin to inspect board + overlay fields, or click a part body to list its
+          pins. Right-click the canvas to add an annotation at board coordinates.
         </p>
       ) : (
         <div className="info-sections">

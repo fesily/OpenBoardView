@@ -1,7 +1,6 @@
 import type {
   Arc,
   BoardDocument,
-  Component,
   Net,
   OverlayAnnotation,
   OverlayDocument,
@@ -20,6 +19,8 @@ import { boardToScreen, type ViewState } from './transform';
 export interface DrawHighlight {
   pinIds?: ReadonlySet<string>;
   partNames?: ReadonlySet<string>;
+  /** Click-selected part(s): filled hull + highlighted label (pins untouched). */
+  selectedPartNames?: ReadonlySet<string>;
   selectedPinId?: string | null;
   /** Pin-selection same-net (desktop m_pinSelected). */
   selectedNetId?: number | null;
@@ -50,6 +51,8 @@ export interface DrawColors {
   /** Desktop pinA1PadColor — IC orientation marker (A1 / pin 1). */
   pinA1: string;
   partHighlight: string;
+  /** Translucent fill for a click-selected part hull. */
+  partSelectedFill: string;
   partText: string;
   pinText: string;
   pinTextDark: string;
@@ -85,6 +88,7 @@ export const DEFAULT_COLORS: DrawColors = {
   // Desktop pinA1PadColor 0xdd0000 — solid red for orientation pin.
   pinA1: '#dd0000',
   partHighlight: '#ffe082',
+  partSelectedFill: 'rgba(255, 224, 130, 0.18)',
   partText: '#d5dbe6',
   pinText: '#e8eaf0',
   pinTextDark: '#1a1d24',
@@ -252,7 +256,7 @@ export function drawBoard(
   drawPins(ctx, board, view, cssW, cssH, highlight, colors, overlay);
   drawNetWeb(ctx, board, view, cssW, cssH, highlight, colors);
   drawHighlights(ctx, board, view, cssW, cssH, highlight, colors);
-  drawPartLabels(ctx, board, view, cssW, cssH, colors);
+  drawPartLabels(ctx, board, view, cssW, cssH, highlight, colors);
   drawPinLabels(ctx, board, view, cssW, cssH, highlight, colors, overlay, pinValueMode);
   drawAnnotations(ctx, annotations, view, cssW, cssH, colors);
 
@@ -541,6 +545,7 @@ function drawParts(
     if (!outline || outline.length < 2) continue;
 
     const hi = highlight.partNames?.has(part.name) ?? false;
+    const selected = highlight.selectedPartNames?.has(part.name) ?? false;
     ctx.beginPath();
     for (let i = 0; i < outline.length; i++) {
       const s = boardToScreen(view, outline[i].x, outline[i].y, cssW, cssH);
@@ -548,10 +553,10 @@ function drawParts(
       else ctx.lineTo(s.x, s.y);
     }
     ctx.closePath();
-    ctx.fillStyle = colors.partFill;
+    ctx.fillStyle = selected ? colors.partSelectedFill : colors.partFill;
     ctx.fill();
-    ctx.strokeStyle = hi ? colors.partHighlight : colors.partOutline;
-    ctx.lineWidth = hi ? 2 : 1;
+    ctx.strokeStyle = hi || selected ? colors.partHighlight : colors.partOutline;
+    ctx.lineWidth = hi || selected ? 2 : 1;
     ctx.stroke();
   }
 }
@@ -771,22 +776,6 @@ function drawHighlights(
   ctx.strokeStyle = colors.pinSelected;
   ctx.lineWidth = 2;
   ctx.stroke();
-
-  if (pin.component) {
-    const part: Component | undefined = board.components.find((c) => c.name === pin.component);
-    if (part?.outline && part.outline.length >= 2 && sideVisible(part.side, view.side)) {
-      ctx.beginPath();
-      for (let i = 0; i < part.outline.length; i++) {
-        const p = boardToScreen(view, part.outline[i].x, part.outline[i].y, cssW, cssH);
-        if (i === 0) ctx.moveTo(p.x, p.y);
-        else ctx.lineTo(p.x, p.y);
-      }
-      ctx.closePath();
-      ctx.strokeStyle = colors.partHighlight;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
-  }
 }
 
 /**
@@ -800,6 +789,7 @@ function drawPartLabels(
   view: ViewState,
   cssW: number,
   cssH: number,
+  highlight: DrawHighlight,
   colors: DrawColors,
 ): void {
   const parts = board.components ?? [];
@@ -848,6 +838,9 @@ function drawPartLabels(
       tw = ctx.measureText(part.name).width;
       if (tw > bw * 1.2) continue;
     }
+    ctx.fillStyle = highlight.selectedPartNames?.has(part.name)
+      ? colors.partHighlight
+      : colors.partText;
     ctx.fillText(part.name, minX + bw / 2, minY + bh / 2);
   }
 }
